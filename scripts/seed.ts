@@ -503,9 +503,11 @@ async function seed(repos: Repos): Promise<void> {
     closesAt: daysFromNow(30),
     confirmationPageContent:
       "Thanks — your proposal is in. You'll get an email confirmation, and you can come back to edit it any time before submissions close.",
-    confirmationEmailSubject: "We received your talk proposal — {{title}}",
+    // Merge fields come from the shared vocabulary in
+    // src/domain/comms-templates.ts (MERGE_FIELDS).
+    confirmationEmailSubject: "We received your talk proposal — {{submissionTitle}}",
     confirmationEmailBody:
-      "Hi {{speakerName}},\n\nThanks for proposing \"{{title}}\" for AI Engineer Summit 2026. Our program committee reviews submissions by track, and you'll hear from us by 15 April.\n\nYou can edit your proposal any time before submissions close.\n\n— The AI Engineer Summit team",
+      'Hi {{speakerFirstName}},\n\nThanks for proposing "{{submissionTitle}}" for {{eventName}}. Our program committee reviews submissions by track, and you\'ll hear from us by 15 April.\n\nYou can edit your proposal any time before submissions close:\n\n{{portalUrl}}\n\n— The AI Engineer Summit team',
     isPublished: true,
   });
 

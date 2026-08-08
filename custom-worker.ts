@@ -27,6 +27,7 @@ export default {
   async scheduled(_event, env, ctx) {
     const repos = createD1Repos(env.DB);
     const sender = getEmailSender(env);
-    ctx.waitUntil(runReminderJob({ repos, sender }).then(() => undefined));
+    const appUrl = env.APP_URL ?? env.BETTER_AUTH_URL ?? "http://localhost:3000";
+    ctx.waitUntil(runReminderJob({ repos, sender, appUrl }).then(() => undefined));
   },
 } satisfies ExportedHandler<CloudflareEnv>;

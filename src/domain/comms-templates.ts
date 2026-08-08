@@ -1,0 +1,461 @@
+/**
+ * Built-in speaker email templates and the merge-field renderer behind them
+ * (spec.md §7 — "templated messages with merge fields").
+ *
+ * Pure TypeScript: no datastore imports, no I/O. src/domain/comms.ts
+ * assembles the merge data from repository reads and hands it here.
+ *
+ * Each template is written **once, as plain text**. `renderCommsTemplate`
+ * produces the text body verbatim and derives the HTML body from the same
+ * copy, so the two can never drift apart. Templating is deliberately tiny
+ * (decisions.md D-008 allows a library, but none is installed and none is
+ * warranted for `{{field}}` substitution plus one conditional form):
+ *
+ *   `{{field}}`                 — substitute, empty string when unset
+ *   `{{#field}}…{{/field}}`     — include only when the field is non-empty
+ *   `{{^field}}…{{/field}}`     — include only when the field is empty
+ *
+ * The conditional form exists for a real requirement rather than for
+ * generality: a calendar invite may go out before a room is assigned
+ * (spec.md §7), so the copy has to read well both with and without a room.
+ */
+import type { EmailKind } from "@/db/entities";
+
+// ---------------------------------------------------------------------------
+// Merge fields
+// ---------------------------------------------------------------------------
+
+/** Every placeholder the built-in copy may reference. Also the list an admin
+ * template editor should offer (a later wave). */
+export const MERGE_FIELDS = [
+  "speakerName",
+  "speakerFirstName",
+  "eventName",
+  "eventDates",
+  "eventLocation",
+  "eventTimezone",
+  "eventUrl",
+  "organizerName",
+  "organizerEmail",
+  "portalUrl",
+  "submissionTitle",
+  "decisionNote",
+  "changeRequest",
+  "changeDueDate",
+  "sessionTitle",
+  "sessionWhen",
+  "sessionRoom",
+  "sessionDuration",
+  "taskTitle",
+  "taskInstructions",
+  "taskDueDate",
+  "outstandingTasks",
+] as const;
+
+export type MergeField = (typeof MERGE_FIELDS)[number];
+export type MergeData = Partial<Record<MergeField, string>>;
+
+const MERGE_FIELD_SET = new Set<string>(MERGE_FIELDS);
+
+// ---------------------------------------------------------------------------
+// Renderer
+// ---------------------------------------------------------------------------
+
+const TAG_RE = /\{\{\s*(\w+)\s*\}\}/g;
+/** An inline section: `{{#room}} in {{room}}{{/room}}` inside a sentence. */
+const SECTION_RE = /\{\{([#^])\s*(\w+)\s*\}\}([\s\S]*?)\{\{\/\s*\2\s*\}\}/g;
+/**
+ * A section whose opening and closing tags each sit alone on their own line.
+ * Both tag *lines* (newline included) are consumed, so blank lines on either
+ * side of the block survive — which is what keeps paragraph breaks intact
+ * whether the section is kept or dropped. Mustache calls these "standalone"
+ * tags and treats them the same way; a naive strip that eats only the tag
+ * and leaves its newline silently welds two paragraphs together.
+ */
+const STANDALONE_SECTION_RE =
+  /^[ \t]*\{\{([#^])\s*(\w+)\s*\}\}[ \t]*\r?\n([\s\S]*?)^[ \t]*\{\{\/\s*\2\s*\}\}[ \t]*\r?\n/gm;
+
+function keep(kind: string, key: string, data: MergeData): boolean {
+  const present = Boolean(data[key as MergeField]?.trim());
+  return (kind === "#") === present;
+}
+
+function applySections(source: string, data: MergeData): string {
+  let current = source;
+  let previous = "";
+  // Loop so nested sections resolve outside-in.
+  while (current !== previous) {
+    previous = current;
+    current = current
+      .replace(STANDALONE_SECTION_RE, (_match, kind: string, key: string, inner: string) =>
+        keep(kind, key, data) ? inner : "",
+      )
+      .replace(SECTION_RE, (_match, kind: string, key: string, inner: string) =>
+        keep(kind, key, data) ? inner : "",
+      );
+  }
+  return current;
+}
+
+function substitute(source: string, data: MergeData): string {
+  return source.replace(TAG_RE, (_match, key: string) => data[key as MergeField] ?? "");
+}
+
+/** Trailing whitespace and runs of blank lines are an artifact of dropped
+ * conditional sections, not of the copy. */
+function tidy(text: string): string {
+  return text
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function renderText(source: string, data: MergeData): string {
+  return tidy(substitute(applySections(source, data), data));
+}
+
+/** Subjects are single-line: sections apply, newlines don't. */
+export function renderSubject(source: string, data: MergeData): string {
+  return substitute(applySections(source, data), data).replace(/\s+/g, " ").trim();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const URL_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)])/g;
+
+function autolink(escaped: string): string {
+  return escaped.replace(
+    URL_RE,
+    (url) => `<a href="${url}" style="color:#0f766e;text-decoration:underline">${url}</a>`,
+  );
+}
+
+const HTML_STYLES = {
+  wrapper:
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c1917;max-width:560px;margin:0 auto;padding:24px",
+  paragraph: "margin:0 0 16px",
+  list: "margin:0 0 16px;padding-left:20px",
+  item: "margin:0 0 6px",
+} as const;
+
+/**
+ * Turns the rendered plain-text body into a simple, email-client-safe HTML
+ * body: blank-line-separated blocks become paragraphs, `- ` blocks become
+ * lists, and bare URLs become links. Styling is inline because every mail
+ * client strips `<style>` blocks — this is the one place in the codebase
+ * that can't use the shared design tokens (decisions.md D-018).
+ */
+export function textToHtml(text: string): string {
+  const blocks = text.split(/\n{2,}/).map((block) => {
+    const lines = block.split("\n");
+    if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
+      const items = lines
+        .map(
+          (line) =>
+            `<li style="${HTML_STYLES.item}">${autolink(escapeHtml(line.replace(/^\s*[-*]\s+/, "")))}</li>`,
+        )
+        .join("");
+      return `<ul style="${HTML_STYLES.list}">${items}</ul>`;
+    }
+    const body = lines.map((line) => autolink(escapeHtml(line))).join("<br>");
+    return `<p style="${HTML_STYLES.paragraph}">${body}</p>`;
+  });
+  return `<div style="${HTML_STYLES.wrapper}">${blocks.join("")}</div>`;
+}
+
+export interface RenderedEmail {
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** Renders any `{subject, body}` pair — the built-in templates below, or a
+ * row from the `email_templates` table an organizer edited. */
+export function renderMessage(
+  source: { subject: string; body: string },
+  data: MergeData,
+): RenderedEmail {
+  const text = renderText(source.body, data);
+  return { subject: renderSubject(source.subject, data), text, html: textToHtml(text) };
+}
+
+/** Placeholders in `source` that `data` has no value for — a template editor
+ * would surface these as "this message will have gaps". */
+export function missingMergeFields(source: string, data: MergeData): MergeField[] {
+  const missing = new Set<MergeField>();
+  for (const match of source.matchAll(TAG_RE)) {
+    const key = match[1];
+    if (MERGE_FIELD_SET.has(key) && !data[key as MergeField]?.trim()) {
+      missing.add(key as MergeField);
+    }
+  }
+  return [...missing];
+}
+
+/** Merge fields referenced anywhere in a template's copy. */
+export function mergeFieldsUsed(source: string): MergeField[] {
+  const used = new Set<MergeField>();
+  for (const match of source.matchAll(/\{\{[#^/]?\s*(\w+)\s*\}\}/g)) {
+    if (MERGE_FIELD_SET.has(match[1])) used.add(match[1] as MergeField);
+  }
+  return [...used];
+}
+
+// ---------------------------------------------------------------------------
+// The built-in templates
+// ---------------------------------------------------------------------------
+
+export const COMMS_TEMPLATE_IDS = [
+  "submission_confirmation",
+  "submission_accepted",
+  "submission_waitlisted",
+  "submission_declined",
+  "change_request",
+  "task_reminder",
+  "calendar_invite",
+] as const;
+
+export type CommsTemplateId = (typeof COMMS_TEMPLATE_IDS)[number];
+
+export interface CommsTemplate {
+  id: CommsTemplateId;
+  /** Shown in the admin communications UI. */
+  name: string;
+  description: string;
+  /** How the send is classified in `email_log`. */
+  kind: EmailKind;
+  subject: string;
+  body: string;
+  /** Derived from the copy at module load so the two never disagree. */
+  fields: MergeField[];
+}
+
+type TemplateSeed = Omit<CommsTemplate, "fields">;
+
+const SEEDS: TemplateSeed[] = [
+  {
+    id: "submission_confirmation",
+    name: "Submission received",
+    description: "Sent to the submitter the moment a proposal comes in through a public CFP form.",
+    kind: "submission_confirmation",
+    subject: "We've received your proposal — {{submissionTitle}}",
+    body: `Hi {{speakerFirstName}},
+
+Thanks for proposing "{{submissionTitle}}" for {{eventName}}. It's in, and it's in front of the right people.
+
+Here's what happens next. Our review committee reads every proposal in the tracks you selected, and we'll email you as soon as there's a decision — whichever way it goes.
+
+{{#changeDueDate}}
+You can keep editing your proposal until {{changeDueDate}}.
+
+{{/changeDueDate}}
+Review or update it any time from your speaker portal:
+
+{{portalUrl}}
+
+Thanks for offering to share your work with our audience.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "submission_accepted",
+    name: "Proposal accepted",
+    description: "Acceptance notice; pairs with the onboarding tasks created on acceptance.",
+    kind: "decision",
+    subject: "Your talk is in — {{eventName}}",
+    body: `Hi {{speakerFirstName}},
+
+Good news: "{{submissionTitle}}" has been accepted for {{eventName}}{{#eventDates}}, {{eventDates}}{{/eventDates}}{{#eventLocation}}, {{eventLocation}}{{/eventLocation}}. We'd love to have you on the program.
+
+{{#decisionNote}}
+A note from the review committee:
+
+{{decisionNote}}
+
+{{/decisionNote}}
+To confirm your place, sign in to your speaker portal and work through the checklist waiting for you there — it covers the bio, headshot, and session details we need before we can publish the schedule.
+
+{{portalUrl}}
+
+{{#outstandingTasks}}
+Still outstanding:
+
+{{outstandingTasks}}
+
+{{/outstandingTasks}}
+{{#sessionWhen}}
+Your session is currently slated for {{sessionWhen}}{{#sessionRoom}} in {{sessionRoom}}{{/sessionRoom}}. We'll send a calendar invitation, and an updated one if anything moves.
+
+{{/sessionWhen}}
+{{^sessionWhen}}
+We're still building the schedule. You'll get a calendar invitation as soon as your session has a slot.
+
+{{/sessionWhen}}
+Congratulations — and welcome to the lineup.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "submission_waitlisted",
+    name: "Proposal waitlisted",
+    description: 'For the "maybe" decision: a strong proposal held pending schedule space.',
+    kind: "decision",
+    subject: "An update on your {{eventName}} proposal",
+    body: `Hi {{speakerFirstName}},
+
+Thank you for proposing "{{submissionTitle}}" for {{eventName}}. The committee rated it highly, but we have more strong proposals than slots, so we're holding it on our shortlist while the schedule settles.
+
+{{#decisionNote}}
+A note from the review committee:
+
+{{decisionNote}}
+
+{{/decisionNote}}
+Practically, that means: nothing is required from you right now, and we'll come back to you with a yes or a no{{#changeDueDate}} by {{changeDueDate}}{{/changeDueDate}}. If your availability changes in the meantime, just reply to this email.
+
+We know a maybe is the least satisfying answer. Thank you for your patience with it.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "submission_declined",
+    name: "Proposal declined",
+    description: "Decline notice. Warm and specific; no false hope.",
+    kind: "decision",
+    subject: "An update on your {{eventName}} proposal",
+    body: `Hi {{speakerFirstName}},
+
+Thank you for proposing "{{submissionTitle}}" for {{eventName}}, and for the work that went into it.
+
+We weren't able to find a place for it on this year's program. That's a reflection of how much we received rather than of your proposal — the committee had to turn down talks it genuinely wanted to run.
+
+{{#decisionNote}}
+Feedback from the review committee:
+
+{{decisionNote}}
+
+{{/decisionNote}}
+We'd be glad to see you submit again next time{{#eventUrl}}, and you're very welcome to join us as an attendee: {{eventUrl}}{{/eventUrl}}.
+
+Thank you again for thinking of us.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "change_request",
+    name: "Change / missing information request",
+    description: "Asks the submitter to fix or supply something before review can continue.",
+    kind: "manual",
+    subject: 'A quick change needed on "{{submissionTitle}}"',
+    body: `Hi {{speakerFirstName}},
+
+We're reviewing "{{submissionTitle}}" for {{eventName}} and need one thing from you before we can go further:
+
+{{changeRequest}}
+
+You can make the change yourself in your speaker portal — everything stays editable:
+
+{{portalUrl}}
+
+{{#changeDueDate}}
+Please do it by {{changeDueDate}} so your proposal stays in this review round.
+
+{{/changeDueDate}}
+If anything is unclear, just reply to this email and we'll sort it out.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "task_reminder",
+    name: "Task / deadline reminder",
+    description: "Nudge for an outstanding onboarding task; sent by the reminder cron (D-013).",
+    kind: "task_reminder",
+    subject: "Reminder: {{taskTitle}}",
+    body: `Hi {{speakerFirstName}},
+
+One item on your {{eventName}} speaker checklist is still open:
+
+{{taskTitle}}{{#taskDueDate}} — due {{taskDueDate}}{{/taskDueDate}}
+
+{{#taskInstructions}}
+{{taskInstructions}}
+
+{{/taskInstructions}}
+It should take a couple of minutes:
+
+{{portalUrl}}
+
+{{#outstandingTasks}}
+While you're there, these are also still open:
+
+{{outstandingTasks}}
+
+{{/outstandingTasks}}
+If something is blocking you, reply and tell us — we'd rather know early.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "calendar_invite",
+    name: "Calendar invitation",
+    description:
+      "Cover note for the .ics invite (D-003). Reads correctly with or without a room assigned.",
+    kind: "calendar_invite",
+    subject: "Your session at {{eventName}}: {{sessionTitle}}",
+    body: `Hi {{speakerFirstName}},
+
+Here are the confirmed details for your session at {{eventName}}. A calendar invitation is attached — accept it and the session will land in your calendar{{#sessionRoom}}, room included{{/sessionRoom}}.
+
+{{sessionTitle}}
+{{sessionWhen}}{{#sessionDuration}} ({{sessionDuration}}){{/sessionDuration}}
+{{#sessionRoom}}
+Room: {{sessionRoom}}
+{{/sessionRoom}}
+{{^sessionRoom}}
+Room: to be confirmed — we'll send an updated invitation as soon as it's assigned, and it will replace this one rather than adding a second entry to your calendar.
+{{/sessionRoom}}
+{{#eventLocation}}
+Venue: {{eventLocation}}
+{{/eventLocation}}
+{{#eventTimezone}}
+All times are {{eventTimezone}}.
+{{/eventTimezone}}
+
+Everything else — your bio, headshot, and A/V details — lives in your speaker portal:
+
+{{portalUrl}}
+
+If this time doesn't work, reply and let us know as early as you can.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+];
+
+export const COMMS_TEMPLATES: Record<CommsTemplateId, CommsTemplate> = Object.fromEntries(
+  SEEDS.map((seed) => [
+    seed.id,
+    { ...seed, fields: mergeFieldsUsed(`${seed.subject}\n${seed.body}`) },
+  ]),
+) as Record<CommsTemplateId, CommsTemplate>;
+
+export function getCommsTemplate(id: CommsTemplateId): CommsTemplate {
+  return COMMS_TEMPLATES[id];
+}
+
+/** Renders one of the built-in templates. */
+export function renderCommsTemplate(id: CommsTemplateId, data: MergeData): RenderedEmail {
+  return renderMessage(COMMS_TEMPLATES[id], data);
+}

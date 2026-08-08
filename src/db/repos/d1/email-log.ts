@@ -1,7 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gte, type SQL } from "drizzle-orm";
 import { emailLogSchema, type NewEmailLog } from "@/db/entities";
 import { emailLog } from "@/db/schema";
-import type { EmailLogRepo } from "@/db/repos/email-log";
+import type { EmailLogFilter, EmailLogRepo } from "@/db/repos/email-log";
 import type { DrizzleD1 } from "./client";
 
 export function createEmailLogRepo(db: DrizzleD1): EmailLogRepo {
@@ -26,6 +26,23 @@ export function createEmailLogRepo(db: DrizzleD1): EmailLogRepo {
         limit,
       });
       return rows.map((r) => emailLogSchema.parse(r));
+    },
+    async count(filter: EmailLogFilter) {
+      const conditions: SQL[] = [];
+      if (filter.to !== undefined) conditions.push(eq(emailLog.to, filter.to));
+      if (filter.kind !== undefined) conditions.push(eq(emailLog.kind, filter.kind));
+      if (filter.relatedType !== undefined) {
+        conditions.push(eq(emailLog.relatedType, filter.relatedType));
+      }
+      if (filter.relatedId !== undefined) conditions.push(eq(emailLog.relatedId, filter.relatedId));
+      if (filter.status !== undefined) conditions.push(eq(emailLog.status, filter.status));
+      if (filter.sentSince !== undefined) conditions.push(gte(emailLog.sentAt, filter.sentSince));
+
+      const rows = await db
+        .select({ value: count() })
+        .from(emailLog)
+        .where(conditions.length ? and(...conditions) : undefined);
+      return rows[0]?.value ?? 0;
     },
     async create(input: NewEmailLog) {
       const [row] = await db.insert(emailLog).values(input).returning();

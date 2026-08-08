@@ -1,38 +1,173 @@
+/**
+ * The one email interface the whole app sends through (spec.md §7 —
+ * communications "must actually work, no stubs", decisions.md D-017).
+ *
+ * Two transports implement `EmailSender`:
+ *  - `createResendEmailSender` — production delivery via Resend (D-001).
+ *  - `createDevEmailSender` — development/verification: prints the complete
+ *    message (headers, both bodies, attachment names) to the console and
+ *    writes it to a gitignored folder so it can be opened and inspected.
+ *
+ * `createLoggingEmailSender` wraps either one so that every attempt lands in
+ * `email_log` through the storage-agnostic repository layer — that table is
+ * what backs the per-speaker communication log. It only ever sees the
+ * `EmailLogRepo` *interface*, never a D1/Drizzle type.
+ */
 import { Resend } from "resend";
+import type { EmailKind, EmailRelatedType } from "@/db/entities";
+import type { EmailLogRepo } from "@/db/repos/email-log";
 
-export interface SendEmailInput {
-  to: string;
-  subject: string;
-  html: string;
-  /** Standards-based calendar invite attachment (decisions.md D-003). */
-  icsAttachment?: { filename: string; content: string };
+// ---------------------------------------------------------------------------
+// Message shape
+// ---------------------------------------------------------------------------
+
+export interface EmailIdentity {
+  name: string;
+  email: string;
 }
 
-export interface EmailSender {
-  send(input: SendEmailInput): Promise<{ id: string }>;
+/** `Greenroom <hello@greenroom.dev>` — RFC 5322 mailbox form. */
+export function formatIdentity(identity: EmailIdentity): string {
+  return identity.name ? `${identity.name} <${identity.email}>` : identity.email;
+}
+
+export interface EmailAttachment {
+  filename: string;
+  /** UTF-8 text (we only ever attach text right now; R2 files are linked). */
+  content: string;
+  /** Full MIME type including parameters. */
+  contentType: string;
 }
 
 /**
- * Resend-backed sender for production. Requires RESEND_API_KEY (see
- * .env.example). Magic-link emails (better-auth), templated speaker
- * communications, and reminders (spec.md §3) all funnel through this.
+ * An iMIP calendar part (RFC 6047). Kept separate from `attachments` because
+ * transports must give it a `text/calendar; method=…` content type rather
+ * than deriving one from the filename — that content type is what makes
+ * Outlook treat the part as an invitation rather than a file
+ * (MS-STANOICAL §RFC6047 2.4).
  */
-export function createResendEmailSender(apiKey: string): EmailSender {
+export interface CalendarPart {
+  method: "REQUEST" | "CANCEL";
+  filename: string;
+  content: string;
+  contentType: string;
+}
+
+/** What the send is *about*, so it can be written to `email_log`. */
+export interface EmailLogContext {
+  kind: EmailKind;
+  relatedType?: EmailRelatedType | null;
+  relatedId?: string | null;
+}
+
+export interface EmailMessage {
+  to: string;
+  subject: string;
+  /** Plain-text body. Always supplied — never let a client fall back to a
+   * machine-stripped version of the HTML. */
+  text: string;
+  html: string;
+  replyTo?: string;
+  /**
+   * Extra headers. Never set `Content-Type` here: Resend builds the MIME
+   * structure itself and rejects a duplicate Content-Type header
+   * (resend-node#278); per-part types belong on `attachments`/`calendar`.
+   */
+  headers?: Record<string, string>;
+  attachments?: EmailAttachment[];
+  calendar?: CalendarPart;
+  log?: EmailLogContext;
+}
+
+export interface SentEmail {
+  id: string;
+  /** Dev transport only: files written for inspection. */
+  files?: string[];
+}
+
+export interface EmailSender {
+  /** The From identity. Calendar invites set ORGANIZER to this so the
+   * address a client sees and the address RSVPs are sent to agree. */
+  readonly from: EmailIdentity;
+  send(message: EmailMessage): Promise<SentEmail>;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/** Base64 without depending on Node's Buffer (workerd has btoa, not Buffer
+ * unless nodejs_compat is loaded in that bundle). */
+export function toBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function allAttachments(message: EmailMessage): EmailAttachment[] {
+  const attachments = [...(message.attachments ?? [])];
+  if (message.calendar) {
+    attachments.unshift({
+      filename: message.calendar.filename,
+      content: message.calendar.content,
+      contentType: message.calendar.contentType,
+    });
+  }
+  return attachments;
+}
+
+// ---------------------------------------------------------------------------
+// Resend transport
+// ---------------------------------------------------------------------------
+
+export interface ResendSenderOptions {
+  apiKey: string;
+  from: EmailIdentity;
+}
+
+/**
+ * Production transport.
+ *
+ * Calendar invites go out as a single attachment carrying
+ * `text/calendar; charset=utf-8; method=REQUEST`. Resend's HTTP API builds
+ * the MIME tree itself and exposes no way to add a `text/calendar` sibling
+ * inside `multipart/alternative`, so this is the strongest structure the API
+ * allows — and it is the one Outlook documents as sufficient: Outlook 2010+
+ * scans every child of `multipart/mixed` for iMIP data and treats the first
+ * one it finds as the invitation (MS-STANOICAL §RFC6047 2.4, V0343). The
+ * part doubles as the attachment fallback for clients that only offer
+ * "download .ics", because RFC 6047 §2.6 requires handling to key off
+ * Content-Type rather than the filename.
+ *
+ * Two field-name traps, both verified against `resend@6.18.1`:
+ *  - the Node SDK reads `contentType` (camelCase) and maps it to the API's
+ *    `content_type`; passing `content_type` is silently dropped, which is
+ *    how ICS support broke in resend-node 4.0–4.7 (resend-node#435, #554).
+ *  - `content` as a plain string is sent verbatim, so it must already be
+ *    Base64 ("Content of an attached file, passed as a buffer or Base64
+ *    string" — Resend send-email API reference).
+ */
+export function createResendEmailSender({ apiKey, from }: ResendSenderOptions): EmailSender {
   const resend = new Resend(apiKey);
   return {
-    async send(input) {
+    from,
+    async send(message) {
+      const attachments = allAttachments(message);
       const { data, error } = await resend.emails.send({
-        from: "Greenroom <onboarding@resend.dev>",
-        to: input.to,
-        subject: input.subject,
-        html: input.html,
-        attachments: input.icsAttachment
-          ? [
-              {
-                filename: input.icsAttachment.filename,
-                content: input.icsAttachment.content,
-              },
-            ]
+        from: formatIdentity(from),
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+        replyTo: message.replyTo,
+        headers: message.headers,
+        attachments: attachments.length
+          ? attachments.map((attachment) => ({
+              filename: attachment.filename,
+              content: toBase64(attachment.content),
+              contentType: attachment.contentType,
+            }))
           : undefined,
       });
       if (error) throw new Error(`Resend send failed: ${error.message}`);
@@ -41,25 +176,183 @@ export function createResendEmailSender(apiKey: string): EmailSender {
   };
 }
 
-/** Dev/test stub — logs instead of calling the Resend API. */
-export function createStubEmailSender(): EmailSender {
+// ---------------------------------------------------------------------------
+// Development transport
+// ---------------------------------------------------------------------------
+
+/** Gitignored folder the dev transport writes rendered messages into. */
+export const DEV_EMAIL_DIR = ".dev-emails";
+
+export interface DevSenderOptions {
+  from: EmailIdentity;
+  /** Defaults to DEV_EMAIL_DIR, relative to the process working directory. */
+  directory?: string;
+  /** Set false to keep the console quiet (the verification script does). */
+  echo?: boolean;
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+}
+
+/** The full message, rendered the way a maildrop would show it. */
+function renderDevTranscript(from: EmailIdentity, message: EmailMessage, id: string): string {
+  const headers: Array<[string, string]> = [
+    ["Message-Id", id],
+    ["Date", new Date().toISOString()],
+    ["From", formatIdentity(from)],
+    ["To", message.to],
+    ["Subject", message.subject],
+  ];
+  if (message.replyTo) headers.push(["Reply-To", message.replyTo]);
+  for (const [name, value] of Object.entries(message.headers ?? {})) headers.push([name, value]);
+  if (message.log) {
+    headers.push([
+      "X-Greenroom-Log",
+      `${message.log.kind}${message.log.relatedType ? ` ${message.log.relatedType}:${message.log.relatedId}` : ""}`,
+    ]);
+  }
+
+  const parts = allAttachments(message).map(
+    (attachment) =>
+      `  - ${attachment.filename} (${attachment.contentType}, ${attachment.content.length} bytes)`,
+  );
+
+  const sections = [
+    headers.map(([name, value]) => `${name}: ${value}`).join("\n"),
+    `--- text/plain ---\n${message.text}`,
+    `--- text/html ---\n${message.html}`,
+  ];
+  if (parts.length) sections.push(`--- attachments ---\n${parts.join("\n")}`);
+  if (message.calendar) {
+    sections.push(
+      `--- ${message.calendar.contentType} ---\n${message.calendar.content.replace(/\r\n/g, "\n")}`,
+    );
+  }
+  return `${sections.join("\n\n")}\n`;
+}
+
+/**
+ * Development transport. Prints the complete message and writes it to
+ * `.dev-emails/` (gitignored) so the rendered copy, the HTML, and any .ics
+ * can actually be opened — the same idea as the magic-link capture in
+ * src/lib/dev-magic-link.ts. `node:fs` is imported dynamically and failures
+ * are swallowed, so this still works in a runtime without a filesystem.
+ */
+export function createDevEmailSender(options: DevSenderOptions): EmailSender {
+  const directory = options.directory ?? DEV_EMAIL_DIR;
+  const echo = options.echo ?? true;
+  let counter = 0;
+
   return {
-    async send(input) {
-      const id = crypto.randomUUID();
-      console.log("[stub email]", {
-        id,
-        to: input.to,
-        subject: input.subject,
-        hasIcs: Boolean(input.icsAttachment),
-      });
-      return { id };
+    from: options.from,
+    async send(message) {
+      const id = `dev-${Date.now().toString(36)}-${(counter += 1)}`;
+      const transcript = renderDevTranscript(options.from, message, id);
+      if (echo) console.log(`\n>> EMAIL (dev transport)\n${transcript}`);
+
+      const files: string[] = [];
+      try {
+        const { mkdir, writeFile } = await import("node:fs/promises");
+        await mkdir(directory, { recursive: true });
+        const base = `${String(counter).padStart(2, "0")}-${slugify(message.log?.kind ?? message.subject)}`;
+        const write = async (suffix: string, body: string) => {
+          const path = `${directory}/${base}${suffix}`;
+          await writeFile(path, body, "utf8");
+          files.push(path);
+        };
+        await write(".txt", transcript);
+        await write(".html", message.html);
+        if (message.calendar) await write(".ics", message.calendar.content);
+      } catch (error) {
+        // Never let inspection plumbing break a send — the console copy above
+        // is still there.
+        console.warn(`Could not write dev email to ${directory}/:`, error);
+      }
+
+      return { id, files };
     },
   };
 }
 
-/** Picks the Resend sender when RESEND_API_KEY is set, else the dev stub. */
-export function getEmailSender(env: { RESEND_API_KEY?: string }): EmailSender {
+// ---------------------------------------------------------------------------
+// email_log decorator
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps a transport so every attempt is recorded in `email_log`
+ * (spec.md §7 — "communication log per speaker"). Failures are logged with
+ * `status: "failed"` and the error re-thrown; a failure to *write the log*
+ * is warned about but never converts a delivered email into an error.
+ *
+ * Messages with no `log` context are passed through unrecorded, so a caller
+ * has to opt out deliberately.
+ */
+export function createLoggingEmailSender(inner: EmailSender, emailLog: EmailLogRepo): EmailSender {
+  return {
+    from: inner.from,
+    async send(message) {
+      const record = async (status: "sent" | "failed", error: string | null) => {
+        if (!message.log) return;
+        try {
+          await emailLog.create({
+            to: message.to,
+            subject: message.subject,
+            kind: message.log.kind,
+            relatedType: message.log.relatedType ?? null,
+            relatedId: message.log.relatedId ?? null,
+            status,
+            error,
+            sentAt: new Date(),
+          });
+        } catch (logError) {
+          console.warn("Could not write email_log row:", logError);
+        }
+      };
+
+      try {
+        const result = await inner.send(message);
+        await record("sent", null);
+        return result;
+      } catch (error) {
+        await record("failed", error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Environment wiring
+// ---------------------------------------------------------------------------
+
+export interface EmailEnv {
+  RESEND_API_KEY?: string;
+  EMAIL_FROM_NAME?: string;
+  EMAIL_FROM_ADDRESS?: string;
+}
+
+const DEFAULT_FROM: EmailIdentity = {
+  name: "Greenroom",
+  // Resend's shared sandbox sender; replace once a domain is verified (D-014).
+  email: "onboarding@resend.dev",
+};
+
+export function resolveEmailIdentity(env: EmailEnv): EmailIdentity {
+  return {
+    name: env.EMAIL_FROM_NAME || DEFAULT_FROM.name,
+    email: env.EMAIL_FROM_ADDRESS || DEFAULT_FROM.email,
+  };
+}
+
+/** Resend when an API key is configured, otherwise the dev transport. */
+export function getEmailSender(env: EmailEnv): EmailSender {
+  const from = resolveEmailIdentity(env);
   return env.RESEND_API_KEY
-    ? createResendEmailSender(env.RESEND_API_KEY)
-    : createStubEmailSender();
+    ? createResendEmailSender({ apiKey: env.RESEND_API_KEY, from })
+    : createDevEmailSender({ from });
 }

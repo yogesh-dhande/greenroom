@@ -4,7 +4,8 @@ import { magicLink } from "better-auth/plugins/magic-link";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import * as schema from "@/db/schema";
 import { createDb } from "@/db/repos/d1/client";
-import { getEmailSender } from "@/lib/email";
+import { createD1Repos } from "@/db/repos/d1";
+import { createLoggingEmailSender, getEmailSender } from "@/lib/email";
 
 /**
  * better-auth config (decisions.md D-007, D-016): magic links for every
@@ -20,7 +21,9 @@ import { getEmailSender } from "@/lib/email";
 export async function getAuth() {
   const { env } = await getCloudflareContext({ async: true });
   const db = createDb(env.DB);
-  const sender = getEmailSender(env);
+  // Sign-in links are part of a speaker's communication history (spec.md §7),
+  // so they go through the same email_log-writing wrapper as everything else.
+  const sender = createLoggingEmailSender(getEmailSender(env), createD1Repos(env.DB).emailLog);
   const isDev = process.env.NODE_ENV !== "production";
 
   return betterAuth({
@@ -60,7 +63,9 @@ export async function getAuth() {
           await sender.send({
             to: email,
             subject: "Your Greenroom sign-in link",
+            text: `Click the link below to sign in to Greenroom:\n\n${url}\n\nThis link expires in 5 minutes. If you didn't ask for it, you can ignore this email.`,
             html: `<p>Click below to sign in to Greenroom:</p><p><a href="${url}">${url}</a></p><p>This link expires in 5 minutes.</p>`,
+            log: { kind: "magic_link" },
           });
         },
       }),

@@ -24,4 +24,16 @@ Expected: `shadcn init`/`add` only create the components you asked for. Actually
 
 ## `getPlatformProxy` resolves wrangler config relative to the calling file, not cwd (2026-08-08)
 
-Expected: running a script with `getPlatformProxy()` from the project root "just works". Actually: it resolves `wrangler.jsonc` and node_modules from the location of the *file* that calls it, not the working directory — the seed script only found the D1 binding once it lived inside the project root tree (`scripts/seed.ts`), not when invoked via an outside path.
+Expected: running a script with `getPlatformProxy()` from the project root "just works". Actually: it resolves `wrangler.jsonc` and node_modules from the location of the *file* that calls it, not the working directory — the seed script only found the D1 binding once it lived inside the project root tree (`scripts/seed.ts`), not when invoked via an outside path. Same root cause bit again during the comms wave: a throwaway probe script in a scratch directory failed with `ERR_MODULE_NOT_FOUND: 'ics'` because Node resolves `node_modules` from the script file's location too. Rule: any script touching project deps or wrangler config must live inside the project tree.
+
+## `ics` npm package has no TZID/VTIMEZONE support at all (2026-08-08)
+
+Expected: pass a timezone to `ics@3.12`, get `DTSTART;TZID=…` plus a VTIMEZONE block. Actually: the library only emits floating local or UTC times — grepping its dist and `index.d.ts` shows no VTIMEZONE emitter whatsoever. Worse, hand-adding a bare `TZID` without VTIMEZONE violates RFC 5545 §3.2.19, and Microsoft documents Outlook then falling back to the *recipient's* timezone (MS-STANOICAL V0032) — invites silently rendering at wrong times. Consequence: `src/lib/ics.ts` emits UTC instants derived from the event's IANA zone and repeats the local wall clock in DESCRIPTION/body copy (decisions.md D-020).
+
+## Naive standalone-tag stripping welds template paragraphs together (2026-08-08)
+
+Expected: when a `{{#field}}`/`{{/field}}` pair sits on its own lines, dropping just the tags preserves layout. Actually: each dropped tag consumes one newline, so two paragraphs merged into a single run-on block in the rendered email — invisible in a code diff, obvious to a recipient. Fix: consume the whole standalone *block* line including its trailing newline (Mustache's own standalone-line semantics); a regression test now asserts no built-in template renders `[a-z].\n[A-Z]`.
+
+## Resend attachments: `contentType` camelCase, base64 string content, no raw MIME (2026-08-08)
+
+Expected: set an attachment's MIME type via a `Content-Type` entry in Resend's `headers`. Actually: that returns a 500 "Duplicate header"; the only channel is the attachment's own `contentType` (camelCase) field, with `content` as a base64 *string*. Resend also has no raw-MIME endpoint, so the classic Gmail-friendly `multipart/alternative` with a `text/calendar` sibling part is unreachable — calendar invites must ship as a `text/calendar; method=REQUEST` attachment (D-020).
