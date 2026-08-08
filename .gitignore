@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
 
 # next.js
 /.next/
@@ -61,3 +63,5 @@ drizzle/.metadata
 .dev.vars
 .dev.vars.*
 .dev-magic-links.log
+# Messages rendered by the dev email transport (src/lib/email.ts)
+.dev-emails/

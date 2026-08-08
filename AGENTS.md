@@ -18,3 +18,9 @@
 
 - The database layer must stay storage-agnostic (see the abstraction requirement in spec.md) — never let datastore-specific types or query strings leak outside the adapter.
 - When requirements are ambiguous, first check the competition brief and Sessionboard's public behavior; ask the owner only as a fallback, one question at a time with options and a recommendation.
+
+## Testing
+
+- **Unit tests (Vitest) are written as we go, not deferred**: every wave that adds or changes domain/lib logic (`src/domain/`, `src/lib/`, entity schemas) ships colocated `*.test.ts` files for it. Pure logic — conflict detection, template rendering, `.ics` generation, slug/validation rules — must be unit-tested. `npm run test` must pass before every commit, alongside typecheck/lint/build.
+- **E2E tests (Playwright, `e2e/`) cover each key product flow once it's implemented** — the flows in spec.md's acceptance path (submit via public CFP, review & accept, portal tasks, agenda placement + conflict, public program). Add or extend a spec in the same wave that lands the flow. `npm run test:e2e` seeds the local D1 database (destructive, like `npm run seed`), swaps `.dev.vars` to port 3010 for the run, and restores it after; it needs the local DB and magic-link log to itself, so never run it while another agent's dev server is up.
+- Test real behavior through public interfaces (repos, domain functions, rendered pages) — don't mock what you can run.
