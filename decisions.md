@@ -35,11 +35,11 @@ Record caps (50k/base on Team) are a non-issue at conference scale. These constr
 
 **Rationale:** Works with all three required clients (Gmail, Outlook, iCal) with no OAuth setup per provider.
 
-## D-004: Accelevents integration direction — push, not pull — **accepted**
+## D-004: Accelevents integration direction — push, not pull — **superseded by D-017**
 
-**Decision:** Push accepted sessions/speakers to Accelevents via its API (CSV export as fallback), rather than replicating Sessionboard's pull model.
+**Decision (superseded):** Push accepted sessions/speakers to Accelevents via its API (CSV export as fallback), rather than replicating Sessionboard's pull model — the real integration has Accelevents pull from Sessionboard's public API hosts only ([Accelevents docs](https://support.accelevents.com/en/articles/9049978-sessionboard-integration)).
 
-**Rationale:** The real integration has Accelevents pull from Sessionboard's public API hosts only — a clone can't be plugged into that ([Accelevents docs](https://support.accelevents.com/en/articles/9049978-sessionboard-integration)).
+**Superseded 2026-08-08:** the organizer explicitly dropped the Accelevents requirement; the integration is now out of scope entirely (D-017).
 
 ## D-005: Repo hosting — GitHub — **accepted**
 
@@ -77,13 +77,13 @@ Record caps (50k/base on Team) are a non-issue at conference scale. These constr
 
 **Rationale:** The KV read-through cache was an Airtable rate-limit mitigation; D1 has no such limit. ISR still gives edge-fast public pages for the speed bonus.
 
-## D-011: AI-assisted review — build or skip — **pending**
+## D-011: AI-assisted review — skip — **accepted**
 
-"Very optional" per the brief, but high demo value at an AI conference for low effort (Claude API pre-scoring pass). **Leaning:** build a cheap version if core features land early.
+**Decision:** Skip AI-assisted evaluation entirely — the organizer clarified it is out of scope, and that a *small* useful agentic admin feature (enhancement tier) is worth more than AI scoring. Human `approve/maybe/deny` is the requirement.
 
-## D-012: Accelevents write-API feasibility — **pending investigation**
+## D-012: Accelevents write-API feasibility — **closed (moot)**
 
-Their public API may be plan-gated. Low priority now that D-006 makes this design-only.
+Investigation no longer needed — Accelevents integration dropped by the organizer (D-017).
 
 ## D-013: Reminder/job mechanics — **accepted**
 
@@ -105,7 +105,11 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Plug-and-play with the D1 + Drizzle stack (D-002), built-in magic-link support, runs well on Workers — no hand-rolled auth (D-008).
 
----
+## D-017: Adopt organizer-clarified MVP scope — **accepted** (2026-08-08)
+
+**Decision:** Rebase the spec on the consolidated context ([context/kill-my-saas-context.md](context/kill-my-saas-context.md)), where direct organizer clarifications override the original brief. Headline changes: review workflow minimized to `unreviewed → approve/maybe/deny` (scoring/multi-round demoted to enhancements); agenda MVP narrowed to day/room + drag-and-drop + conflict detection (extra views demoted); acceptance must auto-create speaker/session/tasks; email and calendar delivery must **actually work**, not stubs; Accelevents dropped entirely; AI evaluation out of scope; Airtable sync clarified as write-through for automations + periodic read-back; admin UX for nontechnical operators is the product priority.
+
+**Rationale:** Newer direct organizer statements take precedence over the brief; the competition rewards a working vertical workflow over breadth.
 
 # Appendix: Known divergences from Sessionboard
 
@@ -114,9 +118,9 @@ Where our decisions deliberately don't match how Sessionboard actually works. Re
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
 |---|---|---|---|---|
 | 1 | Calendar invites via platform calendar integration | `.ics` email attachments (updates = re-sent invite with same UID) | Lands on Gmail/Outlook/iCal without per-provider OAuth; same outcome for the speaker, far less build | D-003 |
-| 2 | Accelevents *pulls* from Sessionboard via a native connector (API key + Event ID, hourly resync) | We *push* via Accelevents' API, or CSV export | The pull connector only accepts Sessionboard hosts — a clone can't be plugged in; push achieves the same "no manual re-entry" goal | D-004, D-012 |
-| 3 | Manages sponsors & exhibitors (and syncs them to Accelevents) | Out of scope entirely — speakers/sessions only | Not in the competition brief's requirements; AIE handles registration-side data in Accelevents | spec Out of Scope |
-| 4 | AI-powered evaluations are a built-in product feature | Optional add-on, build-if-time | Brief marks it "very optional"; human scoring is the firm requirement | D-011 |
+| 2 | Native Accelevents connector (Accelevents pulls sessions/speakers hourly) | No Accelevents integration at all | Organizer explicitly dropped the requirement | D-004 (superseded), D-017 |
+| 3 | Manages sponsors & exhibitors (and syncs them to Accelevents) | Out of scope — speakers/sessions only (direct session entry covers sponsor *speakers*) | Not in the competition requirements | spec Out of Scope |
+| 4 | AI-powered evaluations are a built-in product feature | Skipped; human `approve/maybe/deny` only, small agentic admin helper as possible enhancement | Organizer: out of scope; admin UI is the priority | D-011, D-017 |
 | 5 | Full public API: webhooks, contacts/sponsors/exhibitors, media uploads, US/EU regions | Read-only sessions + speakers API, single region, design-only for the competition | Only needed to power embeds and integrations; breadth isn't judged | D-006, spec §10 |
 | 6 | Password accounts for organizers/admins (speakers get portal invites) | Magic links for every role, no passwords | Simpler, one auth path; acceptable UX for a small organizer team | D-007 |
 | 7 | Embeds, wiki/resources, integrations all shipped features | Designed but not implemented in the competition submission | Six firm requirements in 4 days; architecture accommodates them later | D-006 |

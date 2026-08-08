@@ -53,3 +53,6 @@ drizzle/.metadata
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# Private competition source material (screenshots, transcripts, Discord exports)
+.context-private/
