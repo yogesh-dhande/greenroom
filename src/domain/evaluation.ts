@@ -1,73 +1,84 @@
 /**
- * Evaluation domain service — score aggregation, ranking, and accept/
- * reject/waitlist decisions (spec.md §4). Pure TypeScript: no datastore
- * imports. Callers (route handlers/server actions) fetch Review/Submission
- * rows via src/db/repos/* and pass plain entities in.
+ * Evaluation domain service — the approve / maybe / deny decision flow
+ * (spec.md §4) and optional score aggregation (enhancement tier). Pure
+ * TypeScript: no datastore imports. Callers (route handlers/server actions)
+ * fetch Review/Submission rows via src/db/repos/* and pass plain entities in.
  */
-import type { Review, Submission, SubmissionStatus } from "@/db/entities";
+import type { Review, Submission, SubmissionDecision } from "@/db/entities";
 
-export interface CriteriaAverage {
-  criterion: string;
-  average: number;
-  count: number;
+// ---------------------------------------------------------------------------
+// Decisions (required MVP flow)
+// ---------------------------------------------------------------------------
+
+/** Statuses a decision may be recorded against: an unreviewed submission,
+ * or one already decided (organizers do change their minds). */
+const DECIDABLE_STATUSES = new Set(["submitted", "approved", "maybe", "denied"]);
+
+export function canDecide(submission: Submission): boolean {
+  return DECIDABLE_STATUSES.has(submission.status);
 }
 
-export interface SubmissionScoreSummary {
-  submissionId: string;
-  overallAverage: number;
-  reviewCount: number;
-  byCriteria: CriteriaAverage[];
-}
+/** The fields a decision writes onto the submission. */
+export type DecisionPatch = Pick<
+  Submission,
+  "status" | "decidedBy" | "decidedAt" | "decisionNote"
+>;
 
 /**
- * Aggregates one round's reviews for a single submission into per-criteria
- * and overall averages, for the reviewer dashboard's "aggregate views"
- * (spec.md §4).
+ * Records a reviewer's or admin's decision (spec.md §4:
+ * `unreviewed -> approve / maybe / deny`). Approving is the trigger into
+ * onboarding — the caller creates the speaker/session/task records
+ * afterwards (src/domain/onboarding.ts), which is why this returns a patch
+ * rather than persisting anything itself.
  */
-export function summarizeScores(
-  submissionId: string,
-  reviews: Review[],
-): SubmissionScoreSummary {
-  // TODO: average `scores` (JSON, keyed by criteria id) across `reviews`,
-  // per criterion and overall. Reviews from different rounds should likely
-  // be summarized separately by the caller (pass one round's reviews at a
-  // time) so screening-round noise doesn't dilute the final round.
+export function decide(
+  submission: Submission,
+  decision: SubmissionDecision,
+  decidedBy: string,
+  options: { note?: string | null; now?: Date } = {},
+): DecisionPatch {
+  if (!canDecide(submission)) {
+    throw new Error(
+      `Submission ${submission.id} is "${submission.status}" and cannot be decided.`,
+    );
+  }
   return {
-    submissionId,
-    overallAverage: 0,
-    reviewCount: reviews.length,
-    byCriteria: [],
+    status: decision,
+    decidedBy,
+    decidedAt: options.now ?? new Date(),
+    decisionNote: options.note ?? submission.decisionNote,
   };
 }
 
-export interface RankedSubmission {
-  submission: Submission;
-  summary: SubmissionScoreSummary;
-  rank: number;
+// ---------------------------------------------------------------------------
+// Scores (enhancement tier — optional, never required by the core flow)
+// ---------------------------------------------------------------------------
+
+export interface SubmissionScoreSummary {
+  submissionId: string;
+  /** Null when no reviewer recorded a numeric score. */
+  averageScore: number | null;
+  reviewCount: number;
+  /** Tally of non-binding reviewer recommendations. */
+  recommendations: { approve: number; maybe: number; deny: number };
 }
 
-/** Ranks a category/track's submissions by aggregate score, for the
- * organizer's accept/reject/waitlist workflow (spec.md §4). */
-export function rankSubmissions(
-  submissions: Submission[],
-  reviewsBySubmissionId: Map<string, Review[]>,
-): RankedSubmission[] {
-  // TODO: compute a SubmissionScoreSummary per submission and sort
-  // descending by overallAverage, assigning `rank` 1..n.
-  return [];
-}
-
-/**
- * Applies an organizer's accept/reject/waitlist decision. Accepting a
- * submission is the trigger into onboarding (spec.md §4 "Decision triggers
- * downstream state") — the caller is responsible for creating the
- * speaker's task assignments (src/domain/onboarding.ts) after this returns.
- */
-export function decideOutcome(
-  submission: Submission,
-  decision: Extract<SubmissionStatus, "accepted" | "rejected" | "waitlisted">,
-): Pick<Submission, "status"> {
-  // TODO: validate the submission is in a decidable state (e.g.
-  // "under_review") before allowing the transition.
-  return { status: decision };
+export function summarizeReviews(
+  submissionId: string,
+  reviews: Review[],
+): SubmissionScoreSummary {
+  const scores = reviews
+    .map((r) => r.score)
+    .filter((s): s is number => typeof s === "number");
+  const recommendations = { approve: 0, maybe: 0, deny: 0 };
+  for (const review of reviews) {
+    if (review.recommendation) recommendations[review.recommendation] += 1;
+  }
+  return {
+    submissionId,
+    averageScore:
+      scores.length === 0 ? null : scores.reduce((a, b) => a + b, 0) / scores.length,
+    reviewCount: reviews.length,
+    recommendations,
+  };
 }

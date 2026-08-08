@@ -8,7 +8,7 @@
  * migration in migrations/.
  */
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey, index, unique } from "drizzle-orm/sqlite-core";
 
 const id = () =>
   text("id")
@@ -25,7 +25,7 @@ const timestamps = {
 };
 
 // ---------------------------------------------------------------------------
-// Events
+// Events (spec.md §1)
 // ---------------------------------------------------------------------------
 
 export const events = sqliteTable("events", {
@@ -33,18 +33,21 @@ export const events = sqliteTable("events", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   description: text("description"),
+  /** Conference day boundaries, stored as calendar dates ("YYYY-MM-DD") in
+   * the event's own timezone — never as instants, so a schedule never
+   * shifts a day when read from another timezone. */
+  startDate: text("start_date"),
+  endDate: text("end_date"),
+  /** IANA zone (e.g. "America/Los_Angeles"); the reference frame for
+   * `events.startDate`/`endDate` and every `sessions.day`/time. */
   timezone: text("timezone").notNull().default("UTC"),
-  startDate: integer("start_date", { mode: "timestamp" }),
-  endDate: integer("end_date", { mode: "timestamp" }),
-  status: text("status", { enum: ["draft", "published", "archived"] })
-    .notNull()
-    .default("draft"),
+  location: text("location"),
   ...timestamps,
 });
 
 // ---------------------------------------------------------------------------
 // Users — doubles as the better-auth "user" table, extended with `role`.
-// All roles (organizer, reviewer, speaker) authenticate via magic link
+// All roles (admin, reviewer, speaker) authenticate via magic link
 // (decisions.md D-007); there is no password column.
 // ---------------------------------------------------------------------------
 
@@ -55,13 +58,15 @@ export const users = sqliteTable("users", {
     .notNull()
     .default(false),
   name: text("name"),
-  role: text("role", { enum: ["organizer", "reviewer", "speaker"] })
+  role: text("role", { enum: ["admin", "reviewer", "speaker"] })
     .notNull()
     .default("speaker"),
   title: text("title"),
   company: text("company"),
   bio: text("bio"),
   headshotUrl: text("headshot_url"),
+  /** JSON-serialized SpeakerSocials (src/db/entities.ts). */
+  socials: text("socials", { mode: "json" }),
   /** better-auth's own avatar field; kept separate from headshotUrl (the
    * domain concept used on speaker profiles/gallery). */
   image: text("image"),
@@ -114,82 +119,7 @@ export const authVerifications = sqliteTable("auth_verifications", {
 });
 
 // ---------------------------------------------------------------------------
-// Forms (spec.md §1)
-// ---------------------------------------------------------------------------
-
-export const forms = sqliteTable("forms", {
-  id: id(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  slug: text("slug").notNull(),
-  /** JSON-serialized FormSchemaDefinition (src/db/entities.ts). */
-  schema: text("schema", { mode: "json" }).notNull(),
-  status: text("status", { enum: ["draft", "open", "closed"] })
-    .notNull()
-    .default("draft"),
-  opensAt: integer("opens_at", { mode: "timestamp" }),
-  closesAt: integer("closes_at", { mode: "timestamp" }),
-  ...timestamps,
-});
-
-// ---------------------------------------------------------------------------
-// Submissions (spec.md §1, §4)
-// ---------------------------------------------------------------------------
-
-export const submissions = sqliteTable("submissions", {
-  id: id(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  formId: text("form_id")
-    .notNull()
-    .references(() => forms.id, { onDelete: "restrict" }),
-  submitterId: text("submitter_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "restrict" }),
-  title: text("title").notNull(),
-  /** Set by form-answer routing rules (decisions.md D-009). */
-  category: text("category"),
-  status: text("status", {
-    enum: [
-      "draft",
-      "submitted",
-      "under_review",
-      "accepted",
-      "rejected",
-      "waitlisted",
-    ],
-  })
-    .notNull()
-    .default("draft"),
-  /** JSON-serialized answers, keyed by the form's field keys. */
-  answers: text("answers", { mode: "json" }).notNull(),
-  ...timestamps,
-});
-
-// ---------------------------------------------------------------------------
-// Reviews (spec.md §4)
-// ---------------------------------------------------------------------------
-
-export const reviews = sqliteTable("reviews", {
-  id: id(),
-  submissionId: text("submission_id")
-    .notNull()
-    .references(() => submissions.id, { onDelete: "cascade" }),
-  reviewerId: text("reviewer_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  round: integer("round").notNull().default(1),
-  /** JSON-serialized scores, keyed by scoring-criteria id. */
-  scores: text("scores", { mode: "json" }).notNull(),
-  comments: text("comments"),
-  ...timestamps,
-});
-
-// ---------------------------------------------------------------------------
-// Tracks / Rooms / Sessions (spec.md §5)
+// Tracks / Rooms (spec.md §1) and reviewer routing (spec.md §4)
 // ---------------------------------------------------------------------------
 
 export const tracks = sqliteTable("tracks", {
@@ -212,27 +142,208 @@ export const rooms = sqliteTable("rooms", {
   ...timestamps,
 });
 
-export const sessions = sqliteTable("sessions", {
+/**
+ * Reviewer routing (spec.md §4): reviewers own tracks, submissions pick
+ * tracks — the intersection is the reviewer's queue. This join *is* the
+ * routing engine; there is nothing else.
+ */
+export const reviewerTracks = sqliteTable(
+  "reviewer_tracks",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    trackId: text("track_id")
+      .notNull()
+      .references(() => tracks.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.trackId] }),
+    index("reviewer_tracks_track_idx").on(t.trackId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Forms (spec.md §2) — public call-for-speakers forms
+// ---------------------------------------------------------------------------
+
+export const forms = sqliteTable("forms", {
   id: id(),
   eventId: text("event_id")
     .notNull()
     .references(() => events.id, { onDelete: "cascade" }),
-  submissionId: text("submission_id").references(() => submissions.id, {
-    onDelete: "set null",
-  }),
-  title: text("title").notNull(),
-  description: text("description"),
-  startTime: integer("start_time", { mode: "timestamp" }),
-  endTime: integer("end_time", { mode: "timestamp" }),
-  roomId: text("room_id").references(() => rooms.id, { onDelete: "set null" }),
-  trackId: text("track_id").references(() => tracks.id, {
-    onDelete: "set null",
-  }),
-  status: text("status", { enum: ["scheduled", "cancelled"] })
+  name: text("name").notNull(),
+  /** Public URL segment: /submit/{slug}. Globally unique so the public
+   * route doesn't need an event in the path. */
+  slug: text("slug").notNull().unique(),
+  /** Welcome/explanatory copy shown above the form (spec.md §2). */
+  welcomeCopy: text("welcome_copy"),
+  /** JSON-serialized FormField[] (src/db/entities.ts, decisions.md D-009). */
+  fields: text("fields", { mode: "json" }).notNull(),
+  opensAt: integer("opens_at", { mode: "timestamp" }),
+  closesAt: integer("closes_at", { mode: "timestamp" }),
+  /** Shown after a successful submission (spec.md §2 must-have). */
+  confirmationPageContent: text("confirmation_page_content"),
+  confirmationEmailSubject: text("confirmation_email_subject"),
+  confirmationEmailBody: text("confirmation_email_body"),
+  isPublished: integer("is_published", { mode: "boolean" })
     .notNull()
-    .default("scheduled"),
+    .default(false),
   ...timestamps,
 });
+
+// ---------------------------------------------------------------------------
+// Submissions (spec.md §3, §4)
+// ---------------------------------------------------------------------------
+
+export const submissions = sqliteTable(
+  "submissions",
+  {
+    id: id(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    formId: text("form_id")
+      .notNull()
+      .references(() => forms.id, { onDelete: "restrict" }),
+    title: text("title").notNull(),
+    /** The abstract. Promoted out of `answers` because every view needs it. */
+    description: text("description"),
+    /** JSON-serialized answers to the form's custom fields, keyed by field id. */
+    answers: text("answers", { mode: "json" }).notNull(),
+    /**
+     * `submitted` means "received, not yet reviewed" — the spec's
+     * `unreviewed` state (spec.md §4). Decisions are recorded here rather
+     * than derived from the `reviews` table, which stays optional
+     * (enhancement tier).
+     */
+    status: text("status", {
+      enum: ["draft", "submitted", "approved", "maybe", "denied", "withdrawn"],
+    })
+      .notNull()
+      .default("draft"),
+    decidedBy: text("decided_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: integer("decided_at", { mode: "timestamp" }),
+    /** Internal note or the feedback attached to an accept/deny email. */
+    decisionNote: text("decision_note"),
+    ...timestamps,
+  },
+  (t) => [
+    index("submissions_event_status_idx").on(t.eventId, t.status),
+    index("submissions_form_idx").on(t.formId),
+  ],
+);
+
+/** Many-to-many: a submission picks one or more tracks (spec.md §2, §4). */
+export const submissionTracks = sqliteTable(
+  "submission_tracks",
+  {
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => submissions.id, { onDelete: "cascade" }),
+    trackId: text("track_id")
+      .notNull()
+      .references(() => tracks.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.submissionId, t.trackId] }),
+    index("submission_tracks_track_idx").on(t.trackId),
+  ],
+);
+
+/**
+ * Co-speakers (spec.md §2): a submission has one `primary` speaker — the
+ * submitter, who owns and can edit it — plus any number of `co` speakers.
+ * Multiple speakers are supported; two are never required. There is no
+ * separate `submitterId` column: the `primary` row is the submitter, so
+ * there's one source of truth for "who is on this talk".
+ */
+export const submissionSpeakers = sqliteTable(
+  "submission_speakers",
+  {
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => submissions.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["primary", "co"] })
+      .notNull()
+      .default("co"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.submissionId, t.userId] }),
+    index("submission_speakers_user_idx").on(t.userId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Reviews (spec.md "Useful enhancements": scored reviews / rating fields).
+// Decisions live on `submissions`; this table only adds reviewer opinion.
+// ---------------------------------------------------------------------------
+
+export const reviews = sqliteTable(
+  "reviews",
+  {
+    id: id(),
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => submissions.id, { onDelete: "cascade" }),
+    reviewerId: text("reviewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Nullable: the MVP flow records a comment/recommendation with no score. */
+    score: integer("score"),
+    comment: text("comment"),
+    /** The reviewer's non-binding recommendation, mirroring the decision
+     * vocabulary. Nullable for comment-only reviews. */
+    recommendation: text("recommendation", {
+      enum: ["approve", "maybe", "deny"],
+    }),
+    ...timestamps,
+  },
+  (t) => [unique("reviews_submission_reviewer_unq").on(t.submissionId, t.reviewerId)],
+);
+
+// ---------------------------------------------------------------------------
+// Sessions (spec.md §5, §9) — confirmed agenda items
+// ---------------------------------------------------------------------------
+
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: id(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** Null for a session entered directly for a guaranteed speaker, e.g. a
+     * sponsor slot with no CFP submission behind it (spec.md §5). */
+    submissionId: text("submission_id").references(() => submissions.id, {
+      onDelete: "set null",
+    }),
+    trackId: text("track_id").references(() => tracks.id, {
+      onDelete: "set null",
+    }),
+    roomId: text("room_id").references(() => rooms.id, { onDelete: "set null" }),
+    /** Calendar day "YYYY-MM-DD" in the event's timezone. */
+    day: text("day"),
+    /** Wall-clock "HH:MM" in the event's timezone; null = unscheduled.
+     * Storing local wall-clock rather than instants keeps drag-and-drop
+     * placement and conflict detection free of timezone arithmetic — the
+     * event's `timezone` supplies the offset when an .ics is generated. */
+    startTime: text("start_time"),
+    endTime: text("end_time"),
+    status: text("status", { enum: ["draft", "confirmed", "cancelled"] })
+      .notNull()
+      .default("confirmed"),
+    ...timestamps,
+  },
+  (t) => [index("sessions_event_day_idx").on(t.eventId, t.day)],
+);
 
 /** A session can have multiple assigned speakers (spec.md §5). */
 export const sessionSpeakers = sqliteTable(
@@ -245,11 +356,14 @@ export const sessionSpeakers = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.sessionId, t.userId] })],
+  (t) => [
+    primaryKey({ columns: [t.sessionId, t.userId] }),
+    index("session_speakers_user_idx").on(t.userId),
+  ],
 );
 
 // ---------------------------------------------------------------------------
-// Tasks / Task assignments (onboarding — spec.md §2, §6)
+// Tasks / Task assignments (speaker onboarding — spec.md §6, §8)
 // ---------------------------------------------------------------------------
 
 export const tasks = sqliteTable("tasks", {
@@ -257,30 +371,52 @@ export const tasks = sqliteTable("tasks", {
   eventId: text("event_id")
     .notNull()
     .references(() => events.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  description: text("description"),
+  title: text("title").notNull(),
+  instructions: text("instructions"),
+  /** The three underlying onboarding jobs (spec.md §6): fill in a form,
+   * upload a file, or confirm information that's already on record. */
+  type: text("type", { enum: ["form", "file_request", "confirm"] })
+    .notNull()
+    .default("confirm"),
+  /** Required when `type` is "form". */
   formId: text("form_id").references(() => forms.id, { onDelete: "set null" }),
-  dueDate: integer("due_date", { mode: "timestamp" }),
+  dueAt: integer("due_at", { mode: "timestamp" }),
+  /** Assign automatically to every speaker of a newly accepted submission
+   * (spec.md §5: acceptance creates the onboarding tasks). */
+  autoAssignOnAccept: integer("auto_assign_on_accept", { mode: "boolean" })
+    .notNull()
+    .default(true),
   ...timestamps,
 });
 
-export const taskAssignments = sqliteTable("task_assignments", {
-  id: id(),
-  taskId: text("task_id")
-    .notNull()
-    .references(() => tasks.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  status: text("status", { enum: ["pending", "in_progress", "complete"] })
-    .notNull()
-    .default("pending"),
-  completedAt: integer("completed_at", { mode: "timestamp" }),
-  ...timestamps,
-});
+export const taskAssignments = sqliteTable(
+  "task_assignments",
+  {
+    id: id(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    speakerId: text("speaker_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["pending", "completed"] })
+      .notNull()
+      .default("pending"),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    /** Answers for a `form` task, keyed by field id. */
+    responseJson: text("response_json", { mode: "json" }),
+    /** R2 object URL for a `file_request` task. */
+    fileUrl: text("file_url"),
+    ...timestamps,
+  },
+  (t) => [
+    unique("task_assignments_task_speaker_unq").on(t.taskId, t.speakerId),
+    index("task_assignments_speaker_idx").on(t.speakerId),
+  ],
+);
 
 // ---------------------------------------------------------------------------
-// Email templates / log (spec.md §3)
+// Email templates / log (spec.md §7)
 // ---------------------------------------------------------------------------
 
 export const emailTemplates = sqliteTable("email_templates", {
@@ -292,27 +428,41 @@ export const emailTemplates = sqliteTable("email_templates", {
   subject: text("subject").notNull(),
   body: text("body").notNull(),
   trigger: text("trigger", {
-    enum: ["manual", "on_acceptance", "on_task_assignment", "deadline_reminder"],
+    enum: ["manual", "on_acceptance", "on_denial", "on_task_assignment", "deadline_reminder"],
   })
     .notNull()
     .default("manual"),
   ...timestamps,
 });
 
-export const emailLog = sqliteTable("email_log", {
-  id: id(),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  templateId: text("template_id").references(() => emailTemplates.id, {
-    onDelete: "set null",
-  }),
-  subject: text("subject").notNull(),
-  status: text("status", { enum: ["sent", "failed"] }).notNull(),
-  sentAt: integer("sent_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
+/** Every send, for the per-speaker communication log (spec.md §7). */
+export const emailLog = sqliteTable(
+  "email_log",
+  {
+    id: id(),
+    to: text("to").notNull(),
+    subject: text("subject").notNull(),
+    kind: text("kind", {
+      enum: [
+        "magic_link",
+        "submission_confirmation",
+        "decision",
+        "task_reminder",
+        "calendar_invite",
+        "manual",
+      ],
+    }).notNull(),
+    /** What this email was about, so a speaker's log can be reconstructed
+     * without a column per relationship. */
+    relatedType: text("related_type", {
+      enum: ["submission", "session", "task_assignment", "user"],
+    }),
+    relatedId: text("related_id"),
+    status: text("status", { enum: ["sent", "failed"] }).notNull(),
+    error: text("error"),
+    sentAt: integer("sent_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("email_log_to_idx").on(t.to)],
+);

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { userSchema, type NewUser } from "@/db/entities";
 import { users } from "@/db/schema";
 import type { UsersRepo } from "@/db/repos/users";
@@ -11,13 +11,23 @@ export function createUsersRepo(db: DrizzleD1): UsersRepo {
       return row ? userSchema.parse(row) : null;
     },
     async getByEmail(email) {
-      const row = await db.query.users.findFirst({
-        where: eq(users.email, email),
-      });
+      const row = await db.query.users.findFirst({ where: eq(users.email, email) });
       return row ? userSchema.parse(row) : null;
     },
+    async listByIds(ids) {
+      if (ids.length === 0) return [];
+      const rows = await db.query.users.findMany({ where: inArray(users.id, ids) });
+      return rows.map((r) => userSchema.parse(r));
+    },
     async listByRole(role) {
-      const rows = await db.query.users.findMany({ where: eq(users.role, role) });
+      const rows = await db.query.users.findMany({
+        where: eq(users.role, role),
+        orderBy: [asc(users.name)],
+      });
+      return rows.map((r) => userSchema.parse(r));
+    },
+    async listAll() {
+      const rows = await db.query.users.findMany({ orderBy: [asc(users.name)] });
       return rows.map((r) => userSchema.parse(r));
     },
     async create(input: NewUser) {

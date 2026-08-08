@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { roomSchema, type NewRoom } from "@/db/entities";
 import { rooms } from "@/db/schema";
 import type { RoomsRepo } from "@/db/repos/rooms";
@@ -13,6 +13,7 @@ export function createRoomsRepo(db: DrizzleD1): RoomsRepo {
     async listByEvent(eventId) {
       const rows = await db.query.rooms.findMany({
         where: eq(rooms.eventId, eventId),
+        orderBy: [asc(rooms.name)],
       });
       return rows.map((r) => roomSchema.parse(r));
     },

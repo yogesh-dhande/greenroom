@@ -8,7 +8,7 @@ import { getEmailSender } from "@/lib/email";
 
 /**
  * better-auth config (decisions.md D-007, D-016): magic links for every
- * role (organizer, reviewer, speaker), no passwords anywhere. The `users`
+ * role (admin, reviewer, speaker), no passwords anywhere. The `users`
  * table doubles as both the domain "who is this person" entity and
  * better-auth's user model — see src/db/schema.ts for why session/account/
  * verification are prefixed `auth_` (naming collision with the domain
@@ -21,9 +21,13 @@ export async function getAuth() {
   const { env } = await getCloudflareContext({ async: true });
   const db = createDb(env.DB);
   const sender = getEmailSender(env);
+  const isDev = process.env.NODE_ENV !== "production";
 
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
+    // Explicit rather than inferred: the magic-link callback URL is built
+    // from this, and a wrong host produces links that silently fail.
+    baseURL: env.BETTER_AUTH_URL ?? "http://localhost:3000",
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema,
@@ -31,11 +35,13 @@ export async function getAuth() {
     user: {
       modelName: "users",
       additionalFields: {
-        role: { type: "string", required: true, defaultValue: "speaker" },
-        title: { type: "string", required: false },
-        company: { type: "string", required: false },
-        bio: { type: "string", required: false },
-        headshotUrl: { type: "string", required: false },
+        // New signups are speakers (they arrive through a public CFP form);
+        // admins and reviewers are promoted deliberately.
+        role: { type: "string", required: false, defaultValue: "speaker", input: false },
+        title: { type: "string", required: false, input: false },
+        company: { type: "string", required: false, input: false },
+        bio: { type: "string", required: false, input: false },
+        headshotUrl: { type: "string", required: false, input: false },
       },
     },
     session: { modelName: "authSessions" },
@@ -45,6 +51,12 @@ export async function getAuth() {
     plugins: [
       magicLink({
         sendMagicLink: async ({ email, url }) => {
+          if (isDev) {
+            // Local development has no mail provider: print the link and
+            // append it to .dev-magic-links.log so it can be clicked/curled.
+            const { recordDevMagicLink } = await import("@/lib/dev-magic-link");
+            await recordDevMagicLink(email, url);
+          }
           await sender.send({
             to: email,
             subject: "Your Greenroom sign-in link",

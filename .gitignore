@@ -56,3 +56,8 @@ drizzle/.metadata
 
 # Private competition source material (screenshots, transcripts, Discord exports)
 .context-private/
+
+# local Cloudflare dev secrets (see .env.example) and captured magic links
+.dev.vars
+.dev.vars.*
+.dev-magic-links.log

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b3c03e03-b3a9-4ac8-8b1d-78995d2e45f6",
+  "id": "2bfffbbf-fb87-47ec-b748-5506b705a68e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "auth_accounts": {
@@ -275,25 +275,11 @@
           "notNull": true,
           "autoincrement": false
         },
-        "event_id": {
-          "name": "event_id",
+        "to": {
+          "name": "to",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "template_id": {
-          "name": "template_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "subject": {
@@ -303,11 +289,39 @@
           "notNull": true,
           "autoincrement": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "related_type": {
+          "name": "related_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "related_id": {
+          "name": "related_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "sent_at": {
@@ -319,48 +333,16 @@
           "default": "(unixepoch())"
         }
       },
-      "indexes": {},
-      "foreignKeys": {
-        "email_log_event_id_events_id_fk": {
-          "name": "email_log_event_id_events_id_fk",
-          "tableFrom": "email_log",
-          "tableTo": "events",
-          "columnsFrom": [
-            "event_id"
+      "indexes": {
+        "email_log_to_idx": {
+          "name": "email_log_to_idx",
+          "columns": [
+            "to"
           ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "email_log_user_id_users_id_fk": {
-          "name": "email_log_user_id_users_id_fk",
-          "tableFrom": "email_log",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "email_log_template_id_email_templates_id_fk": {
-          "name": "email_log_template_id_email_templates_id_fk",
-          "tableFrom": "email_log",
-          "tableTo": "email_templates",
-          "columnsFrom": [
-            "template_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "isUnique": false
         }
       },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -479,6 +461,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "start_date": {
+          "name": "start_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "timezone": {
           "name": "timezone",
           "type": "text",
@@ -487,27 +483,12 @@
           "autoincrement": false,
           "default": "'UTC'"
         },
-        "start_date": {
-          "name": "start_date",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "end_date": {
-          "name": "end_date",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
+        "location": {
+          "name": "location",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'draft'"
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -571,20 +552,19 @@
           "notNull": true,
           "autoincrement": false
         },
-        "schema": {
-          "name": "schema",
+        "welcome_copy": {
+          "name": "welcome_copy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fields": {
+          "name": "fields",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'draft'"
         },
         "opens_at": {
           "name": "opens_at",
@@ -599,6 +579,35 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "confirmation_page_content": {
+          "name": "confirmation_page_content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "confirmation_email_subject": {
+          "name": "confirmation_email_subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "confirmation_email_body": {
+          "name": "confirmation_email_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_published": {
+          "name": "is_published",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -617,7 +626,15 @@
           "default": "(unixepoch())"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "forms_slug_unique": {
+          "name": "forms_slug_unique",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "forms_event_id_events_id_fk": {
           "name": "forms_event_id_events_id_fk",
@@ -634,6 +651,73 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "reviewer_tracks": {
+      "name": "reviewer_tracks",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "track_id": {
+          "name": "track_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "reviewer_tracks_track_idx": {
+          "name": "reviewer_tracks_track_idx",
+          "columns": [
+            "track_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "reviewer_tracks_user_id_users_id_fk": {
+          "name": "reviewer_tracks_user_id_users_id_fk",
+          "tableFrom": "reviewer_tracks",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "reviewer_tracks_track_id_tracks_id_fk": {
+          "name": "reviewer_tracks_track_id_tracks_id_fk",
+          "tableFrom": "reviewer_tracks",
+          "tableTo": "tracks",
+          "columnsFrom": [
+            "track_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "reviewer_tracks_user_id_track_id_pk": {
+          "columns": [
+            "user_id",
+            "track_id"
+          ],
+          "name": "reviewer_tracks_user_id_track_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -661,23 +745,22 @@
           "notNull": true,
           "autoincrement": false
         },
-        "round": {
-          "name": "round",
+        "score": {
+          "name": "score",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "scores": {
-          "name": "scores",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
-        "comments": {
-          "name": "comments",
+        "comment": {
+          "name": "comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "recommendation": {
+          "name": "recommendation",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -700,7 +783,16 @@
           "default": "(unixepoch())"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "reviews_submission_reviewer_unq": {
+          "name": "reviews_submission_reviewer_unq",
+          "columns": [
+            "submission_id",
+            "reviewer_id"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "reviews_submission_id_submissions_id_fk": {
           "name": "reviews_submission_id_submissions_id_fk",
@@ -819,7 +911,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "session_speakers_user_idx": {
+          "name": "session_speakers_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "session_speakers_session_id_sessions_id_fk": {
           "name": "session_speakers_session_id_sessions_id_fk",
@@ -877,13 +977,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "submission_id": {
-          "name": "submission_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "title": {
           "name": "title",
           "type": "text",
@@ -898,22 +991,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "start_time": {
-          "name": "start_time",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "end_time": {
-          "name": "end_time",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "room_id": {
-          "name": "room_id",
+        "submission_id": {
+          "name": "submission_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -926,13 +1005,41 @@
           "notNull": false,
           "autoincrement": false
         },
+        "room_id": {
+          "name": "room_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "start_time": {
+          "name": "start_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "end_time": {
+          "name": "end_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'scheduled'"
+          "default": "'confirmed'"
         },
         "created_at": {
           "name": "created_at",
@@ -951,7 +1058,16 @@
           "default": "(unixepoch())"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "sessions_event_day_idx": {
+          "name": "sessions_event_day_idx",
+          "columns": [
+            "event_id",
+            "day"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "sessions_event_id_events_id_fk": {
           "name": "sessions_event_id_events_id_fk",
@@ -979,19 +1095,6 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "sessions_room_id_rooms_id_fk": {
-          "name": "sessions_room_id_rooms_id_fk",
-          "tableFrom": "sessions",
-          "tableTo": "rooms",
-          "columnsFrom": [
-            "room_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
         "sessions_track_id_tracks_id_fk": {
           "name": "sessions_track_id_tracks_id_fk",
           "tableFrom": "sessions",
@@ -1004,9 +1107,164 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
+        },
+        "sessions_room_id_rooms_id_fk": {
+          "name": "sessions_room_id_rooms_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "rooms",
+          "columnsFrom": [
+            "room_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "submission_speakers": {
+      "name": "submission_speakers",
+      "columns": {
+        "submission_id": {
+          "name": "submission_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'co'"
+        }
+      },
+      "indexes": {
+        "submission_speakers_user_idx": {
+          "name": "submission_speakers_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "submission_speakers_submission_id_submissions_id_fk": {
+          "name": "submission_speakers_submission_id_submissions_id_fk",
+          "tableFrom": "submission_speakers",
+          "tableTo": "submissions",
+          "columnsFrom": [
+            "submission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "submission_speakers_user_id_users_id_fk": {
+          "name": "submission_speakers_user_id_users_id_fk",
+          "tableFrom": "submission_speakers",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "submission_speakers_submission_id_user_id_pk": {
+          "columns": [
+            "submission_id",
+            "user_id"
+          ],
+          "name": "submission_speakers_submission_id_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "submission_tracks": {
+      "name": "submission_tracks",
+      "columns": {
+        "submission_id": {
+          "name": "submission_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "track_id": {
+          "name": "track_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "submission_tracks_track_idx": {
+          "name": "submission_tracks_track_idx",
+          "columns": [
+            "track_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "submission_tracks_submission_id_submissions_id_fk": {
+          "name": "submission_tracks_submission_id_submissions_id_fk",
+          "tableFrom": "submission_tracks",
+          "tableTo": "submissions",
+          "columnsFrom": [
+            "submission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "submission_tracks_track_id_tracks_id_fk": {
+          "name": "submission_tracks_track_id_tracks_id_fk",
+          "tableFrom": "submission_tracks",
+          "tableTo": "tracks",
+          "columnsFrom": [
+            "track_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "submission_tracks_submission_id_track_id_pk": {
+          "columns": [
+            "submission_id",
+            "track_id"
+          ],
+          "name": "submission_tracks_submission_id_track_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -1034,13 +1292,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "submitter_id": {
-          "name": "submitter_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "title": {
           "name": "title",
           "type": "text",
@@ -1048,11 +1299,18 @@
           "notNull": true,
           "autoincrement": false
         },
-        "category": {
-          "name": "category",
+        "description": {
+          "name": "description",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false
+        },
+        "answers": {
+          "name": "answers",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false
         },
         "status": {
@@ -1063,11 +1321,25 @@
           "autoincrement": false,
           "default": "'draft'"
         },
-        "answers": {
-          "name": "answers",
+        "decided_by": {
+          "name": "decided_by",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decision_note": {
+          "name": "decision_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -1087,7 +1359,23 @@
           "default": "(unixepoch())"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "submissions_event_status_idx": {
+          "name": "submissions_event_status_idx",
+          "columns": [
+            "event_id",
+            "status"
+          ],
+          "isUnique": false
+        },
+        "submissions_form_idx": {
+          "name": "submissions_form_idx",
+          "columns": [
+            "form_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "submissions_event_id_events_id_fk": {
           "name": "submissions_event_id_events_id_fk",
@@ -1115,17 +1403,17 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "submissions_submitter_id_users_id_fk": {
-          "name": "submissions_submitter_id_users_id_fk",
+        "submissions_decided_by_users_id_fk": {
+          "name": "submissions_decided_by_users_id_fk",
           "tableFrom": "submissions",
           "tableTo": "users",
           "columnsFrom": [
-            "submitter_id"
+            "decided_by"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1150,8 +1438,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "user_id": {
-          "name": "user_id",
+        "speaker_id": {
+          "name": "speaker_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -1168,6 +1456,20 @@
         "completed_at": {
           "name": "completed_at",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "response_json": {
+          "name": "response_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "file_url": {
+          "name": "file_url",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1189,7 +1491,23 @@
           "default": "(unixepoch())"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "task_assignments_speaker_idx": {
+          "name": "task_assignments_speaker_idx",
+          "columns": [
+            "speaker_id"
+          ],
+          "isUnique": false
+        },
+        "task_assignments_task_speaker_unq": {
+          "name": "task_assignments_task_speaker_unq",
+          "columns": [
+            "task_id",
+            "speaker_id"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "task_assignments_task_id_tasks_id_fk": {
           "name": "task_assignments_task_id_tasks_id_fk",
@@ -1204,12 +1522,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "task_assignments_user_id_users_id_fk": {
-          "name": "task_assignments_user_id_users_id_fk",
+        "task_assignments_speaker_id_users_id_fk": {
+          "name": "task_assignments_speaker_id_users_id_fk",
           "tableFrom": "task_assignments",
           "tableTo": "users",
           "columnsFrom": [
-            "user_id"
+            "speaker_id"
           ],
           "columnsTo": [
             "id"
@@ -1239,19 +1557,27 @@
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
+        "title": {
+          "name": "title",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "description": {
-          "name": "description",
+        "instructions": {
+          "name": "instructions",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'confirm'"
         },
         "form_id": {
           "name": "form_id",
@@ -1260,12 +1586,20 @@
           "notNull": false,
           "autoincrement": false
         },
-        "due_date": {
-          "name": "due_date",
+        "due_at": {
+          "name": "due_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "auto_assign_on_accept": {
+          "name": "auto_assign_on_accept",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
         },
         "created_at": {
           "name": "created_at",
@@ -1448,6 +1782,13 @@
         },
         "headshot_url": {
           "name": "headshot_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "socials": {
+          "name": "socials",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

@@ -111,6 +111,12 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Newer direct organizer statements take precedence over the brief; the competition rewards a working vertical workflow over breadth.
 
+## D-018: UI system — shadcn/ui + CSS-variable theme tokens — **accepted** (2026-08-08)
+
+**Decision:** All UI is built from shadcn/ui components (Tailwind v4, CSS-variables mode). Colors/typography flow exclusively through the semantic token set in globals.css (`--primary`, `--accent`, `--muted`, …); components never use raw palette classes (no `bg-green-600`), only token classes (`bg-primary`, `text-muted-foreground`). The brand direction (see design-directions artifact) is applied by swapping the token block only.
+
+**Rationale:** Owner directive; guarantees visual consistency across parallel waves built by different subagents (D-008), and makes the chosen design direction — or any future rebrand — a token-file change rather than a sweep through components.
+
 # Appendix: Known divergences from Sessionboard
 
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.

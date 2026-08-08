@@ -38,8 +38,8 @@ export function buildReminderEmail(candidate: ReminderCandidate): {
   // (repos.emailTemplates.listByTrigger) instead of hardcoding copy, and
   // run it through renderTemplate with the task/deadline merge fields.
   return {
-    subject: `Reminder: "${candidate.task.name}" is due soon`,
-    html: `<p>Hi ${candidate.user.name ?? "there"},</p><p>Your task "${candidate.task.name}" is still incomplete.</p>`,
+    subject: `Reminder: "${candidate.task.title}" is due soon`,
+    html: `<p>Hi ${candidate.user.name ?? "there"},</p><p>Your task "${candidate.task.title}" is still incomplete.</p>`,
   };
 }
 

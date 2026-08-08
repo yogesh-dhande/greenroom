@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
+    // Off on purpose: it keeps TypeScript from resolving the generated
+    // .open-next/worker.js, so custom-worker.ts type-checks identically
+    // before and after `opennextjs-cloudflare build`.
+    "allowJs": false,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,

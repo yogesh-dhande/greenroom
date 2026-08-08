@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { formSchema, type NewForm } from "@/db/entities";
 import { forms } from "@/db/schema";
 import type { FormsRepo } from "@/db/repos/forms";
@@ -10,21 +10,21 @@ export function createFormsRepo(db: DrizzleD1): FormsRepo {
       const row = await db.query.forms.findFirst({ where: eq(forms.id, id) });
       return row ? formSchema.parse(row) : null;
     },
-    async getBySlug(eventId, slug) {
-      const row = await db.query.forms.findFirst({
-        where: and(eq(forms.eventId, eventId), eq(forms.slug, slug)),
-      });
+    async getBySlug(slug) {
+      const row = await db.query.forms.findFirst({ where: eq(forms.slug, slug) });
       return row ? formSchema.parse(row) : null;
     },
     async listByEvent(eventId) {
       const rows = await db.query.forms.findMany({
         where: eq(forms.eventId, eventId),
+        orderBy: [asc(forms.name)],
       });
       return rows.map((r) => formSchema.parse(r));
     },
-    async listByStatus(eventId, status) {
+    async listPublishedByEvent(eventId) {
       const rows = await db.query.forms.findMany({
-        where: and(eq(forms.eventId, eventId), eq(forms.status, status)),
+        where: and(eq(forms.eventId, eventId), eq(forms.isPublished, true)),
+        orderBy: [asc(forms.name)],
       });
       return rows.map((r) => formSchema.parse(r));
     },

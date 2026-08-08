@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { taskSchema, type NewTask } from "@/db/entities";
 import { tasks } from "@/db/schema";
 import type { TasksRepo } from "@/db/repos/tasks";
@@ -13,6 +13,14 @@ export function createTasksRepo(db: DrizzleD1): TasksRepo {
     async listByEvent(eventId) {
       const rows = await db.query.tasks.findMany({
         where: eq(tasks.eventId, eventId),
+        orderBy: [asc(tasks.dueAt), asc(tasks.title)],
+      });
+      return rows.map((r) => taskSchema.parse(r));
+    },
+    async listAutoAssignByEvent(eventId) {
+      const rows = await db.query.tasks.findMany({
+        where: and(eq(tasks.eventId, eventId), eq(tasks.autoAssignOnAccept, true)),
+        orderBy: [asc(tasks.dueAt), asc(tasks.title)],
       });
       return rows.map((r) => taskSchema.parse(r));
     },

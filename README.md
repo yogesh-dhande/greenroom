@@ -9,6 +9,8 @@ decisions and their rationale.
 ## Stack
 
 - **Framework:** Next.js (App Router) + TypeScript (strict) + Tailwind CSS
+- **UI:** shadcn/ui (`src/components/ui`, CSS-variables mode) — all colors
+  come from the semantic token set in `src/app/globals.css`
 - **Deployment:** Cloudflare Workers via the OpenNext adapter
   (`@opennextjs/cloudflare`) — D1 (binding `DB`), R2 (binding `FILES`), and a
   cron trigger for reminders (see `wrangler.jsonc`)
@@ -40,14 +42,45 @@ Swapping the datastore means adding a sibling of `src/db/repos/d1/` with the
 same interfaces implemented against the new store — no changes to
 `src/app/` or `src/domain/`.
 
-## Getting started
+## Running locally
 
 ```bash
 npm install                # also generates worker-configuration.d.ts (postinstall)
 cp .env.example .dev.vars  # fill in BETTER_AUTH_SECRET at minimum
-npm run db:migrate:local   # apply migrations to the local D1 database
+npm run seed               # reset local D1, apply migrations, load demo data
 npm run dev                # http://localhost:3000
 ```
+
+`npm run seed` is destructive by design: it deletes the local D1 state
+(`.wrangler/state/v3/d1`), re-applies every migration, and writes a full demo
+event — "AI Engineer Summit 2026" with 3 tracks, 4 rooms, a published call for
+speakers, 15 submissions across every status, 6 sessions (3 scheduled, 3 not),
+3 onboarding tasks with assignments in mixed states, and a few email log rows.
+It seeds through the repository layer, so it also exercises every D1 adapter.
+To apply migrations without wiping data, use `npm run db:migrate:local`.
+
+### Signing in
+
+There are no passwords — every role signs in with a magic link
+(see [decisions.md](decisions.md) D-007). In development there is no mail
+provider, so each requested link is printed to the dev-server console **and**
+appended to `.dev-magic-links.log` (gitignored):
+
+```bash
+# 1. open http://localhost:3000/login and request a link for one of:
+#      admin@greenroom.dev      (admin  -> /admin)
+#      dana@greenroom.dev       (reviewer -> /admin, no event settings)
+#      priya.raman@example.com  (speaker -> /portal)
+# 2. grab the newest link and open it
+tail -n 1 .dev-magic-links.log | cut -f3
+```
+
+Signing in lands on `/dashboard`, which forwards to `/admin` or `/portal`
+depending on the role. Anonymous requests to either area redirect to `/login`.
+
+> The magic-link URL is built from `BETTER_AUTH_URL` in `.dev.vars`, so if you
+> run the dev server on a port other than 3000, change that value to match or
+> the links will point at the wrong origin.
 
 ## Scripts
 
@@ -57,6 +90,8 @@ npm run dev                # http://localhost:3000
 | `npm run build`             | Production Next.js build                                   |
 | `npm run lint`              | ESLint                                                      |
 | `npm run typecheck`         | `tsc --noEmit`                                              |
+| `npm run seed`              | Reset the local D1 database and load the demo event         |
+| `npm run db:reset:local`    | Delete the local D1 state (`.wrangler/state/v3/d1`)         |
 | `npm run db:generate`       | Generate a Drizzle migration from `src/db/schema.ts`        |
 | `npm run db:migrate:local`  | Apply migrations to the local D1 database (`wrangler d1`)   |
 | `npm run db:migrate:remote` | Apply migrations to the remote D1 database                  |

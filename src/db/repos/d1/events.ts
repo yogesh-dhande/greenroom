@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { eventSchema, type Event, type NewEvent } from "@/db/entities";
+import { asc, eq } from "drizzle-orm";
+import { eventSchema, type NewEvent } from "@/db/entities";
 import { events } from "@/db/schema";
 import type { EventsRepo } from "@/db/repos/events";
 import type { DrizzleD1 } from "./client";
@@ -11,16 +11,14 @@ export function createEventsRepo(db: DrizzleD1): EventsRepo {
       return row ? eventSchema.parse(row) : null;
     },
     async getBySlug(slug) {
-      const row = await db.query.events.findFirst({
-        where: eq(events.slug, slug),
-      });
+      const row = await db.query.events.findFirst({ where: eq(events.slug, slug) });
       return row ? eventSchema.parse(row) : null;
     },
     async listAll() {
-      const rows = await db.query.events.findMany();
+      const rows = await db.query.events.findMany({ orderBy: [asc(events.startDate)] });
       return rows.map((r) => eventSchema.parse(r));
     },
-    async create(input: NewEvent): Promise<Event> {
+    async create(input: NewEvent) {
       const [row] = await db.insert(events).values(input).returning();
       return eventSchema.parse(row);
     },

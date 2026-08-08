@@ -39,17 +39,17 @@ CREATE TABLE `auth_verifications` (
 --> statement-breakpoint
 CREATE TABLE `email_log` (
 	`id` text PRIMARY KEY NOT NULL,
-	`event_id` text NOT NULL,
-	`user_id` text NOT NULL,
-	`template_id` text,
+	`to` text NOT NULL,
 	`subject` text NOT NULL,
+	`kind` text NOT NULL,
+	`related_type` text,
+	`related_id` text,
 	`status` text NOT NULL,
-	`sent_at` integer DEFAULT (unixepoch()) NOT NULL,
-	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`template_id`) REFERENCES `email_templates`(`id`) ON UPDATE no action ON DELETE set null
+	`error` text,
+	`sent_at` integer DEFAULT (unixepoch()) NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX `email_log_to_idx` ON `email_log` (`to`);--> statement-breakpoint
 CREATE TABLE `email_templates` (
 	`id` text PRIMARY KEY NOT NULL,
 	`event_id` text NOT NULL,
@@ -67,10 +67,10 @@ CREATE TABLE `events` (
 	`name` text NOT NULL,
 	`slug` text NOT NULL,
 	`description` text,
+	`start_date` text,
+	`end_date` text,
 	`timezone` text DEFAULT 'UTC' NOT NULL,
-	`start_date` integer,
-	`end_date` integer,
-	`status` text DEFAULT 'draft' NOT NULL,
+	`location` text,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL
 );
@@ -81,28 +81,43 @@ CREATE TABLE `forms` (
 	`event_id` text NOT NULL,
 	`name` text NOT NULL,
 	`slug` text NOT NULL,
-	`schema` text NOT NULL,
-	`status` text DEFAULT 'draft' NOT NULL,
+	`welcome_copy` text,
+	`fields` text NOT NULL,
 	`opens_at` integer,
 	`closes_at` integer,
+	`confirmation_page_content` text,
+	`confirmation_email_subject` text,
+	`confirmation_email_body` text,
+	`is_published` integer DEFAULT false NOT NULL,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `forms_slug_unique` ON `forms` (`slug`);--> statement-breakpoint
+CREATE TABLE `reviewer_tracks` (
+	`user_id` text NOT NULL,
+	`track_id` text NOT NULL,
+	PRIMARY KEY(`user_id`, `track_id`),
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`track_id`) REFERENCES `tracks`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `reviewer_tracks_track_idx` ON `reviewer_tracks` (`track_id`);--> statement-breakpoint
 CREATE TABLE `reviews` (
 	`id` text PRIMARY KEY NOT NULL,
 	`submission_id` text NOT NULL,
 	`reviewer_id` text NOT NULL,
-	`round` integer DEFAULT 1 NOT NULL,
-	`scores` text NOT NULL,
-	`comments` text,
+	`score` integer,
+	`comment` text,
+	`recommendation` text,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`submission_id`) REFERENCES `submissions`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`reviewer_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `reviews_submission_reviewer_unq` ON `reviews` (`submission_id`,`reviewer_id`);--> statement-breakpoint
 CREATE TABLE `rooms` (
 	`id` text PRIMARY KEY NOT NULL,
 	`event_id` text NOT NULL,
@@ -121,60 +136,92 @@ CREATE TABLE `session_speakers` (
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `session_speakers_user_idx` ON `session_speakers` (`user_id`);--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`event_id` text NOT NULL,
-	`submission_id` text,
 	`title` text NOT NULL,
 	`description` text,
-	`start_time` integer,
-	`end_time` integer,
-	`room_id` text,
+	`submission_id` text,
 	`track_id` text,
-	`status` text DEFAULT 'scheduled' NOT NULL,
+	`room_id` text,
+	`day` text,
+	`start_time` text,
+	`end_time` text,
+	`status` text DEFAULT 'confirmed' NOT NULL,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`submission_id`) REFERENCES `submissions`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`room_id`) REFERENCES `rooms`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`track_id`) REFERENCES `tracks`(`id`) ON UPDATE no action ON DELETE set null
+	FOREIGN KEY (`track_id`) REFERENCES `tracks`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`room_id`) REFERENCES `rooms`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
+CREATE INDEX `sessions_event_day_idx` ON `sessions` (`event_id`,`day`);--> statement-breakpoint
+CREATE TABLE `submission_speakers` (
+	`submission_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`role` text DEFAULT 'co' NOT NULL,
+	PRIMARY KEY(`submission_id`, `user_id`),
+	FOREIGN KEY (`submission_id`) REFERENCES `submissions`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `submission_speakers_user_idx` ON `submission_speakers` (`user_id`);--> statement-breakpoint
+CREATE TABLE `submission_tracks` (
+	`submission_id` text NOT NULL,
+	`track_id` text NOT NULL,
+	PRIMARY KEY(`submission_id`, `track_id`),
+	FOREIGN KEY (`submission_id`) REFERENCES `submissions`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`track_id`) REFERENCES `tracks`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `submission_tracks_track_idx` ON `submission_tracks` (`track_id`);--> statement-breakpoint
 CREATE TABLE `submissions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`event_id` text NOT NULL,
 	`form_id` text NOT NULL,
-	`submitter_id` text NOT NULL,
 	`title` text NOT NULL,
-	`category` text,
-	`status` text DEFAULT 'draft' NOT NULL,
+	`description` text,
 	`answers` text NOT NULL,
+	`status` text DEFAULT 'draft' NOT NULL,
+	`decided_by` text,
+	`decided_at` integer,
+	`decision_note` text,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`form_id`) REFERENCES `forms`(`id`) ON UPDATE no action ON DELETE restrict,
-	FOREIGN KEY (`submitter_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict
+	FOREIGN KEY (`decided_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
+CREATE INDEX `submissions_event_status_idx` ON `submissions` (`event_id`,`status`);--> statement-breakpoint
+CREATE INDEX `submissions_form_idx` ON `submissions` (`form_id`);--> statement-breakpoint
 CREATE TABLE `task_assignments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`task_id` text NOT NULL,
-	`user_id` text NOT NULL,
+	`speaker_id` text NOT NULL,
 	`status` text DEFAULT 'pending' NOT NULL,
 	`completed_at` integer,
+	`response_json` text,
+	`file_url` text,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`speaker_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `task_assignments_speaker_idx` ON `task_assignments` (`speaker_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `task_assignments_task_speaker_unq` ON `task_assignments` (`task_id`,`speaker_id`);--> statement-breakpoint
 CREATE TABLE `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`event_id` text NOT NULL,
-	`name` text NOT NULL,
-	`description` text,
+	`title` text NOT NULL,
+	`instructions` text,
+	`type` text DEFAULT 'confirm' NOT NULL,
 	`form_id` text,
-	`due_date` integer,
+	`due_at` integer,
+	`auto_assign_on_accept` integer DEFAULT true NOT NULL,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
 	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -201,6 +248,7 @@ CREATE TABLE `users` (
 	`company` text,
 	`bio` text,
 	`headshot_url` text,
+	`socials` text,
 	`image` text,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL

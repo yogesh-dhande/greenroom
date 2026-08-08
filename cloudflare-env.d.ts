@@ -6,5 +6,7 @@
 // See .env.example for the full list.
 interface CloudflareEnv {
   BETTER_AUTH_SECRET: string;
+  /** Origin better-auth builds magic-link callback URLs from. */
+  BETTER_AUTH_URL?: string;
   RESEND_API_KEY?: string;
 }

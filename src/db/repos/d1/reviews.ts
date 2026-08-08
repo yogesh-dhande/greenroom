@@ -16,17 +16,17 @@ export function createReviewsRepo(db: DrizzleD1): ReviewsRepo {
       });
       return rows.map((r) => reviewSchema.parse(r));
     },
-    async listBySubmissionAndRound(submissionId, round) {
-      const rows = await db.query.reviews.findMany({
-        where: and(eq(reviews.submissionId, submissionId), eq(reviews.round, round)),
-      });
-      return rows.map((r) => reviewSchema.parse(r));
-    },
     async listByReviewer(reviewerId) {
       const rows = await db.query.reviews.findMany({
         where: eq(reviews.reviewerId, reviewerId),
       });
       return rows.map((r) => reviewSchema.parse(r));
+    },
+    async getByReviewer(submissionId, reviewerId) {
+      const row = await db.query.reviews.findFirst({
+        where: and(eq(reviews.submissionId, submissionId), eq(reviews.reviewerId, reviewerId)),
+      });
+      return row ? reviewSchema.parse(row) : null;
     },
     async create(input: NewReview) {
       const [row] = await db.insert(reviews).values(input).returning();
