@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "greenroom",
+  // Custom entry that wraps the OpenNext-generated fetch handler with a
+  // `scheduled` handler for cron-triggered reminders (see custom-worker.ts).
+  "main": "./custom-worker.ts",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  // Primary datastore (decisions.md D-002). Placeholder database_id — replace
+  // after running `wrangler d1 create greenroom` and updating this file.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "greenroom",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Headshots, slides, and supporting documents (spec.md §2, decisions.md
+  // "File storage"). Also backs the R2 incremental cache (open-next.config.ts).
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "greenroom-files"
+    }
+  ],
+  // Deadline reminders for speakers with incomplete tasks (spec.md §3,
+  // decisions.md D-013). Runs the domain/comms reminder job every 15 minutes.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "greenroom",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "wrangler types --env-interface CloudflareEnv",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.7.1",
+    "better-auth": "^1.6.26",
+    "drizzle-orm": "^0.45.2",
+    "next": "16.3.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-hook-form": "^7.85.0",
+    "resend": "^6.18.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260808.1",
+    "@opennextjs/cloudflare": "^1.20.2",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wrangler": "^4.120.0"
+  }
+}
