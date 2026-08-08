@@ -117,6 +117,12 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Owner directive; guarantees visual consistency across parallel waves built by different subagents (D-008), and makes the chosen design direction — or any future rebrand — a token-file change rather than a sweep through components.
 
+## D-019: Brand direction — "House Lights" with dense tables — **accepted** (2026-08-08)
+
+**Decision:** Of the four mocked-up directions (see design-directions artifact), the owner chose **A "House Lights"** — warm paper ground (`#F7F6F1`), stage-green primary (`#1F5D45`), amber for attention states (`#C08A2E`), IBM Plex Sans + IBM Plex Mono — combined with **C "Call Sheet"'s table density** (compact rows, uppercase-free small headers, tabular numerals). Implemented per D-018 as the token block in `src/app/globals.css` (plus a matching dark variant), fonts in `src/app/layout.tsx`, and density tweaks in the table primitive. An extra semantic `warning` token pair carries the amber so status UI never hardcodes it.
+
+**Rationale:** Owner choice 2026-08-08. Green-room/stage identity fits the product name; the calm warm ground keeps long admin sessions comfortable while amber flags attention states; Plex is a workhorse family with a matching mono for IDs/times.
+
 # Appendix: Known divergences from Sessionboard
 
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.

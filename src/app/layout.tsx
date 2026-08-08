@@ -1,19 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-// `--font-sans` / `--font-mono` are the names globals.css maps into the
-// Tailwind theme (@theme inline), so the font utilities and every shadcn
-// component pick these up automatically.
-const geistSans = Geist({
-  variable: "--font-sans",
+// These variable names must match what globals.css maps into the Tailwind
+// theme (`--font-sans: var(--font-plex-sans)` etc. in @theme inline) — a
+// mismatch silently falls back to system fonts (see learnings.md).
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
+  weight: ["400", "500", "600", "700"],
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  weight: ["400", "500"],
   subsets: ["latin"],
 });
 
@@ -26,7 +28,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${plexSans.variable} ${plexMono.variable} h-full antialiased`}
       // next-themes writes the theme class on <html> after hydration.
       suppressHydrationWarning
     >
