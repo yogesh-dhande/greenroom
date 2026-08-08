@@ -34,6 +34,16 @@ Expected: pass a timezone to `ics@3.12`, get `DTSTART;TZID=…` plus a VTIMEZONE
 
 Expected: when a `{{#field}}`/`{{/field}}` pair sits on its own lines, dropping just the tags preserves layout. Actually: each dropped tag consumes one newline, so two paragraphs merged into a single run-on block in the rendered email — invisible in a code diff, obvious to a recipient. Fix: consume the whole standalone *block* line including its trailing newline (Mustache's own standalone-line semantics); a regression test now asserts no built-in template renders `[a-z].\n[A-Z]`.
 
+## dnd-kit: three behaviors that cost real debugging (2026-08-08)
+
+1. **A disabled draggable still poisons its element.** Expected: `useDraggable({ disabled: true })` just prevents drags. Actual: spreading its `attributes` still applies `aria-disabled="true"`, so a read-only card announced itself as a disabled button and Playwright refused to click it (`element is not enabled`, 60s timeout). Fix: only spread `attributes`/`listeners` when dragging is allowed.
+2. **Hydration-unstable ids without an explicit `<DndContext id>`.** The default `aria-describedby` ids come from a module-level counter that differs between server and client render → React attribute-mismatch warning on every page load. A constant `id` prop removes it.
+3. **Auto-scroll relocates drop targets mid-drag in tests.** A programmatic drag aimed at a 10:00 slot landed at 16:00 in another room: the pointer nearing the viewport edge auto-scrolled the board after coordinates were measured. Fix for deterministic drag tests: size the viewport so the grid fits with no scroll container.
+
+## Miniflare's D1 binding wedges if the sqlite file is reseeded under a running dev server (2026-08-08)
+
+Expected: reseeding local D1 (`npm run seed`) is safe anytime; the next request just sees new data. Actual: a dev server that was already running starts failing every write with `internal error` (e.g. `insert into "auth_verifications"…`) while the identical statement succeeds via `wrangler d1 execute --local`. Only restarting the dev server clears it. Direct consequence for parallel agents sharing one local DB: never reseed while someone else's dev server is up.
+
 ## Resend attachments: `contentType` camelCase, base64 string content, no raw MIME (2026-08-08)
 
 Expected: set an attachment's MIME type via a `Content-Type` entry in Resend's `headers`. Actually: that returns a 500 "Duplicate header"; the only channel is the attachment's own `contentType` (camelCase) field, with `content` as a base64 *string*. Resend also has no raw-MIME endpoint, so the classic Gmail-friendly `multipart/alternative` with a `text/calendar` sibling part is unreachable — calendar invites must ship as a `text/calendar; method=REQUEST` attachment (D-020).

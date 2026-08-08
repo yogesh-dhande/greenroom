@@ -22,4 +22,7 @@ export interface SessionsRepo {
   listSpeakersBySessionIds(sessionIds: string[]): Promise<SessionSpeaker[]>;
   assignSpeaker(sessionId: string, userId: string): Promise<void>;
   unassignSpeaker(sessionId: string, userId: string): Promise<void>;
+  /** Replaces a session's whole speaker set in one call — what direct session
+   * entry (spec.md §5) and speaker editing need. */
+  setSpeakers(sessionId: string, userIds: string[]): Promise<void>;
 }

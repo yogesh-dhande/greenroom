@@ -109,5 +109,14 @@ export function createSessionsRepo(db: DrizzleD1): SessionsRepo {
         .delete(sessionSpeakers)
         .where(and(eq(sessionSpeakers.sessionId, sessionId), eq(sessionSpeakers.userId, userId)));
     },
+    async setSpeakers(sessionId, userIds) {
+      await db.delete(sessionSpeakers).where(eq(sessionSpeakers.sessionId, sessionId));
+      const unique = [...new Set(userIds)];
+      if (unique.length === 0) return;
+      await db
+        .insert(sessionSpeakers)
+        .values(unique.map((userId) => ({ sessionId, userId })))
+        .onConflictDoNothing();
+    },
   };
 }

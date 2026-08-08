@@ -35,13 +35,13 @@ test("admin manages tracks in event settings", async ({ page }) => {
   await page.getByRole("dialog").getByLabel("Name").fill("E2E Track");
   await page.getByRole("dialog").getByRole("button", { name: "Add track" }).click();
   await expect(page.getByText("Track added")).toBeVisible();
-  await expect(page.getByRole("cell", { name: "E2E Track" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "E2E Track", exact: true })).toBeVisible();
 
   // An unreferenced track deletes cleanly after confirmation.
   await page.getByRole("button", { name: "Delete E2E Track" }).click();
   await page.getByRole("button", { name: "Delete track" }).click();
   await expect(page.getByText("Track deleted")).toBeVisible();
-  await expect(page.getByRole("cell", { name: "E2E Track" })).toHaveCount(0);
+  await expect(page.getByRole("cell", { name: "E2E Track", exact: true })).toHaveCount(0);
 });
 
 test("deleting a referenced track is blocked with an explanation", async ({ page }) => {
@@ -55,7 +55,7 @@ test("deleting a referenced track is blocked with an explanation", async ({ page
   await page.getByRole("button", { name: "Delete AI Engineering" }).click();
   await page.getByRole("button", { name: "Delete track" }).click();
   await expect(page.getByText(/still used by/)).toBeVisible();
-  await expect(page.getByRole("cell", { name: "AI Engineering" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "AI Engineering", exact: true })).toBeVisible();
 });
 
 test("reviewers see events but no admin-only affordances", async ({ page }) => {

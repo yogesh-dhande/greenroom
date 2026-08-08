@@ -17,6 +17,13 @@ if (!existsSync(DEV_VARS)) {
   process.exit(1);
 }
 
+// A leftover backup means a previous run died before restoring — the backup
+// is the pristine file, so recover from it instead of re-backing-up the
+// already-swapped .dev.vars (which would bake the e2e port in permanently).
+if (existsSync(BACKUP)) {
+  copyFileSync(BACKUP, DEV_VARS);
+}
+
 // Swap the auth origin, keeping a backup to restore on exit.
 copyFileSync(DEV_VARS, BACKUP);
 const swapped = readFileSync(DEV_VARS, "utf8").replace(
