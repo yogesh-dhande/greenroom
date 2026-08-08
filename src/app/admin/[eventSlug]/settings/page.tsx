@@ -1,20 +1,11 @@
 import { notFound } from "next/navigation";
 import { getRepos } from "@/lib/db";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent } from "@/components/ui/card";
-import { formatDateRange } from "@/components/date-format";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/session";
-
-function DefRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:gap-4">
-      <dt className="w-40 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </dt>
-      <dd className="text-sm text-foreground">{value}</dd>
-    </div>
-  );
-}
+import { EventDetailsForm } from "./event-details-form";
+import { TracksManager } from "./tracks-manager";
+import { RoomsManager } from "./rooms-manager";
 
 export default async function SettingsPage({
   params,
@@ -29,22 +20,47 @@ export default async function SettingsPage({
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) notFound();
 
+  const [tracks, rooms] = await Promise.all([
+    repos.tracks.listByEvent(event.id),
+    repos.rooms.listByEvent(event.id),
+  ]);
+
   return (
-    <div>
+    <div className="flex max-w-3xl flex-col gap-6">
       <PageHeader
         title="Settings"
-        description="Event identity, dates, and location. Editing lands in a later wave."
+        description="Event identity, dates, tracks, and rooms."
       />
+
       <Card>
+        <CardHeader>
+          <CardTitle>Event details</CardTitle>
+          <CardDescription>Name, URL, dates, timezone, and location.</CardDescription>
+        </CardHeader>
         <CardContent>
-          <dl className="divide-y divide-border">
-            <DefRow label="Name" value={event.name} />
-            <DefRow label="Slug" value={event.slug} />
-            <DefRow label="Dates" value={formatDateRange(event.startDate, event.endDate)} />
-            <DefRow label="Timezone" value={event.timezone} />
-            <DefRow label="Location" value={event.location ?? "Not set"} />
-            <DefRow label="Description" value={event.description ?? "Not set"} />
-          </dl>
+          <EventDetailsForm event={event} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tracks</CardTitle>
+          <CardDescription>
+            Content areas submissions are grouped into (e.g. &quot;AI Engineering&quot;).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TracksManager eventSlug={eventSlug} eventId={event.id} tracks={tracks} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Rooms</CardTitle>
+          <CardDescription>Physical or virtual spaces sessions can be scheduled into.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RoomsManager eventSlug={eventSlug} eventId={event.id} rooms={rooms} />
         </CardContent>
       </Card>
     </div>
