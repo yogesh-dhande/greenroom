@@ -38,6 +38,12 @@
     {
       "binding": "FILES",
       "bucket_name": "greenroom-files"
+    },
+    // OpenNext's R2 incremental cache reads this exact binding name; it
+    // shares the files bucket, writing under its own key prefix.
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "greenroom-files"
     }
   ],
   // Deadline reminders for speakers with incomplete tasks (spec.md §3,
