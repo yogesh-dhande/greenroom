@@ -49,14 +49,17 @@ export default async function ResumeDraftPage({
     <SubmitShell eventName={event.name} formName={form.name} welcomeCopy={form.welcomeCopy}>
       {state !== "open" ? (
         <>
-          <ClosedNotice
-            state={state}
-            opensAt={form.opensAt}
-            closesAt={form.closesAt}
-            timezone={event.timezone}
-          />
+          <ClosedNotice form={form} timezone={event.timezone} />
           <p className="mt-4 text-sm text-muted-foreground">
-            Your draft is safe, but it can&apos;t be submitted now that the call has closed.
+            Your draft is safe, but it can&apos;t be submitted right now.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <Link
+              href={`/p/${event.slug}`}
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              View {event.name}&apos;s public program
+            </Link>
           </p>
         </>
       ) : (

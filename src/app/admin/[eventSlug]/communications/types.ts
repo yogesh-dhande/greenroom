@@ -98,6 +98,8 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
   /** The manual "Remind reviewers" nudge from a round's assignments page (D-050). */
   round_reminder: "Reviewer reminder",
   calendar_invite: "Calendar invite",
+  /** The Team page's "Add a teammate" invitation email (D-062). */
+  team_invite: "Team invite",
   manual: "One-off message",
 };
 
@@ -107,6 +109,7 @@ export const LOG_KIND_ORDER: EmailKind[] = [
   "change_request",
   "task_digest",
   "round_reminder",
+  "team_invite",
   "task_reminder",
   "draft_reminder",
   "calendar_invite",

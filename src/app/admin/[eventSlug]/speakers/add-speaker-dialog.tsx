@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { addSpeaker } from "./actions";
+import { ActionTimeoutError, withActionTimeout } from "./action-timeout";
 
 const formSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
@@ -47,7 +48,19 @@ export function AddSpeakerDialog({ eventSlug }: { eventSlug: string }) {
   } = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: EMPTY });
 
   async function onSubmit(values: FormValues) {
-    const result = await addSpeaker(eventSlug, values);
+    let result;
+    try {
+      result = await withActionTimeout(addSpeaker(eventSlug, values));
+    } catch (error) {
+      if (error instanceof ActionTimeoutError) {
+        const message =
+          "The server didn't respond. Check the roster before trying again — the speaker may have been added.";
+        setError("root", { message });
+        toast.error(message);
+        return;
+      }
+      throw error;
+    }
     if (!result.ok) {
       setError("root", { message: result.error });
       toast.error(result.error);

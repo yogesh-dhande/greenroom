@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Submission } from "@/db/entities";
+import { closureIsDateDriven, formWindowState, type FormWindow } from "@/domain/forms";
 import { formatDeadline } from "@/lib/event-time";
 
 /**
@@ -94,32 +95,37 @@ export function DraftResumeNotice({ drafts }: { drafts: Submission[] }) {
   );
 }
 
-/** The friendly closed page (spec.md §2 — a submission window that has not
- * opened yet reads very differently from one that has passed). */
-export function ClosedNotice({
-  state,
-  opensAt,
-  closesAt,
-  timezone,
-}: {
-  state: string;
-  opensAt: Date | null;
-  closesAt: Date | null;
-  timezone: string;
-}) {
+/**
+ * The friendly closed page (spec.md §2, decisions.md D-063) — a submission
+ * window that hasn't opened yet, one that has passed, and a form that was
+ * never published all read differently, and only the second one ever cites a
+ * date.
+ *
+ * Takes the raw form window rather than a pre-computed state so it always
+ * agrees with `formWindowState`/`closureIsDateDriven` — the same guard the
+ * portal's read-only banner uses (src/app/portal/submissions/[id]/page.tsx)
+ * — instead of a parallel rule that could drift from it.
+ */
+export function ClosedNotice({ form, timezone }: { form: FormWindow; timezone: string }) {
+  const state = formWindowState(form);
   const scheduled = state === "scheduled";
+  // An unpublished form can carry a closesAt from a previous publish cycle;
+  // citing it would claim the call "closed" on a date it was never open for.
+  const dateDriven = closureIsDateDriven(form);
   return (
     <SubmitNotice
       title={
         scheduled
           ? "This call for speakers hasn't opened yet"
-          : "This call for speakers is closed"
+          : state === "closed"
+            ? "This call for speakers is closed"
+            : "This call for speakers isn't open"
       }
     >
-      {scheduled && opensAt
-        ? `Submissions open ${formatDeadline(opensAt, timezone)} — come back then.`
-        : closesAt
-          ? `Submissions closed ${formatDeadline(closesAt, timezone)}. Thanks for your interest — watch for the next call.`
+      {scheduled && form.opensAt
+        ? `Submissions open ${formatDeadline(form.opensAt, timezone)} — come back then.`
+        : dateDriven && form.closesAt
+          ? `Submissions closed ${formatDeadline(form.closesAt, timezone)}. Thanks for your interest — watch for the next call.`
           : "Submissions aren't being accepted right now. Watch for the next call."}
     </SubmitNotice>
   );

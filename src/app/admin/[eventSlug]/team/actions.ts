@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { newUserSchema, roleSchema } from "@/db/entities";
+import { sendTeamInvite } from "@/domain/comms";
 import { checkRoleChange, normalizeEmail, planInvite, ROLE_LABELS } from "@/domain/team";
+import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 
@@ -182,6 +184,15 @@ export async function setReviewerTracks(eventSlug: string, input: ReviewerTracks
 const inviteInputSchema = z.object({
   email: z.email("Enter a valid email address"),
   role: z.enum(["admin", "reviewer"]),
+  // Optional: written onto the pre-created user row so reviewer pools and
+  // rosters show a human name before first sign-in (D-044(3), D-062). Empty
+  // string (an untouched input) is treated the same as omitted.
+  name: z
+    .string()
+    .trim()
+    .max(120, "Keep this under 120 characters")
+    .optional()
+    .transform((value) => (value ? value : undefined)),
 });
 export type InviteInput = z.infer<typeof inviteInputSchema>;
 
@@ -196,17 +207,23 @@ export type InviteInput = z.infer<typeof inviteInputSchema>;
  * first sign-in (it flips `emailVerified` and never touches `role`). That's
  * why there is no `invites` table and no migration for this wave.
  *
- * No invitation email is sent (W12 scope) — the admin passes on the sign-in
- * URL themselves, which the form says.
+ * An invitation email goes out through the same sender and communications
+ * log as every other send (D-062) — the address doesn't have to be handed
+ * the sign-in URL by hand anymore. A failed send never fails the invite
+ * itself: the team-membership write already succeeded, and `deliver` has
+ * already logged the failure for the organizer to see in the comms log.
  */
 export async function inviteTeammate(eventSlug: string, input: InviteInput) {
-  await requireAdmin(teamPath(eventSlug));
+  const viewer = await requireAdmin(teamPath(eventSlug));
 
   const parsed = inviteInputSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid invite");
 
-  const email = normalizeEmail(parsed.data.email);
   const repos = await getRepos();
+  const event = await repos.events.getBySlug(eventSlug);
+  if (!event) return fail("Event not found");
+
+  const email = normalizeEmail(parsed.data.email);
   const existing = await repos.users.getByEmail(email);
   const plan = planInvite({
     email,
@@ -216,6 +233,24 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
 
   if (plan.action === "none" && existing) {
     return fail(`${labelFor(existing)} is already ${ROLE_LABELS[plan.role].toLowerCase() === "admin" ? "an admin" : "a reviewer"}`);
+  }
+
+  async function invite(userId: string) {
+    const comms = await getCommsContext({ repos, organizerName: labelFor(viewer) });
+    try {
+      await sendTeamInvite(comms, {
+        userId,
+        email,
+        roleLabel: ROLE_LABELS[plan.role],
+        eventName: event!.name,
+        inviterName: labelFor(viewer),
+      });
+    } catch (error) {
+      // The membership write already succeeded; a mail-side failure (a bad
+      // transport config, say) must not undo it or read back as an error the
+      // admin has to retry.
+      console.warn(`Couldn't send team invite to ${email}:`, error);
+    }
   }
 
   if (plan.action === "change_role" && existing) {
@@ -234,6 +269,7 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
     } catch {
       return fail("Couldn't update that account — try again");
     }
+    await invite(existing.id);
     revalidatePath(teamPath(eventSlug));
     return {
       ok: true as const,
@@ -251,7 +287,7 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
     // Left unverified: the first magic link they click is what proves the
     // address, exactly as it would for a brand-new signup.
     emailVerified: false,
-    name: null,
+    name: parsed.data.name ?? null,
     role: plan.role,
     title: null,
     company: null,
@@ -265,11 +301,13 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
   });
   if (!candidate.success) return fail("Enter a valid email address");
 
+  let created;
   try {
-    await repos.users.create(candidate.data);
+    created = await repos.users.create(candidate.data);
   } catch {
     return fail("Couldn't add that person — try again");
   }
+  await invite(created.id);
 
   revalidatePath(teamPath(eventSlug));
   return {

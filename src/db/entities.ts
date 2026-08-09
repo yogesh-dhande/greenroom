@@ -626,6 +626,9 @@ export const emailKindSchema = z.enum([
    * reviewer completion nudge from a round's assignments page (D-050). */
   "round_reminder",
   "calendar_invite",
+  /** "You've been added to the team" — sent from the Team page's "Add a
+   * teammate" form, pointing at the normal magic-link sign-in (D-062). */
+  "team_invite",
   "manual",
 ]);
 export type EmailKind = z.infer<typeof emailKindSchema>;

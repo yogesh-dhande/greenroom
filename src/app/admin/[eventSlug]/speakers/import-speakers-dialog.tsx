@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { SPEAKER_CSV_HEADER, type SpeakerImportOutcome } from "@/domain/speaker-import";
 import { importSpeakers, type ImportSpeakersResult } from "./actions";
+import { ActionTimeoutError, withActionTimeout } from "./action-timeout";
 
 const OUTCOME_BADGE_CLASS: Record<SpeakerImportOutcome, string> = {
   created: "border-border text-foreground",
@@ -62,7 +63,18 @@ export function ImportSpeakersDialog({ eventSlug }: { eventSlug: string }) {
   function submit() {
     setError(null);
     startTransition(async () => {
-      const response = await importSpeakers(eventSlug, csv);
+      let response;
+      try {
+        response = await withActionTimeout(importSpeakers(eventSlug, csv));
+      } catch (error) {
+        if (error instanceof ActionTimeoutError) {
+          setError(
+            "The server didn't respond. Check the roster before trying again — some speakers may have been imported.",
+          );
+          return;
+        }
+        throw error;
+      }
       if (!response.ok) {
         setError(response.error);
         return;

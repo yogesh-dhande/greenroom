@@ -365,6 +365,24 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Run-3's ABS area logged a major that a reviewer "sees the full admin nav" and can open any track submission by URL. Evidence review split this three ways: the full-nav observation came from the *organizer* persona in ABS-S2 (ABS-S3's reviewer note says the queue was "correctly scoped: it showed all 17 submissions across the reviewer's 3 assigned tracks"), track-level URL access is the deliberate routing model above, and the one genuine residue was a D-049 gap — a reviewer holding a blind-round assignment could walk around the blindness by opening the submission record through track access, which showed the author in full. This entry records the design as deliberate and closes the leak; it does not adopt the judge's stricter assignment-only access model, for the same reason D-047 declined it.
 
+## D-062: Teammate invites are emailed, with a name on the record from the start — **accepted** (2026-08-09)
+
+**Decision:** The Team page's "Add a teammate" flow takes an optional name — written onto the pre-created user row (D-044(3)) so reviewer pools and rosters show a human name before first sign-in — and sends an invitation email through the existing sender (inviter, event, role, sign-in link), logged in the communications log. No passwords and no invite-token table: the email points at the normal magic-link sign-in.
+
+**Rationale:** Run-3 flagged both halves as minors in two areas: the product told organizers "Greenroom doesn't send invitation email yet — share the sign-in page with them yourself", and an invited reviewer rendered as "— Not signed in yet" in round reviewer pools and reminder targets. The sender, template plumbing, and log already exist (D-050 reminders use the same path), so the honest fix is cheaper than the apology copy. D-053's truthfulness rules apply to the send.
+
+## D-063: An unpublished form's public URL renders a closed state, never a 404 — **accepted** (2026-08-09)
+
+**Decision:** A `/submit/[formSlug]` URL whose slug resolves to a real form always renders a page: if the form isn't accepting submissions — unpublished or outside its window — the visitor sees the event and form name, a "this call isn't open" state with the honest reason (a close *date* is cited only when the closure is date-driven, mirroring `closureIsDateDriven`), and a link to the event's public program. Only a slug matching no form is a true 404.
+
+**Rationale:** Run-3 minor: unpublishing the CFP turned the shared public link into a bare "This page could not be found" — speakers following an announcement hit a dead end with no context, indistinguishable from a broken deployment. The same run also flagged the portal's misleading "closed <future date>" banner (fixed via `closureIsDateDriven`); this applies the same honesty rule to the public surface.
+
+## D-064: No built-in session-format question type — formats are form lanes and duration-derived labels — **deliberate** (2026-08-09)
+
+**Decision:** The form builder gets no "session format" question type wired to event-level configuration. Greenroom has no event-level format list to wire it to, on purpose: a CFP that needs distinct formats runs distinct forms (the seeded event's main CFP and lightning-talks form, each with its own window and submission caps), and a scheduled session's format label derives from its actual duration (`sessionFormatLabel`). Organizers who want a format question on a single form add a "Choose one" question.
+
+**Rationale:** Run-3 logged a minor that the builder "has no built-in session-format question type even though formats are configured at event level" — but the premise is wrong: no event-level formats exist anywhere in the data model, so there is nothing for a built-in type to stay in sync *with*. Inventing an event-level format registry to justify the field type would add a second source of truth for something two existing mechanisms already express, days before the deadline. Recorded so the recurring eval flag reads as a choice, not an oversight (same pattern as D-058/D-059).
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

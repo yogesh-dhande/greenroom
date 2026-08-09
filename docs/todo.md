@@ -8,7 +8,9 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 ## Deploy headroom
 
-- [ ] **(Recommended) Upgrade Cloudflare Workers to the $5/mo paid plan** (dash.cloudflare.com → Workers & Pages → Plans). The free plan caps the Worker at 3 MiB gzipped and the app now sits right at it — a deploy on 2026-08-09 was rejected at 3101 KiB and only fit after dropping esbuild's `keep_names` (see wrangler.jsonc). The paid plan's 10 MiB cap removes this cliff for the rest of the competition window.
+- [ ] **(Urgent — eval-critical) Upgrade Cloudflare Workers to the $5/mo paid plan** (dash.cloudflare.com → Workers & Pages → Plans). Two independent reasons, both hit on 2026-08-09:
+  1. **CPU cap is causing the site to hang.** Eval run 3 scored a **critical** defect in the SPK area: `/`, `/dashboard`, and `/admin` repeatedly timed out at 30s and sat on "Loading…" for over a minute, across two sessions (~30 wasted turns in one scenario), while lighter public pages kept working — and it dragged SPK coverage down to 81.8%. The pattern matches the free plan's **10 ms CPU per request** limit killing heavy admin SSR requests; three more judged defects (add-speaker dialog stuck on "Adding…", roster filter selections never committing, sidebar/nav clicks not navigating) are the same stalled round-trip seen from different UI. The paid plan raises CPU to 30 s per request.
+  2. **Bundle-size cliff.** The free plan caps the Worker at 3 MiB gzipped and the app sits right at it — a deploy was rejected at 3101 KiB and only fit after dropping esbuild's `keep_names` (see wrangler.jsonc). The paid plan's 10 MiB cap removes this cliff for the rest of the competition window.
 
 ## Evaluator prep (after the deploy is verified)
 

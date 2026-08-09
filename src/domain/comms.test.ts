@@ -28,6 +28,7 @@ import {
   previewTaskDigestCount,
   runReminderJob,
   sendRoundReminders,
+  sendTeamInvite,
   summarizeSessionInvites,
   TASK_DIGEST_COOLDOWN_DAYS,
   taskDigestLogId,
@@ -1140,5 +1141,71 @@ describe("sendRoundReminders", () => {
     await expect(
       sendRoundReminders(context(repos, sender), { roundId: "no-such-round" }),
     ).rejects.toThrow(/not found/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendTeamInvite — the Team page's "Add a teammate" send (D-062)
+// ---------------------------------------------------------------------------
+
+describe("sendTeamInvite", () => {
+  function fakeInviteRepos() {
+    const emails: EmailLog[] = [];
+    const repos = {
+      emailLog: {
+        create: async (row: NewEmailLog) => {
+          const created: EmailLog = { id: `log-${emails.length + 1}`, ...row };
+          emails.push(created);
+          return created;
+        },
+      },
+    };
+    return { repos: repos as unknown as Repos, emails };
+  }
+
+  function context(repos: Repos, sender: EmailSender): CommsContext {
+    return { repos, sender, appUrl: "https://example.com", now: NOW };
+  }
+
+  it("emails the invited address with the inviter, event, role and sign-in link", async () => {
+    const { repos, emails } = fakeInviteRepos();
+    const { sender, sent } = fakeSender();
+
+    const delivery = await sendTeamInvite(context(repos, sender), {
+      userId: "user-1",
+      email: "dana@example.test",
+      roleLabel: "Reviewer",
+      eventName: "AIE 2026",
+      inviterName: "Priya Raman",
+    });
+
+    expect(delivery.status).toBe("sent");
+    expect(delivery.to).toBe("dana@example.test");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toBe("Priya Raman invited you to join AIE 2026 on Greenroom");
+    expect(sent[0].text).toContain("Priya Raman added you to the AIE 2026 team");
+    expect(sent[0].text).toContain("as a reviewer");
+    expect(sent[0].text).toContain("https://example.com/login");
+
+    // Logged like every other send, and tied to the invited user's id.
+    expect(emails).toHaveLength(1);
+    expect(emails[0].kind).toBe("team_invite");
+    expect(emails[0].relatedType).toBe("user");
+    expect(emails[0].relatedId).toBe("user-1");
+  });
+
+  it("gives an admin role its own article", async () => {
+    const { repos } = fakeInviteRepos();
+    const { sender, sent } = fakeSender();
+
+    await sendTeamInvite(context(repos, sender), {
+      userId: "user-2",
+      email: "marco@example.test",
+      roleLabel: "Admin",
+      eventName: "AIE 2026",
+      inviterName: "Priya Raman",
+    });
+
+    expect(sent[0].text).toContain("as an admin");
   });
 });

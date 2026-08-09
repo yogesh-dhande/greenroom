@@ -114,8 +114,9 @@ export function TeamTable({
               <TableRow key={member.id}>
                 <TableCell className="font-medium text-foreground">
                   <span className="inline-flex items-center gap-1.5">
-                    {/* People added by email have no name until they sign in
-                      * and fill in a profile. */}
+                    {/* An invite's name is optional (D-062) — someone added
+                      * by address alone has none until they sign in and fill
+                      * in a profile. */}
                     {member.name ?? <span className="text-muted-foreground">—</span>}
                     {member.isViewer && (
                       <Badge variant="outline">You</Badge>

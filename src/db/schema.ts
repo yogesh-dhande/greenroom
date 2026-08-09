@@ -651,6 +651,8 @@ export const emailLog = sqliteTable(
         // page (D-050).
         "round_reminder",
         "calendar_invite",
+        // The Team page's "Add a teammate" invitation email (D-062).
+        "team_invite",
         "manual",
       ],
     }).notNull(),

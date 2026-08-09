@@ -16,7 +16,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 1. Event configuration
 - Create an event with basic identity, dates, tracks, and rooms — only what the submission, onboarding, and scheduling workflows need. Multi-event capable.
-- **Team management** from the admin UI: an admin promotes accounts to admin or reviewer, removes access, assigns each reviewer their tracks for the event, and adds someone by email (an address with no account yet is pre-created, so their first magic link lands with the intended role — no invitation email is sent; the admin shares the sign-in URL). Removing the last admin is refused. The first admin on a fresh deployment comes from the `ADMIN_EMAILS` env var (D-043).
+- **Team management** from the admin UI: an admin promotes accounts to admin or reviewer, removes access, assigns each reviewer their tracks for the event, and adds someone by email with an optional name (an address with no account yet is pre-created carrying that name, so their first magic link lands with the intended role and reviewer pools show a human name before first sign-in); adding someone sends an **invitation email** — inviter, event, role, sign-in link — through the normal sender, logged in the communications log (D-062). No passwords, no invite tokens. Removing the last admin is refused. The first admin on a fresh deployment comes from the `ADMIN_EMAILS` env var (D-043).
 
 ### 2. Call-for-speakers forms
 - Multiple configurable public submission forms per event: welcome/explanatory copy, abstract fields (title, description, custom fields), one-or-more track selection, speaker **and co-speaker** info (multi-speaker supported, never required), bio/headshot/supporting-file fields, required-field validation.
@@ -26,7 +26,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Proposals may be **abstracts or videos** — a video is just a URL/file field, but the form builder should name the option so it's discoverable (D-034).
 - Optional per-form **submission limit** per submitter (D-034).
 - Co-speakers can never be required and never have a minimum count — the producer's own "minimum of two speakers" misconfiguration is the walkthrough's loudest complaint (D-034).
-- Submission open/close behavior, with a close-reminder email to submitters with unfinished work (D-034; also Important tier).
+- Submission open/close behavior, with a close-reminder email to submitters with unfinished work (D-034; also Important tier). A public form URL that resolves to a real form always renders a page: when the form isn't accepting submissions (unpublished or outside its window) visitors see a "this call isn't open" state with the honest reason — a close date is cited only when the closure is date-driven — and a link to the public program; only an unknown slug 404s (D-063).
 - **Working confirmation page and working confirmation email** after submission (explicit must-haves).
 - English-only; no payments/fees.
 

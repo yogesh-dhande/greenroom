@@ -33,9 +33,11 @@ export default async function SubmitFormPage({
   const { formSlug } = await params;
   const repos = await getRepos();
   const form = await repos.forms.getBySlug(formSlug);
-  // An unpublished form is indistinguishable from a nonexistent one to the
-  // public: drafts must not be discoverable by guessing slugs.
-  if (!form || !form.isPublished) notFound();
+  // Only a slug matching no form is a true 404 (decisions.md D-063). An
+  // unpublished form still resolves — it renders the same closed state as a
+  // form outside its open window, below, rather than a dead end that reads
+  // like a broken deployment to a speaker following a shared link.
+  if (!form) notFound();
 
   const event = await repos.events.getById(form.eventId);
   if (!event) notFound();
@@ -76,12 +78,17 @@ export default async function SubmitFormPage({
   return (
     <SubmitShell eventName={event.name} formName={form.name} welcomeCopy={form.welcomeCopy}>
       {state !== "open" ? (
-        <ClosedNotice
-          state={state}
-          opensAt={form.opensAt}
-          closesAt={form.closesAt}
-          timezone={event.timezone}
-        />
+        <>
+          <ClosedNotice form={form} timezone={event.timezone} />
+          <p className="mt-4 text-sm text-muted-foreground">
+            <Link
+              href={`/p/${event.slug}`}
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              View {event.name}&apos;s public program
+            </Link>
+          </p>
+        </>
       ) : limit?.atLimit && limit.limit !== null ? (
         <SubmitNotice title="You've used your proposals for this call">
           <p>{submissionLimitMessage(limit.limit)}</p>

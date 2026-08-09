@@ -18,6 +18,7 @@ import {
 import { inviteTeammate } from "./actions";
 
 const formSchema = z.object({
+  name: z.string().trim().max(120, "Keep this under 120 characters").optional(),
   email: z.email("Enter a valid email address"),
   role: z.enum(["admin", "reviewer"]),
 });
@@ -26,9 +27,10 @@ type FormValues = z.infer<typeof formSchema>;
 /**
  * Add someone by address, whether or not they have an account yet.
  *
- * No invitation email goes out in this wave — the admin sends the sign-in link
- * themselves — so the form says so rather than leaving them waiting for
- * something that isn't coming.
+ * The name is optional — someone can always set or fix it themselves once
+ * they sign in — but giving it up front means the roster and reviewer pools
+ * show a person, not an email address, from the moment they're added
+ * (D-044(3), D-062).
  */
 export function InviteForm({ eventSlug }: { eventSlug: string }) {
   const [added, setAdded] = useState<string | null>(null);
@@ -41,11 +43,15 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
     setError,
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { email: "", role: "reviewer" },
+    defaultValues: { name: "", email: "", role: "reviewer" },
   });
 
   async function onSubmit(values: FormValues) {
-    const result = await inviteTeammate(eventSlug, values);
+    // Spelled out rather than passed through: the server action's schema
+    // applies a `.transform()` to `name`, which makes the key required in
+    // its inferred input type even though the value stays optional — a bare
+    // `FormValues` (name?: string) doesn't structurally match that.
+    const result = await inviteTeammate(eventSlug, { ...values, name: values.name });
     if (!result.ok) {
       setError("root", { message: result.error });
       toast.error(result.error);
@@ -53,7 +59,7 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
     }
     toast.success(result.data.message);
     setAdded(result.data.email);
-    reset({ email: "", role: values.role });
+    reset({ name: "", email: "", role: values.role });
   }
 
   async function copySignInLink() {
@@ -68,6 +74,15 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="flex flex-1 flex-col gap-1.5">
+          <Label htmlFor="invite-name">Name (optional)</Label>
+          <Input
+            id="invite-name"
+            autoComplete="off"
+            placeholder="Ada Lovelace"
+            {...register("name")}
+          />
+        </div>
         <div className="flex flex-1 flex-col gap-1.5">
           <Label htmlFor="invite-email">Email</Label>
           <Input
@@ -101,19 +116,20 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
         </Button>
       </div>
 
+      {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
       {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
       {errors.root && <p className="text-sm text-destructive">{errors.root.message}</p>}
 
       <p className="text-sm text-muted-foreground">
-        Greenroom doesn&apos;t send invitation email yet — share the sign-in page with them
-        yourself. They request a magic link with this address and land with the role you picked.
-        If they already have an account, this just changes their role.
+        Greenroom emails them an invitation with the sign-in link — there&apos;s no password, just
+        a magic link to this address. If they already have an account, this just changes their
+        role.
       </p>
 
       {added && (
         <p className="text-sm text-foreground">
-          <span className="font-medium">{added}</span> is on the team. Send them the sign-in link
-          and they&apos;re in.
+          <span className="font-medium">{added}</span> is on the team and has been emailed the
+          sign-in link.
         </p>
       )}
 

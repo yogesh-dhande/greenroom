@@ -56,6 +56,7 @@ import {
   type TemplateOverrideRow,
   renderMessage,
   resolveCommsTemplate,
+  textToHtml,
 } from "@/domain/comms-templates";
 
 export * from "@/domain/comms-templates";
@@ -721,6 +722,54 @@ export async function sendRoundReminders(
     );
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Teammate invitations (decisions.md D-062)
+// ---------------------------------------------------------------------------
+
+export interface TeamInviteInput {
+  userId: string;
+  email: string;
+  /** "Admin"/"Reviewer" — the caller resolves this (src/domain/team.ts owns
+   * the role vocabulary; this module stays role-agnostic). */
+  roleLabel: string;
+  eventName: string;
+  /** The acting admin's display name (D-053(2)) — never a generic fallback;
+   * there's always an admin behind this send. */
+  inviterName: string;
+}
+
+/**
+ * Invites someone onto the team: who invited them, which event, and what
+ * role, with a link to the normal magic-link sign-in. No password and no
+ * invite-token table (D-062) — the link is just `/login`, the same page
+ * everyone else signs in from.
+ *
+ * Not one of the built-in templates in src/domain/comms-templates.ts: it
+ * isn't per-event copy an organizer edits, so it's composed directly here and
+ * still sent and logged through the same `deliver` path as every other mail.
+ */
+export async function sendTeamInvite(ctx: CommsContext, input: TeamInviteInput): Promise<CommsDelivery> {
+  const loginUrl = `${trimTrailingSlash(ctx.appUrl)}/login`;
+  const subject = `${input.inviterName} invited you to join ${input.eventName} on Greenroom`;
+  const text = `Hi,
+
+${input.inviterName} added you to the ${input.eventName} team on Greenroom as a${
+    input.roleLabel.toLowerCase().startsWith("a") ? "n" : ""
+  } ${input.roleLabel.toLowerCase()}.
+
+Sign in with this email address to get started — there's no password, just a magic link:
+
+${loginUrl}
+
+See you there.`;
+  return deliver(
+    ctx,
+    input.email,
+    { subject, text, html: textToHtml(text) },
+    { kind: "team_invite", relatedType: "user", relatedId: input.userId },
+  );
 }
 
 // ---------------------------------------------------------------------------
