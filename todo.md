@@ -4,12 +4,7 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 ## Blocking the deploy (W6b)
 
-- [ ] **Enable R2 on the Cloudflare account** — dash.cloudflare.com → R2 → click through the enable flow (asks for a payment method; our usage stays in the free tier). Bucket creation currently fails with error 10042. Tell Claude when done; the bucket gets created with a `wnam` location hint (D-033).
-- [ ] **Set the SendGrid API key** — in a Claude Code session, type:
-  `! npx wrangler secret put SENDGRID_API_KEY`
-  and paste the key at the interactive prompt (it goes straight to Cloudflare; never paste the key into chat). The worker (`greenroom`) already exists, so this works now.
-- [ ] **Tell Claude which sender address is verified in SendGrid** — it becomes `EMAIL_FROM_ADDRESS`. SendGrid has no sandbox sender: production email fails until the From address is a [verified sender](https://www.twilio.com/docs/sendgrid/ui/sending-email/sender-verification). This address is also the calendar-invite ORGANIZER.
-- [ ] **Domain choice (default: workers.dev)** — the app will deploy to `greenroom.<your-subdomain>.workers.dev`. If you want a custom domain instead, the zone must be on this Cloudflare account; say so before first deploy. Silence = workers.dev.
+Nothing — all owner-side blockers cleared 2026-08-09; deploy in progress.
 
 ## After the first deploy (evaluator prep)
 
@@ -28,3 +23,7 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 - [x] `npx wrangler login` (2026-08-09) — account verified, D1 database created in WNAM, remote migrations applied, worker created, `BETTER_AUTH_SECRET` set.
 - [x] SendGrid chosen over Resend (D-030) — code migrated, `resend` dependency removed.
+- [x] R2 enabled (2026-08-09) — bucket `greenroom-files` created with `wnam` location hint.
+- [x] `SENDGRID_API_KEY` secret set (2026-08-09).
+- [x] SendGrid domain authentication verified for `greenroom.usespaces.dev` (2026-08-09) — sender is `no-reply@greenroom.usespaces.dev` (`EMAIL_FROM_ADDRESS` set).
+- [x] Domain chosen (2026-08-09): custom domain `greenroom.usespaces.dev` (initial "greenboard" was a typo; config and all URL secrets corrected).
