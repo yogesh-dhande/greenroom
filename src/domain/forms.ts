@@ -419,6 +419,19 @@ export function acceptsSubmissions(form: FormWindow, now: Date = new Date()): bo
   return formWindowState(form, now) === "open";
 }
 
+/**
+ * Whether a form being non-submittable is actually the `closesAt` date's
+ * doing. `closesAt` is set on plenty of forms that are unpublished or still
+ * `scheduled` — attributing the freeze to a date in those states misleads a
+ * reader into thinking the form was open and then closed (eval finding: the
+ * portal's read-only banner cited `form.closesAt` whenever it was non-null,
+ * so an unpublished form with a future close date claimed to have "closed"
+ * on that future date).
+ */
+export function closureIsDateDriven(form: FormWindow, now: Date = new Date()): boolean {
+  return formWindowState(form, now) === "closed";
+}
+
 export const FORM_STATE_LABELS: Record<FormWindowState, string> = {
   unpublished: "Draft",
   scheduled: "Scheduled",

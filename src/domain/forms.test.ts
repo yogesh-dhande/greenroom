@@ -18,6 +18,7 @@ import {
   buildFormValidator,
   checkConfirmationEmail,
   cleanCoSpeakers,
+  closureIsDateDriven,
   conditionHolds,
   DEFAULT_CFP_FIELDS,
   emptyValues,
@@ -354,6 +355,32 @@ describe("formWindowState", () => {
     expect(acceptsSubmissions(published, new Date("2026-03-15T00:00:00Z"))).toBe(true);
     expect(acceptsSubmissions(published, new Date("2026-02-01T00:00:00Z"))).toBe(false);
     expect(acceptsSubmissions(published, new Date("2026-05-01T00:00:00Z"))).toBe(false);
+  });
+});
+
+describe("closureIsDateDriven", () => {
+  const opensAt = new Date("2026-03-01T00:00:00Z");
+  const closesAt = new Date("2026-04-01T00:00:00Z");
+
+  it("is false for an unpublished form even with a future close date", () => {
+    expect(
+      closureIsDateDriven(
+        { isPublished: false, opensAt: null, closesAt: new Date("2099-01-01T00:00:00Z") },
+        new Date("2026-03-15T00:00:00Z"),
+      ),
+    ).toBe(false);
+  });
+
+  it("is true once a published form's close date has passed", () => {
+    expect(
+      closureIsDateDriven({ isPublished: true, opensAt, closesAt }, new Date(closesAt.getTime() + 1)),
+    ).toBe(true);
+  });
+
+  it("is false while a published form is merely scheduled (not yet open)", () => {
+    expect(
+      closureIsDateDriven({ isPublished: true, opensAt, closesAt }, new Date("2026-02-01T00:00:00Z")),
+    ).toBe(false);
   });
 });
 

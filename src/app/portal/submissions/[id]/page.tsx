@@ -4,7 +4,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { formatDeadline } from "@/lib/event-time";
-import { acceptsSubmissions, prefillValues, publicFields } from "@/domain/forms";
+import { acceptsSubmissions, closureIsDateDriven, prefillValues, publicFields } from "@/domain/forms";
 import { speakerFacingStatus } from "@/domain/evaluation";
 import { loadSubmissionDetail } from "@/domain/submissions";
 import { PageHeader } from "@/components/page-header";
@@ -101,7 +101,17 @@ export default async function PortalSubmissionPage({
           />
         </>
       ) : (
-        <ReadOnlyAnswers fields={fields} values={values} closedAt={form.closesAt} timezone={event.timezone} />
+        <ReadOnlyAnswers
+          fields={fields}
+          values={values}
+          // Only cite the date when the window's own close date is what
+          // froze the form — an unpublished or not-yet-open form is also
+          // non-editable, but blaming a future closesAt for that is
+          // misleading (eval finding: this banner used to say a form
+          // "closed" on a date that hadn't happened yet).
+          closedAt={closureIsDateDriven(form) ? form.closesAt : null}
+          timezone={event.timezone}
+        />
       )}
     </div>
   );

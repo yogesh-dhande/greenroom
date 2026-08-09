@@ -101,9 +101,19 @@ export function FormBuilder({
 }: FormBuilderProps) {
   const router = useRouter();
   const [draft, setDraft] = useState<FormDraft>(form);
+  // The last state actually persisted — starts at the loaded form, moves
+  // only on a confirmed save. The header badge reads from this, not from
+  // `draft`, so a not-yet-saved edit (e.g. a past "Closes" date) can never
+  // paint the form as closed before Save is even pressed (eval finding: the
+  // badge used to be computed live from the draft).
+  const [savedForm, setSavedForm] = useState<FormDraft>(form);
   const [slugTouched, setSlugTouched] = useState(true);
   const [isSaving, startSaving] = useTransition();
   const [isPublishing, startPublishing] = useTransition();
+  // Server-rejected save, kept on screen (not just a transient toast) until
+  // the user changes something or saves successfully — a failed save used to
+  // leave no trace once the toast faded.
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const problems = useMemo(() => fieldSchemaProblems(draft.fields), [draft.fields]);
   const emailCheck = useMemo(
@@ -113,11 +123,30 @@ export function FormBuilder({
   const state = useMemo(
     () =>
       formWindowState({
-        isPublished: draft.isPublished,
-        opensAt: fromZonedInputValue(draft.opensAt, eventTimezone),
-        closesAt: fromZonedInputValue(draft.closesAt, eventTimezone),
+        isPublished: savedForm.isPublished,
+        opensAt: fromZonedInputValue(savedForm.opensAt, eventTimezone),
+        closesAt: fromZonedInputValue(savedForm.closesAt, eventTimezone),
       }),
-    [draft.isPublished, draft.opensAt, draft.closesAt, eventTimezone],
+    [savedForm.isPublished, savedForm.opensAt, savedForm.closesAt, eventTimezone],
+  );
+  const hasUnsavedChanges = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(savedForm),
+    [draft, savedForm],
+  );
+  const parsedOpensAt = useMemo(
+    () => fromZonedInputValue(draft.opensAt, eventTimezone),
+    [draft.opensAt, eventTimezone],
+  );
+  const parsedClosesAt = useMemo(
+    () => fromZonedInputValue(draft.closesAt, eventTimezone),
+    [draft.closesAt, eventTimezone],
+  );
+  // Mirrors the server rule (forms/actions.ts saveForm: "closesAt <=
+  // opensAt" is rejected) so the round trip that used to be the only way to
+  // find out isn't needed — and so Save can be disabled instead of quietly
+  // failing.
+  const dateRangeInvalid = Boolean(
+    parsedOpensAt && parsedClosesAt && parsedClosesAt <= parsedOpensAt,
   );
   const preview = useMemo(
     () => publicFields(draft.fields, trackNames),
@@ -126,6 +155,9 @@ export function FormBuilder({
 
   function patch(changes: Partial<FormDraft>) {
     setDraft((current) => ({ ...current, ...changes }));
+    // Any edit invalidates a previously reported server error — it was about
+    // the form as it stood before this change.
+    setSaveError(null);
   }
 
   function setFields(next: FormField[]) {
@@ -133,6 +165,7 @@ export function FormBuilder({
   }
 
   async function persist(): Promise<boolean> {
+    if (dateRangeInvalid) return false;
     const result = await saveForm(eventSlug, draft.id, {
       name: draft.name,
       slug: draft.slug,
@@ -147,9 +180,12 @@ export function FormBuilder({
       maxSubmissionsPerSpeaker: draft.maxSubmissionsPerSpeaker,
     });
     if (!result.ok) {
+      setSaveError(result.error);
       toast.error(result.error);
       return false;
     }
+    setSaveError(null);
+    setSavedForm(draft);
     if (result.data.unknownPlaceholders.length > 0) {
       toast.warning(
         `Saved, but these placeholders aren't merge fields and will be blank: ${result.data.unknownPlaceholders
@@ -172,6 +208,9 @@ export function FormBuilder({
             >
               {FORM_STATE_LABELS[state]}
             </Badge>
+            {hasUnsavedChanges ? (
+              <span className="text-xs font-medium text-muted-foreground">Unsaved changes</span>
+            ) : null}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {responseCount} {responseCount === 1 ? "response" : "responses"} ·{" "}
@@ -191,42 +230,50 @@ export function FormBuilder({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            disabled={isSaving || isPublishing}
-            onClick={() => startSaving(async () => {
-              if (await persist()) toast.success("Form saved");
-            })}
-          >
-            {isSaving ? "Saving…" : "Save"}
-          </Button>
-          <Button
-            disabled={isSaving || isPublishing}
-            variant={draft.isPublished ? "outline" : "default"}
-            onClick={() =>
-              startPublishing(async () => {
-                // Publishing an unsaved draft would put the old questions
-                // live, so the save always happens first.
-                if (!(await persist())) return;
-                const next = !draft.isPublished;
-                const result = await setFormPublished(eventSlug, draft.id, next);
-                if (!result.ok) {
-                  toast.error(result.error);
-                  return;
-                }
-                patch({ isPublished: next });
-                toast.success(next ? "Form published" : "Form unpublished");
-                router.refresh();
-              })
-            }
-          >
-            {isPublishing
-              ? "Working…"
-              : draft.isPublished
-                ? "Unpublish"
-                : "Save & publish"}
-          </Button>
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              disabled={isSaving || isPublishing || dateRangeInvalid}
+              onClick={() => startSaving(async () => {
+                if (await persist()) toast.success("Form saved");
+              })}
+            >
+              {isSaving ? "Saving…" : "Save"}
+            </Button>
+            <Button
+              disabled={isSaving || isPublishing || dateRangeInvalid}
+              variant={draft.isPublished ? "outline" : "default"}
+              onClick={() =>
+                startPublishing(async () => {
+                  // Publishing an unsaved draft would put the old questions
+                  // live, so the save always happens first.
+                  if (!(await persist())) return;
+                  const next = !draft.isPublished;
+                  const result = await setFormPublished(eventSlug, draft.id, next);
+                  if (!result.ok) {
+                    toast.error(result.error);
+                    return;
+                  }
+                  patch({ isPublished: next });
+                  setSavedForm((current) => ({ ...current, isPublished: next }));
+                  toast.success(next ? "Form published" : "Form unpublished");
+                  router.refresh();
+                })
+              }
+            >
+              {isPublishing
+                ? "Working…"
+                : draft.isPublished
+                  ? "Unpublish"
+                  : "Save & publish"}
+            </Button>
+          </div>
+          {saveError ? (
+            <p role="alert" className="max-w-72 text-right text-sm text-destructive">
+              {saveError}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -558,6 +605,11 @@ export function FormBuilder({
                 value={draft.closesAt}
                 onChange={(event) => patch({ closesAt: event.target.value })}
               />
+              {dateRangeInvalid ? (
+                <p role="alert" className="text-sm text-destructive">
+                  The close date has to be after the open date.
+                </p>
+              ) : null}
             </div>
           </div>
           <p className="-mt-2 text-xs text-muted-foreground">
