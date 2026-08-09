@@ -1,96 +1,156 @@
 /**
- * Onboarding domain service — per-speaker task status for the speaker
- * portal (spec.md §2) and the organizer onboarding dashboard (spec.md §6).
- * Pure TypeScript: no datastore imports.
- */
-import type { Task, TaskAssignment, TaskAssignmentStatus } from "@/db/entities";
-
-export interface SpeakerOnboardingStatus {
-  userId: string;
-  totalTasks: number;
-  completeTasks: number;
-  overdueTasks: number;
-  isComplete: boolean;
-}
-
-/** Summarizes one speaker's onboarding progress — backs both the speaker's
- * own task list and the organizer dashboard's per-speaker row.
+ * Speaker onboarding: task-state derivation and per-speaker rollups
+ * (spec.md §6 speaker portal, §8 admin onboarding visibility).
  *
- * `tasks` supplies the deadlines: a TaskAssignment carries no `dueAt` of its
- * own (the deadline belongs to the Task), so overdue counting needs the
- * caller to hand over the tasks those assignments point at. Assignments
- * whose task isn't in `tasks` simply never count as overdue. */
-export function summarizeSpeakerOnboarding(
-  userId: string,
-  assignments: TaskAssignment[],
-  tasks: Task[] = [],
+ * Pure, storage-agnostic logic in the same shape as src/domain/scheduling.ts:
+ * everything here takes plain entity values in and returns plain values out
+ * (no Repos, no I/O), so the portal home page and the admin onboarding
+ * dashboard share one place that decides what "overdue" or "done" means.
+ */
+import type { Task, TaskAssignment, User } from "@/db/entities";
+
+/** A task due within this many days (and not yet complete) is "due soon"
+ * rather than plain "open" — the portal's cue to act before it's overdue. */
+export const DUE_SOON_WINDOW_DAYS = 3;
+
+export type TaskState = "complete" | "overdue" | "due_soon" | "open";
+
+export const TASK_STATE_LABEL: Record<TaskState, string> = {
+  complete: "Complete",
+  overdue: "Overdue",
+  due_soon: "Due soon",
+  open: "Open",
+};
+
+/**
+ * Derives a task's display state from its assignment status and due date.
+ *
+ * A task with no due date can only ever be "open" or "complete" — there's
+ * nothing to be overdue against.
+ */
+export function deriveTaskState(
+  assignment: Pick<TaskAssignment, "status">,
+  dueAt: Date | null,
   now: Date = new Date(),
-): SpeakerOnboardingStatus {
-  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+): TaskState {
+  if (assignment.status === "completed") return "complete";
+  if (!dueAt) return "open";
 
-  let completeTasks = 0;
-  let overdueTasks = 0;
-  for (const assignment of assignments) {
-    if (assignment.status === "completed") {
-      completeTasks += 1;
-      continue;
-    }
-    const task = tasksById.get(assignment.taskId);
-    if (task && isOverdue(task, assignment, now)) overdueTasks += 1;
-  }
+  const msUntilDue = dueAt.getTime() - now.getTime();
+  if (msUntilDue < 0) return "overdue";
 
-  return {
-    userId,
-    totalTasks: assignments.length,
-    completeTasks,
-    overdueTasks,
-    isComplete: completeTasks === assignments.length,
-  };
+  const soonWindowMs = DUE_SOON_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  return msUntilDue <= soonWindowMs ? "due_soon" : "open";
 }
 
-export interface OnboardingFilter {
-  taskId?: string;
-  trackId?: string;
-  overdueOnly?: boolean;
+export interface AssignmentView {
+  assignment: TaskAssignment;
+  task: Task;
+  state: TaskState;
 }
 
 /**
- * One row of the organizer onboarding dashboard: a (speaker, task) pair
- * plus the two attributes the dashboard filters on that can't be derived
- * from the pair alone. `trackIds` is denormalized by the caller (it comes
- * from the speaker's scheduled sessions, which the domain layer can't
- * query), and `overdue` is `isOverdue(task, assignment)` evaluated once.
+ * Pairs assignments with their task and derived state, dropping any
+ * assignment whose task can't be resolved. Tasks aren't deletable once
+ * assigned via the admin UI, but a rollup shouldn't crash if data drifts.
  */
-export interface OnboardingRow {
-  userId: string;
-  taskId: string;
-  trackIds?: string[];
-  overdue?: boolean;
+export function buildAssignmentViews(
+  assignments: TaskAssignment[],
+  tasksById: Map<string, Task>,
+  now: Date = new Date(),
+): AssignmentView[] {
+  const views: AssignmentView[] = [];
+  for (const assignment of assignments) {
+    const task = tasksById.get(assignment.taskId);
+    if (!task) continue;
+    views.push({ assignment, task, state: deriveTaskState(assignment, task.dueAt, now) });
+  }
+  return views;
 }
 
-/** Filters the organizer dashboard's speaker list (spec.md §6: "Filterable
- * by task, track, deadline"). */
-export function filterOnboardingRows<T extends OnboardingRow>(
-  rows: T[],
-  filter: OnboardingFilter,
-): T[] {
-  return rows.filter((row) => {
-    if (filter.taskId && row.taskId !== filter.taskId) return false;
-    if (filter.trackId && !(row.trackIds ?? []).includes(filter.trackId)) return false;
-    if (filter.overdueOnly && row.overdue !== true) return false;
-    return true;
+const STATE_SORT_RANK: Record<TaskState, number> = {
+  overdue: 0,
+  due_soon: 1,
+  open: 2,
+  complete: 3,
+};
+
+/**
+ * Most urgent first — overdue, then due-soon, then open, then complete —
+ * with ties broken by due date (soonest first; undated tasks sort last
+ * within their state).
+ */
+export function sortAssignmentViews(views: AssignmentView[]): AssignmentView[] {
+  return [...views].sort((a, b) => {
+    const rankDiff = STATE_SORT_RANK[a.state] - STATE_SORT_RANK[b.state];
+    if (rankDiff !== 0) return rankDiff;
+    const aDue = a.task.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+    const bDue = b.task.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+    return aDue - bDue;
   });
 }
 
-/** Transitions a task assignment's status, e.g. when a speaker completes
- * the form attached to a task (spec.md §2). */
-export function completeTask(assignment: TaskAssignment, now: Date = new Date()): TaskAssignment {
-  return { ...assignment, status: "completed" as TaskAssignmentStatus, completedAt: now };
+export interface SpeakerRollup {
+  speaker: User;
+  /** Has a session for this event — CFP-accepted or entered directly
+   * (spec.md §8; D-017 — acceptance auto-creates the session record). */
+  confirmed: boolean;
+  totalTasks: number;
+  completedTasks: number;
+  outstandingTasks: number;
+  overdueTasks: number;
+  /** 0-100. A speaker with no assigned tasks is 100 — nothing outstanding,
+   * not a red flag. */
+  completionPercent: number;
+  views: AssignmentView[];
 }
 
-/** True if `assignment` is incomplete and its task's deadline has passed —
- * the shared rule behind `overdueTasks` above and the dashboard's overdue
- * filter/reminder cron (src/domain/comms.ts). */
-export function isOverdue(task: Task, assignment: TaskAssignment, now: Date = new Date()): boolean {
-  return assignment.status !== "completed" && task.dueAt !== null && task.dueAt < now;
+export interface BuildSpeakerRollupsInput {
+  speakers: User[];
+  confirmedSpeakerIds: Set<string>;
+  assignmentsBySpeaker: Map<string, TaskAssignment[]>;
+  tasksById: Map<string, Task>;
+  now?: Date;
+}
+
+/**
+ * One row per speaker for the admin onboarding dashboard: who's confirmed,
+ * how many tasks they have outstanding/overdue, and their completion %.
+ */
+export function buildSpeakerRollups(input: BuildSpeakerRollupsInput): SpeakerRollup[] {
+  const now = input.now ?? new Date();
+  return input.speakers.map((speaker) => {
+    const assignments = input.assignmentsBySpeaker.get(speaker.id) ?? [];
+    const views = sortAssignmentViews(buildAssignmentViews(assignments, input.tasksById, now));
+    const totalTasks = views.length;
+    const completedTasks = views.filter((view) => view.state === "complete").length;
+    const overdueTasks = views.filter((view) => view.state === "overdue").length;
+    const outstandingTasks = totalTasks - completedTasks;
+    const completionPercent =
+      totalTasks === 0 ? 100 : Math.round((completedTasks / totalTasks) * 100);
+
+    return {
+      speaker,
+      confirmed: input.confirmedSpeakerIds.has(speaker.id),
+      totalTasks,
+      completedTasks,
+      outstandingTasks,
+      overdueTasks,
+      completionPercent,
+      views,
+    };
+  });
+}
+
+/**
+ * Least-on-track first: any overdue tasks first (most overdue first), then
+ * lowest completion %, then alphabetical by name/email — the glanceable
+ * order for a table an admin scans for who needs a nudge.
+ */
+export function sortSpeakerRollups(rollups: SpeakerRollup[]): SpeakerRollup[] {
+  return [...rollups].sort((a, b) => {
+    if (a.overdueTasks !== b.overdueTasks) return b.overdueTasks - a.overdueTasks;
+    if (a.completionPercent !== b.completionPercent) return a.completionPercent - b.completionPercent;
+    return (a.speaker.name ?? a.speaker.email).localeCompare(b.speaker.name ?? b.speaker.email);
+  });
 }

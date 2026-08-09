@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { taskSchema, type NewTask } from "@/db/entities";
 import { tasks } from "@/db/schema";
 import type { TasksRepo } from "@/db/repos/tasks";
@@ -9,6 +9,11 @@ export function createTasksRepo(db: DrizzleD1): TasksRepo {
     async getById(id) {
       const row = await db.query.tasks.findFirst({ where: eq(tasks.id, id) });
       return row ? taskSchema.parse(row) : null;
+    },
+    async listByIds(ids) {
+      if (ids.length === 0) return [];
+      const rows = await db.query.tasks.findMany({ where: inArray(tasks.id, ids) });
+      return rows.map((r) => taskSchema.parse(r));
     },
     async listByEvent(eventId) {
       const rows = await db.query.tasks.findMany({

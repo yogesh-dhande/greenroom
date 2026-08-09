@@ -1,17 +1,10 @@
 import { notFound } from "next/navigation";
 import { getRepos } from "@/lib/db";
 import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/empty-state";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { formatDate } from "@/components/date-format";
+import { TasksManager } from "./tasks-manager";
 
-const TASK_TYPE_LABEL: Record<string, string> = {
-  form: "Fill out a form",
-  file_request: "Upload a file",
-  confirm: "Confirm information",
-};
-
+/** Admin task templates for an event (spec.md §6, §8): what onboarding jobs
+ * exist, and whether they auto-assign the moment a submission is accepted. */
 export default async function TasksPage({
   params,
 }: {
@@ -22,7 +15,16 @@ export default async function TasksPage({
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) notFound();
 
-  const tasks = await repos.tasks.listByEvent(event.id);
+  const [tasks, forms, assignments] = await Promise.all([
+    repos.tasks.listByEvent(event.id),
+    repos.forms.listByEvent(event.id),
+    repos.taskAssignments.listByEvent(event.id),
+  ]);
+
+  const assignmentCounts: Record<string, number> = {};
+  for (const assignment of assignments) {
+    assignmentCounts[assignment.taskId] = (assignmentCounts[assignment.taskId] ?? 0) + 1;
+  }
 
   return (
     <div>
@@ -30,34 +32,13 @@ export default async function TasksPage({
         title="Tasks"
         description="Onboarding jobs assigned to accepted speakers — forms, uploads, confirmations."
       />
-
-      {tasks.length === 0 ? (
-        <EmptyState
-          title="No tasks yet"
-          description="Define onboarding tasks and they can auto-assign to speakers when a submission is accepted."
-        />
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Title</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Due</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tasks.map((task) => (
-              <TableRow key={task.id}>
-                <TableCell className="font-medium text-foreground">{task.title}</TableCell>
-                <TableCell>
-                  <Badge variant="outline">{TASK_TYPE_LABEL[task.type] ?? task.type}</Badge>
-                </TableCell>
-                <TableCell>{task.dueAt ? formatDate(task.dueAt) : "No due date"}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      <TasksManager
+        eventSlug={eventSlug}
+        eventTimezone={event.timezone}
+        tasks={tasks}
+        forms={forms}
+        assignmentCounts={assignmentCounts}
+      />
     </div>
   );
 }

@@ -238,23 +238,53 @@ function cfpFields(trackNames: string[]): FormField[] {
   ];
 }
 
-const AV_FORM_FIELDS: FormField[] = [
+// The two "must-have" onboarding tasks per the organizer's reference video
+// are form-style: structured answers rather than a single upload or a plain
+// confirmation. Both are linked Form entities, same as the CFP form, just
+// reached from a task instead of the public submission listing.
+const HOTEL_FORM_FIELDS: FormField[] = [
   {
-    id: "laptop",
+    id: "needsHotel",
     type: "select",
-    label: "Are you presenting from your own laptop?",
+    label: "Do you need us to book your hotel room?",
     required: true,
-    options: ["Yes", "No — I'll use the house machine"],
+    options: ["Yes, book me a room", "No, I'm arranging my own stay"],
   },
   {
-    id: "adapter",
+    id: "checkIn",
     type: "text",
-    label: "Which video output does your laptop have?",
+    label: "Check-in date (YYYY-MM-DD)",
     required: true,
-    showIf: { fieldId: "laptop", op: "eq", value: "Yes" },
+    showIf: { fieldId: "needsHotel", op: "eq", value: "Yes, book me a room" },
   },
-  { id: "audio", type: "checkbox", label: "My talk includes audio playback" },
-  { id: "notes", type: "textarea", label: "Anything else the A/V team should know?" },
+  {
+    id: "checkOut",
+    type: "text",
+    label: "Check-out date (YYYY-MM-DD)",
+    required: true,
+    showIf: { fieldId: "needsHotel", op: "eq", value: "Yes, book me a room" },
+  },
+  {
+    id: "roomPreference",
+    type: "select",
+    label: "Room preference",
+    options: ["One queen bed", "Two beds (sharing with a co-speaker)"],
+    showIf: { fieldId: "needsHotel", op: "eq", value: "Yes, book me a room" },
+  },
+  { id: "notes", type: "textarea", label: "Anything else about your stay?" },
+];
+
+const FLIGHT_FORM_FIELDS: FormField[] = [
+  {
+    id: "reimbursementAmount",
+    type: "text",
+    label: "Reimbursement amount requested (USD)",
+    helpText: "Total from your receipt, e.g. 482.50.",
+    required: true,
+  },
+  { id: "airline", type: "text", label: "Airline and flight number(s)" },
+  { id: "receipt", type: "file", label: "Upload your receipt", required: true },
+  { id: "notes", type: "textarea", label: "Anything else about your travel?" },
 ];
 
 interface SubmissionSeed {
@@ -511,21 +541,38 @@ async function seed(repos: Repos): Promise<void> {
     isPublished: true,
   });
 
-  const avForm = await repos.forms.create({
+  const hotelForm = await repos.forms.create({
     eventId: event.id,
-    name: "A/V and Stage Requirements",
-    slug: "ai-engineer-summit-2026-av",
-    welcomeCopy: "A few questions so the stage crew can set up before you arrive.",
-    fields: AV_FORM_FIELDS,
+    name: "Hotel Stay Requirements",
+    slug: "ai-engineer-summit-2026-hotel",
+    welcomeCopy:
+      "Tell us your dates and preferences so we can book your room — or let us know you're arranging your own stay.",
+    fields: HOTEL_FORM_FIELDS,
     opensAt: null,
     closesAt: null,
-    confirmationPageContent: "Got it — thanks. The stage crew will be in touch if anything is unclear.",
+    confirmationPageContent: "Got it — thanks. We'll follow up by email once your room is booked.",
     confirmationEmailSubject: null,
     confirmationEmailBody: null,
     // Onboarding form: reached from a task, not from the public CFP listing.
     isPublished: false,
   });
-  console.log(`forms      "${cfp.name}" (/submit/${cfp.slug}), "${avForm.name}" (onboarding)`);
+
+  const flightForm = await repos.forms.create({
+    eventId: event.id,
+    name: "Flight Reimbursement",
+    slug: "ai-engineer-summit-2026-flight",
+    welcomeCopy: "Booked your own flight? Submit the amount and your receipt here for reimbursement.",
+    fields: FLIGHT_FORM_FIELDS,
+    opensAt: null,
+    closesAt: null,
+    confirmationPageContent: "Thanks — reimbursements are processed within two weeks of the event.",
+    confirmationEmailSubject: null,
+    confirmationEmailBody: null,
+    isPublished: false,
+  });
+  console.log(
+    `forms      "${cfp.name}" (/submit/${cfp.slug}), "${hotelForm.name}" + "${flightForm.name}" (onboarding)`,
+  );
 
   // --- submissions ----------------------------------------------------------
   const approved: Array<{ submissionId: string; seedRow: SubmissionSeed }> = [];
@@ -634,33 +681,66 @@ async function seed(repos: Repos): Promise<void> {
   );
 
   // --- onboarding tasks -----------------------------------------------------
+  // The six canonical examples from the organizer's reference video: the two
+  // "must-have" form tasks (hotel, flight) first, then four confirm/upload
+  // tasks. Due dates are spread across past/near/far so the seeded data
+  // exercises every TaskState (overdue, due_soon, open, complete) without any
+  // code change needed beyond the domain's existing state derivation.
   const taskSeeds: NewTask[] = [
     {
       eventId: event.id,
-      title: "Confirm your bio and talk description",
+      title: "Hotel stay requirement form",
       instructions:
-        "Check the bio and description we'll print in the program. Edit anything that's out of date, then confirm.",
+        "Tell us your check-in/check-out dates and room preference so we can book your stay — or confirm you're arranging your own.",
+      type: "form",
+      formId: hotelForm.id,
+      dueAt: daysFromNow(14),
+      autoAssignOnAccept: true,
+    },
+    {
+      eventId: event.id,
+      title: "Flight reimbursement form",
+      instructions: "Book your own flight, then submit the amount and your receipt here for reimbursement.",
+      type: "form",
+      formId: flightForm.id,
+      dueAt: daysFromNow(21),
+      autoAssignOnAccept: true,
+    },
+    {
+      eventId: event.id,
+      title: "Finalize talk description",
+      instructions:
+        "Check the title and abstract we'll print in the program. Edit anything that's out of date with the organizers, then confirm it's ready.",
       type: "confirm",
       formId: null,
-      dueAt: daysFromNow(10),
+      dueAt: daysFromNow(-3),
       autoAssignOnAccept: true,
     },
     {
       eventId: event.id,
-      title: "Upload your headshot",
-      instructions: "Square image, at least 800×800, on a plain background if possible.",
+      title: "Finalize bio & photos",
+      instructions: "Upload a square headshot — at least 800×800, plain background if possible.",
       type: "file_request",
       formId: null,
-      dueAt: daysFromNow(17),
+      dueAt: daysFromNow(2),
       autoAssignOnAccept: true,
     },
     {
       eventId: event.id,
-      title: "Complete the A/V and stage requirements form",
-      instructions: "Tell the stage crew what you need so setup is done before you walk in.",
-      type: "form",
-      formId: avForm.id,
-      dueAt: daysFromNow(24),
+      title: "Announce participation",
+      instructions: "Once you've posted about speaking on social media or your newsletter, confirm here so we can amplify it.",
+      type: "confirm",
+      formId: null,
+      dueAt: daysFromNow(28),
+      autoAssignOnAccept: true,
+    },
+    {
+      eventId: event.id,
+      title: "Invite colleagues with speaker discount",
+      instructions: "Share your speaker discount code with colleagues, then confirm you've sent it.",
+      type: "confirm",
+      formId: null,
+      dueAt: daysFromNow(35),
       autoAssignOnAccept: true,
     },
   ];
@@ -673,22 +753,47 @@ async function seed(repos: Repos): Promise<void> {
   for (const sessionId of sessionIds) {
     for (const id of await repos.sessions.listSpeakerIds(sessionId)) speakingIds.add(id);
   }
+  // listSpeakerIds() has no explicit ORDER BY, so co-speaker row order for a
+  // session isn't guaranteed stable across reseeds — sort by each speaker's
+  // fixed position in SPEAKER_SEEDS (via `speakers`, created in that order
+  // above) so speakerPos below, and therefore which named speaker lands on
+  // which task state, is deterministic run to run.
+  const seedOrder = new Map(speakers.map((s, i) => [s.id, i]));
+  const orderedSpeakingIds = [...speakingIds].sort(
+    (a, b) => (seedOrder.get(a) ?? 0) - (seedOrder.get(b) ?? 0),
+  );
 
   let assignmentCount = 0;
   let completedCount = 0;
-  for (const [speakerPos, speakerId] of [...speakingIds].entries()) {
+  for (const [speakerPos, speakerId] of orderedSpeakingIds.entries()) {
     for (const [taskPos, task] of tasks.entries()) {
-      // Roughly half done, weighted so early tasks are further along.
-      const completed = (speakerPos + taskPos) % 3 !== 0 && taskPos < 2;
+      // Roughly two-thirds done, mixed across every task so the overdue and
+      // due-soon tasks above still have some speakers who haven't finished
+      // them (that's what makes those states show up in the demo).
+      const completed = (speakerPos + taskPos) % 3 !== 0;
       const assignment: NewTaskAssignment = {
         taskId: task.id,
         speakerId,
         status: completed ? "completed" : "pending",
         completedAt: completed ? daysFromNow(-(speakerPos % 5) - 1) : null,
-        responseJson:
-          completed && task.type === "form"
-            ? { laptop: "Yes", adapter: "USB-C", audio: false, notes: "" }
-            : null,
+        responseJson: completed
+          ? task.formId === hotelForm.id
+            ? {
+                needsHotel: "Yes, book me a room",
+                checkIn: "2026-08-10",
+                checkOut: "2026-08-13",
+                roomPreference: "One queen bed",
+                notes: "",
+              }
+            : task.formId === flightForm.id
+              ? {
+                  reimbursementAmount: "482.50",
+                  airline: "United UA1234 / UA5678",
+                  receipt: `https://files.greenroom.dev/demo/receipt-${speakerPos + 1}.pdf`,
+                  notes: "",
+                }
+              : null
+          : null,
         fileUrl:
           completed && task.type === "file_request"
             ? `https://files.greenroom.dev/demo/headshot-${speakerPos + 1}.jpg`

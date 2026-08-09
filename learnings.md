@@ -64,6 +64,10 @@ Expected: importing a constant (a filter list, decision options) from a domain m
 
 Two behaviors that cost a red run: (1) shadcn/Radix `AlertDialog` exposes ARIA role **`alertdialog`** — `getByRole("dialog")` never matches it, and the timeout looks like a missing dialog rather than a wrong query. (2) Playwright discards the worker process after a test failure, so module-level state shared between tests (ids captured in an earlier test) evaporates and one real failure cascades into every later test failing for the wrong reason. Tests must each re-derive their target through the UI rather than sharing module state.
 
+## Deterministic-looking seed logic can be nondeterministic via unordered SQL reads (2026-08-08)
+
+Expected: a seed script that assigns task states by a fixed formula over speaker positions produces identical data every run. Actually: the positions came from iterating a Set built on `listSpeakerIds()`, whose D1 implementation has no `ORDER BY` — so sqlite's row order silently varied across reseeds and the "same" formula produced different per-speaker completed/pending states, surfacing as an intermittent e2e failure that looked like a test bug. Fix: sort by a fixed application-side key (the speaker's index in the seed fixture) before enumerating; never let unordered query results feed order-dependent logic, even in "just a seed script."
+
 ## Resend attachments: `contentType` camelCase, base64 string content, no raw MIME (2026-08-08)
 
 Expected: set an attachment's MIME type via a `Content-Type` entry in Resend's `headers`. Actually: that returns a 500 "Duplicate header"; the only channel is the attachment's own `contentType` (camelCase) field, with `content` as a base64 *string*. Resend also has no raw-MIME endpoint, so the classic Gmail-friendly `multipart/alternative` with a `text/calendar` sibling part is unreachable — calendar invites must ship as a `text/calendar; method=REQUEST` attachment (D-020).
