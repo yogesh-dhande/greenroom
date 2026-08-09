@@ -12,10 +12,6 @@ Workflow: when a question is answered, record the answer as a first-class entry 
 Which Cloudflare account should the app deploy to, under what domain/subdomain, and can you create a Resend API key (with a verified sending domain)? Real email delivery is a judged requirement (spec §7), and deliverability needs the sending domain's DNS records.
 **Working assumption:** none — this is a hard blocker for the deploy wave (tracked as D-014). Everything else proceeds locally.
 
-### Q2. Who records the walkthrough, and in what form?
-The submission requires a walkthrough alongside the repo and deployed site. Is that a video you record, a written guided script we prepare for you, or both?
-**Working assumption:** we prepare a written acceptance-path script (spec's demo walkthrough) plus a seeded demo environment; you record the video from it.
-
 ### Q3. Is the admin-only-decisions narrowing acceptable? (D-025)
 Spec §4 says decisions are "decidable by reviewer or admin," but accepting now creates a session, onboarding tasks, and a speaker-facing email — so we made binding decisions admin-only, with reviewer votes as non-binding recommendations.
 **Working assumption:** the narrowing stands. Flag if reviewers must be able to accept/decline directly.
