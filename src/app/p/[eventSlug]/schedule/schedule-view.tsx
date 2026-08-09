@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CalendarPlusIcon, SearchIcon } from "lucide-react";
+import { toast } from "sonner";
 import {
   ANY_FACET,
   countScheduleSessions,
@@ -245,14 +246,24 @@ export function ScheduleView({
                   {/* A real download URL, not a client-built blob: the file
                       is written by src/app/p/[eventSlug]/itinerary.ics, so
                       iCalendar generation stays in src/lib/ics.ts (D-003)
-                      and the `ics` package stays out of this bundle. */}
+                      and the `ics` package stays out of this bundle. The
+                      toast is the only feedback a plain download link gives —
+                      the browser's own download UI is easy to miss. */}
                   <Button
                     asChild
                     variant="outline"
                     size="sm"
                     className="ml-auto"
                   >
-                    <a href={icsHref} download>
+                    <a
+                      href={icsHref}
+                      download
+                      onClick={() =>
+                        toast.success(
+                          "Calendar file downloading — add it to your calendar app",
+                        )
+                      }
+                    >
                       <CalendarPlusIcon aria-hidden />
                       Add to calendar (.ics)
                     </a>

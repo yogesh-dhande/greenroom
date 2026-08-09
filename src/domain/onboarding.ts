@@ -248,3 +248,60 @@ export function filterSpeakerRollups(
     (rollup) => matchesSpeakerSearch(rollup, filter.q) && matchesRosterStatus(rollup, filter.status),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Possible-duplicate speakers (decisions.md D-059)
+// ---------------------------------------------------------------------------
+
+/** Trims, collapses inner whitespace, and casefolds a display name for
+ * duplicate comparison — an empty/missing name normalizes to `null` and
+ * never collides with anything, including another missing name. */
+function normalizedSpeakerName(name: string | null): string | null {
+  const normalized = (name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  return normalized === "" ? null : normalized;
+}
+
+/** Roster speakers grouped by normalized display name, with groups of one
+ * dropped — the shared pass behind both functions below. */
+function groupSpeakersByName(rollups: SpeakerRollup[]): Map<string, User[]> {
+  const byName = new Map<string, User[]>();
+  for (const rollup of rollups) {
+    const key = normalizedSpeakerName(rollup.speaker.name);
+    if (key === null) continue;
+    const group = byName.get(key) ?? [];
+    group.push(rollup.speaker);
+    byName.set(key, group);
+  }
+  for (const [key, group] of byName) {
+    if (group.length < 2) byName.delete(key);
+  }
+  return byName;
+}
+
+/**
+ * Speaker ids whose display name collides with a different speaker's on the
+ * same roster — the data hazard D-059 flags: two distinct accounts named
+ * "Priya Raman" sitting side by side with nothing telling an organizer
+ * apart. Display only; no merge action is offered (D-059 is deliberate about
+ * that — speaker data stays event-scoped, and merging is a CRM feature we're
+ * not building). Flags every member of a collision group, including
+ * three-way ties, so any row in the group can carry the badge.
+ */
+export function findDuplicateNameSpeakerIds(rollups: SpeakerRollup[]): Set<string> {
+  const ids = new Set<string>();
+  for (const group of groupSpeakersByName(rollups).values()) {
+    for (const speaker of group) ids.add(speaker.id);
+  }
+  return ids;
+}
+
+/** The other roster speakers sharing one speaker's normalized name — what a
+ * "Possible duplicate" badge's tooltip lists by email. Empty for a speaker
+ * with no collision. */
+export function otherSpeakersWithSameName(rollups: SpeakerRollup[], speakerId: string): User[] {
+  const target = rollups.find((rollup) => rollup.speaker.id === speakerId);
+  const key = target ? normalizedSpeakerName(target.speaker.name) : null;
+  if (key === null) return [];
+  const group = groupSpeakersByName(rollups).get(key) ?? [];
+  return group.filter((speaker) => speaker.id !== speakerId);
+}

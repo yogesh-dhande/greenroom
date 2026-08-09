@@ -135,9 +135,15 @@ function SpeakerCard({
             </button>
           </h3>
           {/* A speaker with neither a title nor a company keeps a clean card
-              rather than an empty line or a stray separator. */}
+              rather than an empty line or a stray separator. Two lines
+              (rather than a hard truncate) so a longer title/company pair
+              stays readable; the `title` attribute is the fallback for
+              whatever still overflows that. */}
           {(speaker.title || speaker.company) && (
-            <p className="truncate text-sm text-muted-foreground">
+            <p
+              className="line-clamp-2 text-sm text-muted-foreground"
+              title={[speaker.title, speaker.company].filter(Boolean).join(" · ")}
+            >
               {[speaker.title, speaker.company].filter(Boolean).join(" · ")}
             </p>
           )}

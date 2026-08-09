@@ -5,6 +5,7 @@ import { programVisible } from "@/domain/program-visibility";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/stat-card";
+import { EmbedsCard } from "./embeds-card";
 import { ProgramPublishCard } from "./program-publish-card";
 
 /** Event overview: a handful of real numbers pulled from the repos, plus
@@ -112,6 +113,10 @@ export default async function EventOverviewPage({
           sees the status through the link caption above and nothing more. */}
       {user.role === "admin" ? (
         <ProgramPublishCard eventSlug={eventSlug} published={programVisible(event)} />
+      ) : null}
+
+      {user.role === "admin" ? (
+        <EmbedsCard eventSlug={eventSlug} published={programVisible(event)} />
       ) : null}
     </div>
   );

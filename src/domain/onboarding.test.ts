@@ -3,9 +3,11 @@ import {
   buildAssignmentViews,
   buildSpeakerRollups,
   deriveTaskState,
+  findDuplicateNameSpeakerIds,
   sortAssignmentViews,
   filterSpeakerRollups,
   matchesSpeakerSearch,
+  otherSpeakersWithSameName,
   rosterSpeakerIds,
   sortSpeakerRollups,
   speakerRosterStatus,
@@ -350,5 +352,78 @@ describe("roster filtering", () => {
     expect(
       filterSpeakerRollups(all, { q: "a", status: "incomplete" }).map((r) => r.speaker.id),
     ).toEqual(["grace", "alan"]);
+  });
+});
+
+describe("possible-duplicate speakers (decisions.md D-059)", () => {
+  /** A rollup with only the fields the duplicate detector reads. */
+  function rollup(speakerOverrides: Partial<User> & { id: string }): SpeakerRollup {
+    return {
+      speaker: user(speakerOverrides),
+      confirmed: true,
+      totalTasks: 0,
+      completedTasks: 0,
+      outstandingTasks: 0,
+      overdueTasks: 0,
+      completionPercent: 100,
+      views: [],
+    };
+  }
+
+  it("flags two speakers with the exact same name", () => {
+    const all = [
+      rollup({ id: "p1", name: "Priya Raman", email: "priya@a.com" }),
+      rollup({ id: "p2", name: "Priya Raman", email: "priya@b.com" }),
+      rollup({ id: "other", name: "Someone Else", email: "else@a.com" }),
+    ];
+    expect(findDuplicateNameSpeakerIds(all)).toEqual(new Set(["p1", "p2"]));
+  });
+
+  it("has no false positive when every name is unique", () => {
+    const all = [
+      rollup({ id: "a", name: "Ada Lovelace" }),
+      rollup({ id: "b", name: "Grace Hopper" }),
+    ];
+    expect(findDuplicateNameSpeakerIds(all)).toEqual(new Set());
+  });
+
+  it("collides on whitespace and case variants of the same name", () => {
+    const all = [
+      rollup({ id: "p1", name: "  Priya   Raman " }),
+      rollup({ id: "p2", name: "priya raman" }),
+    ];
+    expect(findDuplicateNameSpeakerIds(all)).toEqual(new Set(["p1", "p2"]));
+  });
+
+  it("ignores empty or missing names — they never collide, even with each other", () => {
+    const all = [
+      rollup({ id: "p1", name: "" }),
+      rollup({ id: "p2", name: "   " }),
+      rollup({ id: "p3", name: null }),
+    ];
+    expect(findDuplicateNameSpeakerIds(all)).toEqual(new Set());
+  });
+
+  it("flags all three in a three-way collision", () => {
+    const all = [
+      rollup({ id: "p1", name: "Priya Raman" }),
+      rollup({ id: "p2", name: "Priya Raman" }),
+      rollup({ id: "p3", name: "priya raman" }),
+    ];
+    expect(findDuplicateNameSpeakerIds(all)).toEqual(new Set(["p1", "p2", "p3"]));
+  });
+
+  it("lists the other colliding speakers' emails for the tooltip", () => {
+    const all = [
+      rollup({ id: "p1", name: "Priya Raman", email: "priya@a.com" }),
+      rollup({ id: "p2", name: "Priya Raman", email: "priya@b.com" }),
+      rollup({ id: "p3", name: "Priya Raman", email: "priya@c.com" }),
+      rollup({ id: "other", name: "Someone Else", email: "else@a.com" }),
+    ];
+    expect(otherSpeakersWithSameName(all, "p1").map((s) => s.email)).toEqual([
+      "priya@b.com",
+      "priya@c.com",
+    ]);
+    expect(otherSpeakersWithSameName(all, "other")).toEqual([]);
   });
 });

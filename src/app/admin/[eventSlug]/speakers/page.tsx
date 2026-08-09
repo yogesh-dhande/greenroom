@@ -4,8 +4,11 @@ import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import {
   filterSpeakerRollups,
+  findDuplicateNameSpeakerIds,
+  otherSpeakersWithSameName,
   TASK_STATE_LABEL,
   type AssignmentView,
+  type SpeakerRollup,
   type TaskState,
 } from "@/domain/onboarding";
 import { formatDueDate } from "@/lib/event-time";
@@ -65,6 +68,15 @@ function earliestOutstandingDue(views: AssignmentView[], timeZone: string): stri
   return dueDates.length > 0 ? formatDueDate(dueDates[0], timeZone) : null;
 }
 
+/** "Another roster entry is also named Priya Raman (priya@a.com,
+ * priya@b.com)" — names the collision and who else it's with, so the badge
+ * is meaningful without opening either record (decisions.md D-059). */
+function duplicateNameTitle(rollup: SpeakerRollup, rollups: SpeakerRollup[]): string {
+  const name = rollup.speaker.name?.trim() ?? "";
+  const otherEmails = otherSpeakersWithSameName(rollups, rollup.speaker.id).map((s) => s.email);
+  return `Another roster entry is also named ${name} (${otherEmails.join(", ")})`;
+}
+
 /**
  * The event's speaker roster (spec.md §5, §8): who's on the program, and how
  * their onboarding tasks are going — outstanding/overdue counts and a
@@ -94,6 +106,10 @@ export default async function SpeakersPage({
   const repos = await getRepos();
   const { rollups } = await loadSpeakerRoster(repos, event.id);
   const rows = filterSpeakerRollups(rollups, { q, status });
+  // Checked against the whole roster, not just the filtered rows, so a
+  // collision doesn't disappear just because a search/status filter hides
+  // the other name (decisions.md D-059).
+  const duplicateIds = findDuplicateNameSpeakerIds(rollups);
 
   return (
     <div>
@@ -145,12 +161,23 @@ export default async function SpeakersPage({
                             so a pointer anywhere on the row opens the record
                             while the accessible name and the real `href` stay
                             on the name itself. */}
-                        <Link
-                          href={`/admin/${eventSlug}/speakers/${rollup.speaker.id}`}
-                          className="font-medium text-foreground underline-offset-4 outline-none after:absolute after:inset-0 after:content-[''] hover:underline"
-                        >
-                          {rollup.speaker.name ?? rollup.speaker.email}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/admin/${eventSlug}/speakers/${rollup.speaker.id}`}
+                            className="font-medium text-foreground underline-offset-4 outline-none after:absolute after:inset-0 after:content-[''] hover:underline"
+                          >
+                            {rollup.speaker.name ?? rollup.speaker.email}
+                          </Link>
+                          {duplicateIds.has(rollup.speaker.id) ? (
+                            <Badge
+                              variant="outline"
+                              className="border-warning bg-warning/10 text-warning"
+                              title={duplicateNameTitle(rollup, rollups)}
+                            >
+                              Possible duplicate
+                            </Badge>
+                          ) : null}
+                        </div>
                         {/* Whatever the speaker last saved on their own profile —
                             the same line the public gallery card prints. */}
                         {rollup.speaker.title || rollup.speaker.company ? (
