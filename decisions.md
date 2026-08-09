@@ -111,9 +111,7 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Decision:** Rebase the spec on the consolidated context ([context/kill-my-saas-context.md](context/kill-my-saas-context.md)), where direct organizer clarifications override the original brief. Headline changes: review workflow minimized to `unreviewed → approve/maybe/deny` (scoring/multi-round demoted to enhancements); agenda MVP narrowed to day/room + drag-and-drop + conflict detection (extra views demoted); acceptance must auto-create speaker/session/tasks; email and calendar delivery must **actually work**, not stubs; Accelevents dropped entirely; AI evaluation out of scope; Airtable sync clarified as write-through for automations + periodic read-back; admin UX for nontechnical operators is the product priority.
 
-**Rationale:** Newer direct organizer statements take precedence over the brief; the competition rewards a working vertical workflow over breadth.
-
-**Addendum (2026-08-08, organizer Q&A):** A second round of organizer answers confirmed the standing scope point-by-point (basic conditional logic suffices; track-based routing with submissions to 1+ tracks and reviewers over 1+ tracks; minimum review flow as above; auto-conversion on accept; day/room + drag-and-drop + conflicts is enough; small agentic helper is enough; Accelevents skipped; emails/invites must genuinely work "MVP basis"). Two sharpenings adopted into spec.md: request-changes email + feedback attached to decisions is an organizer-called-out **bonus** (promoted from enhancement tier; built in W4a since the comms machinery exists), and the canonical must-have onboarding tasks are the **hotel stay requirement form** and **flight reimbursement form** (with four named optional examples).
+**Rationale:** Newer direct organizer statements take precedence over the brief; the competition rewards a working vertical workflow over breadth. Reconfirmed point-by-point by a second organizer Q&A round on 2026-08-08 (conditional logic, track routing, minimum review flow, auto-conversion, agenda scope, small agentic helper, Accelevents skipped, emails/invites genuinely working); the two scope sharpenings from that round are D-023 and D-024.
 
 ## D-018: UI system — shadcn/ui + CSS-variable theme tokens — **accepted** (2026-08-08)
 
@@ -121,13 +119,11 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Owner directive; guarantees visual consistency across parallel waves built by different subagents (D-008), and makes the chosen design direction — or any future rebrand — a token-file change rather than a sweep through components.
 
-## D-019: Brand direction — "House Lights" — **accepted** (2026-08-08, revised same day)
+## D-019: Brand direction — "House Lights", applied in full — **accepted** (2026-08-08)
 
-**Decision:** Of the four mocked-up directions (see design-directions artifact), the owner chose **A "House Lights"** — warm paper ground (`#F7F6F1`), stage-green primary (`#1F5D45`), amber for attention states (`#C08A2E`), IBM Plex Sans + IBM Plex Mono. Implemented per D-018 as the token block in `src/app/globals.css` (plus a matching dark variant), fonts in `src/app/layout.tsx`, and the table primitive. An extra semantic `warning` token pair carries the amber so status UI never hardcodes it.
+**Decision:** Of the four mocked-up directions (see design-directions artifact), the owner chose **A "House Lights"** applied in full — warm paper ground (`#F7F6F1`), stage-green primary (`#1F5D45`), amber for attention states (`#C08A2E`), IBM Plex Sans + IBM Plex Mono, and A's own table treatment: comfortable rows (~10px vertical padding), uppercase letter-spaced muted column headers, monospaced/tabular data columns. Implemented per D-018 as the token block in `src/app/globals.css` (plus a matching dark variant), fonts in `src/app/layout.tsx`, and the table primitive. An extra semantic `warning` token pair carries the amber so status UI never hardcodes it.
 
-**Revision (2026-08-08):** The initial choice was "A with C 'Call Sheet's table density" (compact 6px rows). The owner then revised to **option A fully, including its own table treatment**: comfortable rows (~10px vertical padding), uppercase letter-spaced muted column headers, and monospaced/tabular data columns (the mono data columns are part of A's own spec, not a C borrow).
-
-**Rationale:** Owner choice 2026-08-08. Green-room/stage identity fits the product name; the calm warm ground keeps long admin sessions comfortable while amber flags attention states; Plex is a workhorse family with a matching mono for IDs/times.
+**Rationale:** Owner choice 2026-08-08. Green-room/stage identity fits the product name; the calm warm ground keeps long admin sessions comfortable while amber flags attention states; Plex is a workhorse family with a matching mono for IDs/times. (An initial owner pick of "A with C 'Call Sheet's compact density" was superseded the same day by full A — cohesion of one direction over a hybrid.)
 
 ## D-020: Calendar invite delivery mechanics — **accepted** (2026-08-08)
 
@@ -146,6 +142,18 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 **Decision:** Refinements made while building the form builder + public CFP (spec §2–3): (1) **co-speakers and track selection live inside the form's `fields` JSON** as reserved field types/ids (`co_speakers`, `tracks`, `speaker_bio`, `headshot`) rather than as separate schema columns — the renderer and validator treat them like any field, and the submission service maps them to relational rows on save; the authoritative list of reserved ids lives in `src/db/entities.ts`. (2) **Track options are resolved at render time** from the event's current tracks, not frozen into the form JSON — renaming a track never orphans a live form. (3) **Submitter edits never touch review status**: speakers can edit while the CFP window is open (read-only after), but `status` transitions belong exclusively to the review flow. (4) **Uploads are served at `/files/<key>` capability URLs** from R2, guarded by `isServableKey` (only keys under the upload prefix, no traversal) — no signed-URL infrastructure needed for the competition. (5) **Form management is admin-only**; reviewers see submissions, not builders.
 
 **Rationale:** Keeping speaker-ish structure inside the field JSON preserves the "forms are data" model (D-009) with zero migrations per form change; render-time track resolution and status isolation each close a real corruption path; the `/files` guard is the smallest safe thing that serves headshots publicly (needed later for the speaker gallery anyway).
+
+## D-023: Build in-app change requests + decision feedback (review bonus) — **accepted** (2026-08-08)
+
+**Decision:** The review flow includes emailing a speaker from inside the app to request changes, and attaching a personal feedback message to the approve/deny decision email — implemented in W4a rather than left in the enhancement tier.
+
+**Rationale:** Product-requirement clarification: the organizer's Q&A explicitly named this as the bonus on top of the minimum review workflow. The cost is small because the comms machinery (`sendChangeRequest`, `sendDecisionEmail`) already exists from W2b; only review-page UI and a feedback field ride on top.
+
+## D-024: Canonical onboarding task set — **accepted** (2026-08-08)
+
+**Decision:** The demo/seed task vocabulary uses the organizer's named examples — must-have: **hotel stay requirement form** and **flight reimbursement form**; optional: finalize talk description, finalize bio/photos, announce participation, invite colleagues with speaker discount. The task model must therefore support a small form-response task (a few structured answers plus an optional file) in addition to upload and confirm kinds.
+
+**Rationale:** Product-requirement clarification: these are the examples shown in the organizer's reference video, so the judged walkthrough should surface exactly them; the form-response shape is the minimum that makes the two must-haves real rather than renamed file uploads.
 
 # Appendix: Known divergences from Sessionboard
 
