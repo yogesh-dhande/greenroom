@@ -23,6 +23,11 @@
       "custom_domain": true
     }
   ],
+  // We serve on the custom domain only (the workers.dev route stays off).
+  "workers_dev": false,
+  // Required to fit the free plan's 3 MiB gzipped Worker cap — the unminified
+  // bundle is 3.38 MiB gzipped and gets rejected (see learnings.md).
+  "minify": true,
   // Primary datastore (decisions.md D-002), created in region WNAM (D-033).
   "d1_databases": [
     {
