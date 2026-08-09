@@ -15,6 +15,14 @@
   // instead of at the request's ingress point — Smart Placement moves the
   // invocation to where its backend calls are cheapest.
   "placement": { "mode": "smart" },
+  // Owner-chosen production domain (zone must live on this Cloudflare
+  // account); wrangler provisions the DNS record and certificate on deploy.
+  "routes": [
+    {
+      "pattern": "greenboard.usespaces.dev",
+      "custom_domain": true
+    }
+  ],
   // Primary datastore (decisions.md D-002), created in region WNAM (D-033).
   "d1_databases": [
     {
