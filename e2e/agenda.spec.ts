@@ -13,8 +13,20 @@ import { signIn } from "./helpers";
 
 const AGENDA = "/admin/ai-engineer-summit-2026/agenda";
 
-/** The seeded 45-minute talk on Main Stage at 10:00 on Jun 16, with Priya
- * Raman speaking — the fixture every conflict here is built against. */
+/** Day labels as the day selector renders them ("Jun 16, 2026"): the seed
+ * places the event 45 days out (scripts/seed.ts EVENT_DAY_1, UTC-derived),
+ * and formatDay renders "YYYY-MM-DD" strings in UTC. */
+function eventDayLabel(dayIndex = 0): string {
+  return new Date(Date.now() + (45 + dayIndex) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** The seeded 45-minute talk on Main Stage at 10:00 on event day 1, with
+ * Priya Raman speaking — the fixture every conflict here is built against. */
 const RETRIEVAL = "Retrieval that survives production traffic";
 const EVALS = "Evals you'll actually keep running";
 const TOOL_SCHEMAS = "Tool schemas are your real prompt";
@@ -62,7 +74,7 @@ test("admin places an unscheduled session with the time dialog", async ({ page }
   await expect(page.getByText("No scheduling conflicts")).toBeVisible();
 
   await schedule(page, EVALS, {
-    day: "Jun 16, 2026",
+    day: eventDayLabel(),
     room: "Workshop A",
     start: "09:00",
     duration: "45 minutes",
@@ -200,7 +212,7 @@ test("a speaker booked in two places at once is flagged", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(AGENDA);
 
-  // Priya Raman already speaks at 10:00 on Jun 16 (Main Stage).
+  // Priya Raman already speaks at 10:00 on event day 1 (Main Stage).
   await page.getByRole("button", { name: "New session" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.locator("#new-session-title").fill("Fireside chat with Priya");
@@ -210,7 +222,7 @@ test("a speaker booked in two places at once is flagged", async ({ page }) => {
   await expect(trayCard(page, "Fireside chat")).toBeVisible();
 
   await schedule(page, "Fireside chat", {
-    day: "Jun 16, 2026",
+    day: eventDayLabel(),
     room: "Community Hall",
     start: "10:15",
     duration: "30 minutes",

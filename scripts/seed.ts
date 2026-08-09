@@ -42,6 +42,9 @@ import type {
 const DAY = 24 * 60 * 60 * 1000;
 const now = new Date();
 const daysFromNow = (days: number) => new Date(now.getTime() + days * DAY);
+/** "YYYY-MM-DD" (UTC-derived) for a day `days` from now — for the date-only
+ * columns, which the app renders in UTC (src/components/date-format.ts). */
+const dayFromNow = (days: number) => daysFromNow(days).toISOString().slice(0, 10);
 
 function person(
   email: string,
@@ -73,13 +76,20 @@ function rotate<T>(items: T[], index: number): T {
 // Demo content
 // ---------------------------------------------------------------------------
 
+// The demo event always sits ~6 weeks out, whenever the seed runs: reminders
+// still fire (they stop at event start) and the public program reads as an
+// upcoming event, not an archive. e2e/agenda.spec.ts mirrors these offsets.
+const EVENT_DAY_1 = dayFromNow(45);
+const EVENT_DAY_2 = dayFromNow(46);
+const EVENT_DAY_3 = dayFromNow(47);
+
 const EVENT: NewEvent = {
   name: "AI Engineer Summit 2026",
   slug: "ai-engineer-summit-2026",
   description:
     "Three days of practical AI engineering: shipping agents, evaluating models, and running LLM systems in production.",
-  startDate: "2026-06-16",
-  endDate: "2026-06-18",
+  startDate: EVENT_DAY_1,
+  endDate: EVENT_DAY_3,
   timezone: "America/Los_Angeles",
   location: "Moscone West, San Francisco",
 };
@@ -453,9 +463,9 @@ const SUBMISSION_SEEDS: SubmissionSeed[] = [
 
 /** Day/room/time for the three sessions that are placed on the agenda. */
 const SCHEDULE: Array<{ day: string; startTime: string; endTime: string; room: number }> = [
-  { day: "2026-06-16", startTime: "10:00", endTime: "10:45", room: 0 },
-  { day: "2026-06-16", startTime: "11:00", endTime: "11:30", room: 3 },
-  { day: "2026-06-17", startTime: "14:00", endTime: "14:45", room: 0 },
+  { day: EVENT_DAY_1, startTime: "10:00", endTime: "10:45", room: 0 },
+  { day: EVENT_DAY_1, startTime: "11:00", endTime: "11:30", room: 3 },
+  { day: EVENT_DAY_2, startTime: "14:00", endTime: "14:45", room: 0 },
 ];
 
 // ---------------------------------------------------------------------------
