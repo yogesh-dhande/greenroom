@@ -4,8 +4,7 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 ## Airtable sync (owner decision 2026-08-09: build against a real base)
 
-- [ ] **Share the base ID** (the `appXXXXXXXXXXXXXX` segment of the base's URL) — not a secret, chat is fine. The invite link you pasted only works for a human browser session; Claude needs the base ID to reach the base through the API with your token.
-- [ ] **Create an Airtable base** for the sync if the invite link's base isn't meant for it — an empty base is fine (Claude will create tables via the API).
+- [ ] **(Optional, for local dev only)** add `AIRTABLE_API_KEY=…` to `.dev.vars` yourself in an editor — don't paste the token into chat or a terminal command. Not needed for the deployed sync (the secret is already set in the worker); it only lets a local dev server hit the base.
 
 ## Evaluator prep (after the deploy is verified)
 
@@ -36,3 +35,4 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 - [x] Q5 answered (2026-08-09): build the Airtable sync against a real base — see top section for what it needs from you.
 - [x] Q7 answered (2026-08-09): `.ics` calendar invites are good enough; D-020 stands, the organizer follow-up video is moot.
 - [x] `AIRTABLE_API_KEY` secret set via wrangler (2026-08-09) — verified in the worker's secret list.
+- [x] Airtable base ID shared (2026-08-09): `appXXXXXXXXXXXXXX` — recorded as `AIRTABLE_BASE_ID` in wrangler.jsonc; W10 sync build started.
