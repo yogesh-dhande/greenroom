@@ -30,6 +30,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 ### 4. Review & decisions
 - Routing = track-based responsibility: submissions pick tracks, reviewers own tracks. No routing engine.
 - Minimum flow: `unreviewed → approve / maybe / deny`, decidable by reviewer or admin. (Scored reviews, multiple rounds: enhancements. AI-assisted evaluation: out of scope.)
+- Organizer-called-out bonus (2026-08-08): email the speaker from inside the app to request changes, and attach feedback when sending the approve/deny decision.
 - Admin submission list with clear statuses (rich filters/sorting/columns: important tier).
 
 ### 5. Acceptance conversion
@@ -38,7 +39,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 6. Speaker portal & onboarding
 - Speaker sees their submissions/sessions, acceptance state, and incomplete tasks; edits their own profile, bio, headshot.
-- Tasks cover the underlying jobs: complete a form, upload a file (slides, photos), confirm information (organizer examples: hotel form, flight reimbursement, finalize talk description/bio, announce participation, invite colleagues).
+- Tasks cover the underlying jobs: complete a form, upload a file (slides, photos), confirm information. Organizer's canonical examples (2026-08-08) — must-have: **hotel stay requirement form**, **flight reimbursement form**; optional: finalize talk description, finalize bio/photos, announce participation, invite colleagues with speaker discount.
 - Auth: email magic links for **all roles**, no passwords ([decisions.md](decisions.md) D-007).
 
 ### 7. Communications — must actually work (no stubs)
@@ -66,7 +67,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ## Useful enhancements (only if time permits)
 
-- Scored reviews / rating fields; multiple evaluation rounds; in-app change requests; feedback attached to accept/deny.
+- Scored reviews / rating fields; multiple evaluation rounds.
 - Configurable edit-lock deadlines; admin notification customization.
 - Additional agenda views (week/track/room); dashboards and reporting; saved views/configurable columns.
 - Generalized CMS/embed tooling; API beyond what the UI needs (public read API modeled on Sessionboard's — bonus).

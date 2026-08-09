@@ -113,6 +113,8 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Newer direct organizer statements take precedence over the brief; the competition rewards a working vertical workflow over breadth.
 
+**Addendum (2026-08-08, organizer Q&A):** A second round of organizer answers confirmed the standing scope point-by-point (basic conditional logic suffices; track-based routing with submissions to 1+ tracks and reviewers over 1+ tracks; minimum review flow as above; auto-conversion on accept; day/room + drag-and-drop + conflicts is enough; small agentic helper is enough; Accelevents skipped; emails/invites must genuinely work "MVP basis"). Two sharpenings adopted into spec.md: request-changes email + feedback attached to decisions is an organizer-called-out **bonus** (promoted from enhancement tier; built in W4a since the comms machinery exists), and the canonical must-have onboarding tasks are the **hotel stay requirement form** and **flight reimbursement form** (with four named optional examples).
+
 ## D-018: UI system — shadcn/ui + CSS-variable theme tokens — **accepted** (2026-08-08)
 
 **Decision:** All UI is built from shadcn/ui components (Tailwind v4, CSS-variables mode). Colors/typography flow exclusively through the semantic token set in globals.css (`--primary`, `--accent`, `--muted`, …); components never use raw palette classes (no `bg-green-600`), only token classes (`bg-primary`, `text-muted-foreground`). The brand direction (see design-directions artifact) is applied by swapping the token block only.
