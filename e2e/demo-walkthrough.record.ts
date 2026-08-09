@@ -117,10 +117,24 @@ async function startAct(page: Page, actNumber: number, title: string): Promise<v
   test.setTimeout(420_000);
   // Next's dev-tools bubble sits in the corner of every frame otherwise. It
   // belongs to the dev server, not to the product, so it stays out of the take.
+  //
+  // The style has to go in on DOMContentLoaded, not at init time: a <style>
+  // parented to <html> before the parser has built <head> gets discarded when
+  // it does, which is why the first take still had the bubble in every frame.
   await page.addInitScript(() => {
-    const style = document.createElement("style");
-    style.textContent = "nextjs-portal, [data-nextjs-toast] { display: none !important; }";
-    document.documentElement.appendChild(style);
+    const inject = () => {
+      if (document.getElementById("demo-hide-devtools")) return;
+      const style = document.createElement("style");
+      style.id = "demo-hide-devtools";
+      style.textContent =
+        "nextjs-portal, nextjs-toast, [data-nextjs-toast] { display: none !important; }";
+      (document.head ?? document.documentElement).appendChild(style);
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", inject, { once: true });
+    } else {
+      inject();
+    }
   });
   actStart = Date.now();
   bucket = [];
