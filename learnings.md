@@ -58,7 +58,7 @@ Expected: a webServer wrapper script can restore swapped config (`.dev.vars`) in
 
 ## A `"use client"` import chain can pull the email transport into the browser bundle (2026-08-08)
 
-Expected: importing a constant (a filter list, decision options) from a domain module into a client component is free. Actually: the import makes the whole module — and everything it transitively imports — part of the client bundle, so a client component reaching anything that touches `src/domain/comms.ts` dragged the email-transport code toward the browser. Cost a refactor mid-wave: shared constants moved into small UI-side modules (`filters.ts`), and client components spell out option lists locally instead of importing them from server-leaning domain files. Rule of thumb: domain modules that touch transports/repos are server-only; anything a client component needs from them gets its own dependency-free module.
+Expected: importing a constant (a filter list, decision options) from a domain module into a client component is free. Actually: the import makes the whole module — and everything it transitively imports — part of the client bundle, so a client component reaching anything that touches `src/domain/comms.ts` dragged the email-transport code toward the browser. Cost a refactor mid-wave: shared constants moved into small UI-side modules (`filters.ts`), and client components spell out option lists locally instead of importing them from server-leaning domain files. Rule of thumb: domain modules that touch transports/repos are server-only; anything a client component needs from them gets its own dependency-free module. (`import type` is the exception — it's erased at compile time, so type-only imports from server-leaning modules are safe; only *value* imports drag the graph in. Confirmed while building the comms hub, which imports types from `@/domain/comms` but values only from `@/domain/comms-templates`.)
 
 ## Playwright: `alertdialog` role and worker-discard turning one failure into many (2026-08-08)
 
@@ -67,6 +67,22 @@ Two behaviors that cost a red run: (1) shadcn/Radix `AlertDialog` exposes ARIA r
 ## Deterministic-looking seed logic can be nondeterministic via unordered SQL reads (2026-08-08)
 
 Expected: a seed script that assigns task states by a fixed formula over speaker positions produces identical data every run. Actually: the positions came from iterating a Set built on `listSpeakerIds()`, whose D1 implementation has no `ORDER BY` — so sqlite's row order silently varied across reseeds and the "same" formula produced different per-speaker completed/pending states, surfacing as an intermittent e2e failure that looked like a test bug. Fix: sort by a fixed application-side key (the speaker's index in the seed fixture) before enumerating; never let unordered query results feed order-dependent logic, even in "just a seed script."
+
+## Next.js: `not-found.tsx` beside a layout doesn't catch that layout's own `notFound()` (2026-08-08)
+
+Expected: putting `not-found.tsx` next to `[eventSlug]/layout.tsx` renders it when the layout calls `notFound()` for an unknown slug. Actually: a segment's not-found boundary only wraps the layout's *children* — a `notFound()` thrown by the layout itself escapes to the parent segment and rendered the app's root 404 instead. The public/embed 404 pages had to move one directory up (`src/app/p/not-found.tsx`, `src/app/embed/not-found.tsx`) to sit in the parent segment of the layout that throws.
+
+## React `<img onError>` misses errors that fire before hydration (2026-08-08)
+
+Expected: `onError` on an `<img>` reliably triggers the initials fallback for a dead headshot URL. Actually: on a server-rendered page the browser can fetch and fail the image before React hydrates and attaches the handler, so the native `error` event fires into the void and the broken-image icon sticks (confirmed via screenshot: four broken icons, zero fallbacks). Fix in `speaker-headshot.tsx`: a callback ref that checks `img.complete && img.naturalWidth === 0` the moment React attaches, catching failures that pre-date hydration.
+
+## A logging email sender that stamps wall-clock `sentAt` breaks simulated-time tests (2026-08-08)
+
+Expected: running the reminder job twice under a simulated `ctx.now` (e.g. 2026-05-01) exercises the cooldown against the first run's log rows. Actually: `createLoggingEmailSender` stamps `sentAt: new Date()` — real wall-clock — so the first run's rows sat three months in the *future* relative to the simulated clock and the cooldown never expired, which looked like a cadence bug. Tests must seed `email_log` rows with explicit timestamps rather than relying on two live runs; threading `ctx.now` into the log write is the at-source fix if anything else ever runs on simulated time.
+
+## Playwright `getByText` matches a `<textarea>`'s value (2026-08-08)
+
+Expected: asserting `getByText("{{badField}}")` finds the error message that echoes the offending merge field. Actually: Playwright's text matching also sees the textarea's *value*, so the same string matched both the input and the error — a guaranteed strict-mode violation that reads like a duplicated element. Assert through the error item's own locator (role/testid), never bare text that's also present in an input.
 
 ## Resend attachments: `contentType` camelCase, base64 string content, no raw MIME (2026-08-08)
 
