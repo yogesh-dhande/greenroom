@@ -10,8 +10,12 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
-  // Primary datastore (decisions.md D-002). Placeholder database_id — replace
-  // after running `wrangler d1 create greenroom` and updating this file.
+  // The evaluators/users are in California (D-033). SSR makes many D1 round
+  // trips per request, so run the Worker near the database (created in WNAM)
+  // instead of at the request's ingress point — Smart Placement moves the
+  // invocation to where its backend calls are cheapest.
+  "placement": { "mode": "smart" },
+  // Primary datastore (decisions.md D-002), created in region WNAM (D-033).
   "d1_databases": [
     {
       "binding": "DB",

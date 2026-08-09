@@ -203,6 +203,12 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Owner directive (2026-08-09): "if there are any contradictions between spec or sessionboard docs vs the product walkthrough, we should go with product walkthrough video if the gap is clear. if anything doesn't make sense, capture as a question to follow up on later." The video shows the actual user's workflow, which is closer to evaluation reality than marketing copy.
 
+## D-033: Deployment tuned for California users — **accepted** (2026-08-09)
+
+**Decision:** All region-sensitive infrastructure targets the US West Coast: the D1 database lives in region WNAM (confirmed at creation), the R2 bucket is created with a `wnam` location hint, and the Worker uses Smart Placement (`"placement": { "mode": "smart" }` in wrangler.jsonc) so SSR — which makes many sequential D1 round trips per request — executes near the database instead of at the visitor's ingress point. Static assets still serve from Cloudflare's edge everywhere.
+
+**Rationale:** Owner directive (2026-08-09): the product will be evaluated and used in CA, and speed is an explicit judging differentiator (spec.md, Performance). For a chatty SSR app, per-query latency to D1 dominates; colocating compute with the database in WNAM minimizes it for CA users specifically.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
