@@ -332,6 +332,25 @@ export function buildItineraryCalendar(input: ItineraryCalendarInput): Itinerary
     ];
   });
 
+  return wrapCalendar(input, events);
+}
+
+/**
+ * A VCALENDAR with no VEVENTs — what a public feed serves while its program
+ * is unpublished (decisions.md D-056). A subscribed calendar client must get
+ * a parseable document rather than a 404, which it would surface to the user
+ * as a broken subscription.
+ */
+export function buildEmptyCalendar(
+  input: Omit<ItineraryCalendarInput, "entries" | "timeZone">,
+): ItineraryCalendar {
+  return wrapCalendar(input, []);
+}
+
+function wrapCalendar(
+  input: Omit<ItineraryCalendarInput, "entries" | "timeZone">,
+  events: string[],
+): ItineraryCalendar {
   const content = serialize([
     "BEGIN:VCALENDAR",
     "VERSION:2.0",

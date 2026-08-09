@@ -44,6 +44,7 @@ function event(overrides: Partial<Event> = {}): Event {
     endDate: "2026-06-18",
     timezone: "America/Los_Angeles",
     location: "Moscone West",
+    programPublished: true,
     ...timestamps(),
     ...overrides,
   };

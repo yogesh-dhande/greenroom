@@ -14,8 +14,16 @@ import {
   type SpeakerImportRow,
   type SpeakerImportSummary,
 } from "@/domain/speaker-import";
-import { getRepos } from "@/lib/db";
+import { getFilesBucket, getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
+import {
+  checkUpload,
+  fileUrl,
+  isImageUploadType,
+  isServableKey,
+  uploadKey,
+  uploadProblemMessage,
+} from "@/lib/uploads";
 
 function fail(error: string) {
   return { ok: false as const, error };
@@ -248,6 +256,68 @@ export async function updateSpeakerProfile(eventSlug: string, input: UpdateSpeak
   revalidatePath(rosterPath(eventSlug));
   revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
   return { ok: true as const, data: { message: "Profile updated" } };
+}
+
+/** Same object-key namespace the speaker's own upload uses (spec.md §6,
+ * src/app/portal/profile/actions.ts) — an organizer's upload and a speaker's
+ * later one both live under `uploads/profile/`, so there's no second scheme
+ * to keep in sync. */
+const HEADSHOT_SCOPE = "profile";
+
+/**
+ * Organizer-supplied headshot (decisions.md D-054(5)): the roster flags "No
+ * headshot" for a speaker who hasn't reached /portal/profile yet, and an
+ * organizer with a photo already in hand — a badge scan, a press kit —
+ * shouldn't have to wait on them. Drives the exact same R2 upload machinery
+ * as the portal's `uploadHeadshot` (src/lib/uploads.ts: the size/type checks,
+ * the key scheme, `isServableKey`), just combined into one step since this
+ * action has nothing else on the form to save — it writes `headshotUrl`
+ * itself rather than handing a key back to a second action.
+ */
+export async function uploadSpeakerHeadshot(
+  eventSlug: string,
+  speakerId: string,
+  formData: FormData,
+) {
+  const { event } = await requireEventAdmin(eventSlug);
+
+  const repos = await getRepos();
+  const speaker = await loadRosterSpeaker(repos, event, speakerId);
+  if (!speaker) return fail("That speaker isn't on this event's roster");
+
+  const file = formData.get("file");
+  if (!(file instanceof File)) return fail("No file was received.");
+
+  const problem = checkUpload(file);
+  if (problem) return fail(uploadProblemMessage(problem));
+  if (!isImageUploadType(file.type)) {
+    return fail("A headshot has to be an image — JPEG, PNG, WebP, GIF, or AVIF.");
+  }
+
+  const key = uploadKey(HEADSHOT_SCOPE, file.name);
+  if (!isServableKey(key)) return fail("That filename can't be stored.");
+
+  try {
+    const bucket = await getFilesBucket();
+    await bucket.put(key, await file.arrayBuffer(), {
+      httpMetadata: {
+        contentType: file.type,
+        contentDisposition: `inline; filename="${file.name.replace(/"/g, "")}"`,
+      },
+    });
+    await repos.users.update(speaker.id, { headshotUrl: fileUrl(key) });
+  } catch {
+    return fail("Couldn't save that headshot — try again");
+  }
+
+  revalidatePath(rosterPath(eventSlug));
+  revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
+  // Headshots feed the public gallery and schedule bylines too (spec.md §6).
+  revalidatePath(`/p/${eventSlug}/speakers`);
+  revalidatePath(`/p/${eventSlug}/schedule`);
+  revalidatePath(`/embed/${eventSlug}/speakers`);
+  revalidatePath(`/embed/${eventSlug}/schedule`);
+  return { ok: true as const };
 }
 
 const notesInputSchema = z.object({

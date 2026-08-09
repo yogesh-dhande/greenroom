@@ -44,6 +44,12 @@ export const eventSchema = z.object({
   /** IANA zone; the reference frame for every date/time on this event. */
   timezone: z.string(),
   location: z.string().nullable(),
+  /** Whether the public program is live (decisions.md D-056). Required, with
+   * no zod default: `newEventSchema.partial()` (the settings update path)
+   * would otherwise materialize the default into every patch and quietly
+   * unpublish a live program on an unrelated edit. Create paths state the
+   * value they want. */
+  programPublished: z.boolean(),
   ...timestamps,
 });
 export type Event = z.infer<typeof eventSchema>;
@@ -530,6 +536,45 @@ export const taskAssignmentSchema = z.object({
 export type TaskAssignment = z.infer<typeof taskAssignmentSchema>;
 export const newTaskAssignmentSchema = taskAssignmentSchema.omit(omitManaged);
 export type NewTaskAssignment = z.infer<typeof newTaskAssignmentSchema>;
+
+// ---------------------------------------------------------------------------
+// FileVersion / FileComment (deliverables — spec.md §6, decisions.md D-054)
+// ---------------------------------------------------------------------------
+
+/**
+ * One upload against a `file_request` assignment. Immutable — a replacement
+ * is a new row, never an edit — so there is no `updatedAt` and no
+ * `NewFileVersion` update type.
+ */
+export const fileVersionSchema = z.object({
+  id: z.string(),
+  assignmentId: z.string(),
+  /** Stored object key; null for a file that only exists as an absolute URL. */
+  fileKey: z.string().nullable(),
+  url: z.string(),
+  filename: z.string(),
+  uploadedBy: z.string(),
+  createdAt: z.coerce.date(),
+});
+export type FileVersion = z.infer<typeof fileVersionSchema>;
+/** `createdAt` is writable on create only: replacing a file that predates
+ * the versions table records the existing upload under its own date. */
+export const newFileVersionSchema = fileVersionSchema
+  .omit({ id: true, createdAt: true })
+  .extend({ createdAt: z.coerce.date().optional() });
+export type NewFileVersion = z.infer<typeof newFileVersionSchema>;
+
+/** A comment on a deliverable, from either side (append-only). */
+export const fileCommentSchema = z.object({
+  id: z.string(),
+  assignmentId: z.string(),
+  authorId: z.string(),
+  body: z.string().min(1),
+  createdAt: z.coerce.date(),
+});
+export type FileComment = z.infer<typeof fileCommentSchema>;
+export const newFileCommentSchema = fileCommentSchema.omit({ id: true, createdAt: true });
+export type NewFileComment = z.infer<typeof newFileCommentSchema>;
 
 // ---------------------------------------------------------------------------
 // EmailTemplate / EmailLog (spec.md §7)

@@ -2,6 +2,7 @@ import { enumerateDays } from "@/domain/scheduling";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
+import { loadSpeakerRoster } from "../speakers/roster";
 import { AgendaBoard } from "./agenda-board";
 import type { BoardPerson, BoardSession } from "./types";
 
@@ -17,10 +18,16 @@ import type { BoardPerson, BoardSession } from "./types";
  */
 export default async function AgendaPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ eventSlug: string }>;
+  /** `?session=<id>` deep-links straight into that session's edit dialog —
+   * the submission detail page's "Edit title, abstract & track" link
+   * (decisions.md D-054(5)). */
+  searchParams: Promise<{ session?: string }>;
 }) {
   const { eventSlug } = await params;
+  const { session: focusSessionId } = await searchParams;
   const { user, event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
@@ -46,13 +53,21 @@ export default async function AgendaPage({
     email: person.email,
   });
 
-  const [assigned, directory] = await Promise.all([
+  const [assigned, directory, roster] = await Promise.all([
     repos.users.listByIds([...new Set(links.map((l) => l.userId))]),
     repos.users.listByRole("speaker"),
+    // Event-scoped, unlike `directory` above (every speaker in Greenroom) —
+    // the session dialog's "add a speaker" only offers people already
+    // associated with this event (decisions.md D-057), same source
+    // Admin > Speakers reads.
+    loadSpeakerRoster(repos, event.id),
   ]);
+  const rosterSpeakers = roster.rollups.map((rollup) => rollup.speaker);
 
   const people: Record<string, BoardPerson> = {};
-  for (const person of [...assigned, ...directory]) people[person.id] = toPerson(person);
+  for (const person of [...assigned, ...directory, ...rosterSpeakers]) {
+    people[person.id] = toPerson(person);
+  }
 
   const boardSessions: BoardSession[] = sessions.map((session) => ({
     ...session,
@@ -82,7 +97,9 @@ export default async function AgendaPage({
         sessions={boardSessions}
         people={people}
         directory={directory.map(toPerson).sort((a, b) => a.name.localeCompare(b.name))}
+        roster={rosterSpeakers.map(toPerson).sort((a, b) => a.name.localeCompare(b.name))}
         canEdit={user.role === "admin"}
+        focusSessionId={focusSessionId}
       />
     </div>
   );

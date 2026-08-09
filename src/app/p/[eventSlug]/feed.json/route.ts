@@ -15,6 +15,11 @@ import { getRepos } from "@/lib/db";
  * Deliberately unauthenticated and CORS-open — it's public, read-only
  * program data meant to be fetched cross-origin by whatever is embedding it.
  *
+ * While the program is unpublished (decisions.md D-056) the loaders return
+ * nothing, so this serves a valid document with empty `sessions`/`speakers`
+ * and `programPublished: false` rather than a 404 — a consumer polling the
+ * feed keeps working and can see why it's empty.
+ *
  * Looks up the event via the repo directly (not `getPublicEvent`, which
  * calls Next's `notFound()` — appropriate in a page render, not in a route
  * handler) so an unknown slug gets a plain 404 Response, mirroring

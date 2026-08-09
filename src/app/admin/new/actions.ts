@@ -61,6 +61,9 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
     endDate: v.endDate || null,
     timezone: v.timezone,
     location: v.location || null,
+    // New events start unpublished (decisions.md D-056) — the organizer
+    // publishes from the event overview once the program is ready.
+    programPublished: false,
   });
   if (!candidate.success) {
     return { ok: false, error: candidate.error.issues[0]?.message ?? "Invalid event details" };

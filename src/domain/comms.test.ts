@@ -25,6 +25,7 @@ import {
   inviteBlocker,
   isTaskDigestWindow,
   MANUAL_TASK_DIGEST_COOLDOWN_HOURS,
+  previewTaskDigestCount,
   runReminderJob,
   sendRoundReminders,
   summarizeSessionInvites,
@@ -61,6 +62,7 @@ function event(overrides: Partial<Event> = {}): Event {
     endDate: "2026-06-18",
     timezone: "America/Los_Angeles",
     location: "Moscone West",
+    programPublished: true,
     ...timestamps(),
     ...overrides,
   };
@@ -769,6 +771,62 @@ describe("runReminderJob", () => {
     await runReminderJob({ repos, sender, now: MONDAY });
 
     expect(sent).toHaveLength(1);
+  });
+
+  describe("previewTaskDigestCount", () => {
+    const ctxOf = (repos: Repos, sender: EmailSender) => ({
+      repos,
+      sender,
+      appUrl: "http://localhost:3000",
+    });
+
+    it("counts speakers a manual send would actually reach", async () => {
+      const { repos } = fakeRepos(baseSeed());
+      const { sender } = fakeSender();
+
+      const count = await previewTaskDigestCount(ctxOf(repos, sender), event(), NOW);
+
+      expect(count).toBe(1);
+    });
+
+    it("agrees exactly with what runReminderJob then sends — the confirm dialog's promise", async () => {
+      // The button's confirm dialog and its actual send read from the same
+      // seed independently here; a real double-click risk (the send changing
+      // the count between preview and click) is exactly what the manual
+      // cooldown, not this test, guards against.
+      const seed = baseSeed();
+      const { repos: previewRepos } = fakeRepos(seed);
+      const { repos: sendRepos } = fakeRepos(seed);
+      const { sender, sent } = fakeSender();
+
+      const count = await previewTaskDigestCount(ctxOf(previewRepos, sender), event(), NOW);
+      const result = await runReminderJob({ repos: sendRepos, sender, now: NOW, manual: true });
+
+      expect(count).toBe(1);
+      expect(result.remindersSent).toBe(count);
+      expect(sent).toHaveLength(count);
+    });
+
+    it("excludes a speaker whose checklist is already clear", async () => {
+      const seed = baseSeed();
+      const { repos } = fakeRepos({
+        ...seed,
+        assignments: seed.assignments.map((row) => ({ ...row, status: "completed" as const })),
+      });
+      const { sender } = fakeSender();
+
+      expect(await previewTaskDigestCount(ctxOf(repos, sender), event(), NOW)).toBe(0);
+    });
+
+    it("excludes a speaker already inside the manual cooldown", async () => {
+      const { repos } = fakeRepos({
+        ...baseSeed(),
+        emailLog: [digestLog(new Date(NOW.getTime() - 1 * 60 * 60 * 1000))],
+      });
+      const { sender } = fakeSender();
+
+      expect(await previewTaskDigestCount(ctxOf(repos, sender), event(), NOW)).toBe(0);
+    });
   });
 });
 

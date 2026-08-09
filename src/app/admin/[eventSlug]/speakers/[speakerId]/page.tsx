@@ -8,11 +8,13 @@ import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import { fileUrl, filenameFromKey, isImageKey, keyFromFileUrl } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
-import { formatDate, formatDay, formatTime } from "@/components/date-format";
+import { formatDay, formatTime } from "@/components/date-format";
+import { formatDueDate } from "@/lib/event-time";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { loadSpeakerRoster } from "../roster";
+import { SpeakerHeadshotForm } from "./speaker-headshot-form";
 import { SpeakerNotesForm } from "./speaker-notes-form";
 import { SpeakerProfileForm } from "./speaker-profile-form";
 
@@ -149,11 +151,12 @@ export default async function SpeakerRecordPage({
               <CardTitle>Profile</CardTitle>
               <CardDescription>
                 What the public speaker page and speaker emails use. The speaker can edit the same
-                fields — plus their headshot and links — in their portal.
+                fields — plus their links — in their portal; you can also supply a headshot on
+                their behalf below.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="flex items-center gap-4">
+              <div className="flex items-start gap-4">
                 {speaker.headshotUrl && (!headshotKey || isImageKey(headshotKey)) ? (
                   // A small fixed-size avatar of an unknown-at-build-time URL
                   // (an uploaded /files/<key> or an imported absolute one), so
@@ -170,11 +173,14 @@ export default async function SpeakerRecordPage({
                     No photo
                   </div>
                 )}
-                <p className="text-sm text-muted-foreground">
-                  {speaker.headshotUrl
-                    ? "Headshot on file."
-                    : "No headshot yet — the speaker uploads one from their portal profile."}
-                </p>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    {speaker.headshotUrl
+                      ? "Headshot on file. Upload a new image to replace it."
+                      : "No headshot yet — upload one here, or the speaker can add it from their portal profile."}
+                  </p>
+                  <SpeakerHeadshotForm eventSlug={eventSlug} speakerId={speaker.id} />
+                </div>
               </div>
 
               <SpeakerProfileForm eventSlug={eventSlug} speaker={speaker} />
@@ -233,9 +239,11 @@ export default async function SpeakerRecordPage({
                           {view.task.title}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {view.task.dueAt ? `Due ${formatDate(view.task.dueAt)}` : "No due date"}
+                          {view.task.dueAt
+                            ? `Due ${formatDueDate(view.task.dueAt, event.timezone)}`
+                            : "No due date"}
                           {view.assignment.completedAt
-                            ? ` · completed ${formatDate(view.assignment.completedAt)}`
+                            ? ` · completed ${formatDueDate(view.assignment.completedAt, event.timezone)}`
                             : ""}
                         </span>
                       </div>
@@ -279,7 +287,7 @@ export default async function SpeakerRecordPage({
                           {upload.filename}
                         </a>
                         <span className="text-xs text-muted-foreground">
-                          {upload.label} · {formatDate(upload.uploadedAt)}
+                          {upload.label} · {formatDueDate(upload.uploadedAt, event.timezone)}
                         </span>
                       </div>
                     </li>

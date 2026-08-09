@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { getOpenForms, getPublicEvent } from "./data";
+import { ProgramComingSoon } from "./program-coming-soon";
+import { programVisible } from "@/domain/program-visibility";
 import { formatDayRange } from "@/lib/event-time";
 import { Button } from "@/components/ui/button";
 
@@ -8,6 +10,11 @@ import { Button } from "@/components/ui/button";
  * deliberately minimal: identity, dates, and the two links that matter
  * (speakers, schedule), plus any call for speakers a visitor could still
  * submit to.
+ *
+ * Until the program is published (decisions.md D-056) the two program links
+ * give way to a coming-soon note. The call for speakers stays: its own
+ * open/close window is what decides whether it's shown, and a CFP normally
+ * runs long before there is any schedule to announce.
  */
 export default async function PublicEventPage({
   params,
@@ -37,14 +44,18 @@ export default async function PublicEventPage({
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <Button asChild>
-          <Link href={`/p/${eventSlug}/speakers`}>View speakers</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link href={`/p/${eventSlug}/schedule`}>View schedule</Link>
-        </Button>
-      </div>
+      {programVisible(event) ? (
+        <div className="flex flex-wrap gap-3">
+          <Button asChild>
+            <Link href={`/p/${eventSlug}/speakers`}>View speakers</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={`/p/${eventSlug}/schedule`}>View schedule</Link>
+          </Button>
+        </div>
+      ) : (
+        <ProgramComingSoon eventName={event.name} />
+      )}
 
       {openForms.length > 0 && (
         <div className="rounded-xl bg-card p-5 ring-1 ring-foreground/10">

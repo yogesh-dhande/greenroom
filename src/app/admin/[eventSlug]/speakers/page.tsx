@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { CheckIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import {
   filterSpeakerRollups,
   TASK_STATE_LABEL,
+  type AssignmentView,
   type TaskState,
 } from "@/domain/onboarding";
+import { formatDueDate } from "@/lib/event-time";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -36,6 +39,30 @@ function missingProfileParts(speaker: { bio: string | null; headshotUrl: string 
   if (!speaker.bio) missing.push("bio");
   if (!speaker.headshotUrl) missing.push("headshot");
   return missing;
+}
+
+/**
+ * "Upload your headshot — Overdue (due Aug 8, 2026)": a pill's tooltip names
+ * the task, its state, and its due date in one line, so an admin doesn't have
+ * to open the speaker record to read what a colored pill means. Due dates
+ * render in the event's own zone (decisions.md D-055) — never the viewer's.
+ */
+function taskPillTitle(view: AssignmentView, timeZone: string): string {
+  const due = view.task.dueAt ? `due ${formatDueDate(view.task.dueAt, timeZone)}` : "no due date";
+  return `${view.task.title} — ${TASK_STATE_LABEL[view.state]} (${due})`;
+}
+
+/**
+ * The earliest due date among a speaker's still-outstanding tasks — what the
+ * Overdue column's tooltip surfaces. The column itself only has room for a
+ * count; this is the per-task due date backing it (fix 3 of D-055's cleanup).
+ */
+function earliestOutstandingDue(views: AssignmentView[], timeZone: string): string | null {
+  const dueDates = views
+    .filter((view) => view.state !== "complete" && view.task.dueAt)
+    .map((view) => view.task.dueAt as Date)
+    .sort((a, b) => a.getTime() - b.getTime());
+  return dueDates.length > 0 ? formatDueDate(dueDates[0], timeZone) : null;
 }
 
 /**
@@ -162,7 +189,21 @@ export default async function SpeakersPage({
                     </TableCell>
                     <TableCell>
                       {rollup.overdueTasks > 0 ? (
-                        <Badge variant="outline" className="border-destructive bg-destructive/10 text-destructive">
+                        <Badge
+                          variant="outline"
+                          className="border-destructive bg-destructive/10 text-destructive"
+                          title={
+                            // Surface the earliest thing they owe, not just the
+                            // count — the earliest outstanding due date, in the
+                            // event's own zone (decisions.md D-055).
+                            (() => {
+                              const earliest = earliestOutstandingDue(rollup.views, event.timezone);
+                              return earliest
+                                ? `Earliest due ${earliest}`
+                                : `${rollup.overdueTasks} overdue task${rollup.overdueTasks === 1 ? "" : "s"}`;
+                            })()
+                          }
+                        >
                           {rollup.overdueTasks}
                         </Badge>
                       ) : (
@@ -179,8 +220,9 @@ export default async function SpeakersPage({
                               key={view.assignment.id}
                               variant="outline"
                               className={cn(STATE_BADGE_CLASS[view.state])}
-                              title={TASK_STATE_LABEL[view.state]}
+                              title={taskPillTitle(view, event.timezone)}
                             >
+                              {view.state === "complete" && <CheckIcon aria-hidden />}
                               {view.task.title}
                             </Badge>
                           ))}

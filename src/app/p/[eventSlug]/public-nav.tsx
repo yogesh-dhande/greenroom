@@ -11,14 +11,23 @@ const NAV_ITEMS = [
 ] as const;
 
 /** Top nav for the public program (mirrors AdminNav's active-link pattern,
- * but horizontal — this is a public, mobile-first surface). */
-export function PublicNav({ eventSlug }: { eventSlug: string }) {
+ * but horizontal — this is a public, mobile-first surface). Speakers and
+ * Schedule drop out until the program is published (decisions.md D-056)
+ * rather than pointing at a coming-soon page. */
+export function PublicNav({
+  eventSlug,
+  programPublished,
+}: {
+  eventSlug: string;
+  programPublished: boolean;
+}) {
   const pathname = usePathname();
   const base = `/p/${eventSlug}`;
+  const items = programPublished ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.href === "");
 
   return (
     <nav className="flex items-center gap-1 text-sm font-medium">
-      {NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         const target = `${base}${item.href}`;
         const isActive = item.href === "" ? pathname === target : pathname.startsWith(target);
         return (

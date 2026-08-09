@@ -6,6 +6,7 @@ import {
   eventFields,
   INVITE_BLOCKER_LABELS,
   inviteBlocker,
+  previewTaskDigestCount,
   resolveCommsTemplate,
   summarizeSessionInvites,
   TEMPLATE_MERGE_FIELDS,
@@ -186,6 +187,13 @@ export default async function CommunicationsPage({
   });
   const eventMergeData = eventFields(comms, event);
 
+  // --- task digest confirmation --------------------------------------------
+  // How many speakers "Send task digest now" would actually reach right now
+  // — the same decision `sendRemindersNow` makes (decisions.md D-039), just
+  // counted instead of sent, so the confirm dialog can promise an honest
+  // number before the admin commits to the click.
+  const digestPreviewCount = await previewTaskDigestCount(comms, event);
+
   return (
     <div>
       <PageHeader
@@ -199,6 +207,7 @@ export default async function CommunicationsPage({
         speakers={speakers}
         templates={templates}
         invites={inviteRows}
+        digestPreviewCount={digestPreviewCount}
       />
     </div>
   );

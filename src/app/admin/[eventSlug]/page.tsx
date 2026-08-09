@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { getRepos } from "@/lib/db";
 import { requireEventAccess } from "@/lib/session";
+import { programVisible } from "@/domain/program-visibility";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/stat-card";
+import { ProgramPublishCard } from "./program-publish-card";
 
 /** Event overview: a handful of real numbers pulled from the repos, plus
  * links into the day-to-day surfaces. */
@@ -98,11 +100,19 @@ export default async function EventOverviewPage({
               <Link className="text-foreground underline underline-offset-4" href={`/p/${eventSlug}`}>
                 Public program
               </Link>{" "}
-              — what attendees see, with embeds.
+              {programVisible(event)
+                ? "— what attendees see, with embeds."
+                : "— not published yet: attendees see a coming-soon page."}
             </li>
           </ul>
         </CardContent>
       </Card>
+
+      {/* Publishing is an admin action (decisions.md D-047, D-056); a reviewer
+          sees the status through the link caption above and nothing more. */}
+      {user.role === "admin" ? (
+        <ProgramPublishCard eventSlug={eventSlug} published={programVisible(event)} />
+      ) : null}
     </div>
   );
 }

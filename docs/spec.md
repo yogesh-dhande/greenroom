@@ -45,7 +45,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 ### 5. Acceptance conversion & speaker records
 - Accepting a submission **automatically creates/confirms the speaker record(s), the session record, and the onboarding tasks** — no manual re-entry.
 - Direct session entry for guaranteed speakers (e.g. sponsors) without a submission — also reachable through a session-type form, whose submissions run the same conversion automatically on arrival (D-041).
-- But acceptance is not the *only* way in: speakers are **first-class organizer objects** (D-051). Every roster row opens a per-speaker record page — profile, sessions, task assignments with per-task status, uploads (filename, date, download), and an organizer-only internal logistics notes field — with profile and notes editable there. The roster supports **manual "Add speaker"** and **CSV import** (name + email required; title/company/bio optional), plus search and status/completion filters.
+- But acceptance is not the *only* way in: speakers are **first-class organizer objects** (D-051). Every roster row opens a per-speaker record page — profile, sessions, task assignments with per-task status, uploads (filename, date, download), and an organizer-only internal logistics notes field — with profile and notes editable there. The roster supports **manual "Add speaker"** and **CSV import** (name + email required; title/company/bio optional), plus search and status/completion filters. Same-name speakers with distinct accounts get a **possible-duplicate flag** on the roster (no merge tooling — D-059); the organizer can supply a speaker's headshot from the record page (D-054).
 - Tasks must reach speakers who already exist: a task created after acceptance is assignable to the event's confirmed speakers — all at once from the task list, individually from a speaker record — idempotently, never duplicating or resetting an existing assignment (D-052).
 
 ### 6. Speaker portal & onboarding
@@ -65,6 +65,9 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 9. Agenda builder
 - Day-based scheduling with room assignment, **drag-and-drop placement**, and **conflict detection**: speaker double-booked and room double-booked (track/resource conflicts where applicable).
+- A session stays editable after creation: the session dialog edits title, abstract, and track (the session record the public program reads — never forked onto the submission), and manages the speaker list from the event's roster (D-054, D-057).
+- The public program is gated behind an explicit, reversible **publish** action per event; unpublished events show a "program coming soon" state on all public/embed program surfaces while the CFP form keeps its own open/close state (D-056). New events start unpublished.
+- Assisted/auto-scheduling is deliberately not built (D-058); placement is manual.
 - Additional views (list/week/track/room): enhancement tier.
 
 ---
@@ -90,7 +93,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ## Out of scope
 
-- Payments; **Accelevents integration** (organizer explicitly dropped it); CRM and marketing functionality; content transcription/repurposing; full Sessionboard CMS recreation; AI-assisted evaluation; large agentic systems; multilingual forms; video links in calendar invites; pixel-level Sessionboard fidelity; attendee registration/ticketing.
+- Payments; **Accelevents integration** (organizer explicitly dropped it); CRM and marketing functionality — including the eval's extra-credit org-level speaker CRM (cross-event directory, tags, sourcing pipelines, segments, org dashboards; D-059 — speaker data stays event-scoped, with a possible-duplicate flag on the roster as the sole guard); content transcription/repurposing; full Sessionboard CMS recreation; AI-assisted evaluation; large agentic systems; multilingual forms; video links in calendar invites; pixel-level Sessionboard fidelity; attendee registration/ticketing.
 - UI/visual design specifics — the brief's screenshots are functional reference only.
 
 ---

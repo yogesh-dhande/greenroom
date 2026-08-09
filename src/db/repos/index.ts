@@ -2,6 +2,8 @@ import type { EmailLogRepo } from "./email-log";
 import type { EmailTemplatesRepo } from "./email-templates";
 import type { EventSpeakersRepo } from "./event-speakers";
 import type { EventsRepo } from "./events";
+import type { FileCommentsRepo } from "./file-comments";
+import type { FileVersionsRepo } from "./file-versions";
 import type { FormsRepo } from "./forms";
 import type { ReviewRoundsRepo } from "./review-rounds";
 import type { ReviewsRepo } from "./reviews";
@@ -25,6 +27,8 @@ export type { RoomsRepo } from "./rooms";
 export type { SessionsRepo } from "./sessions";
 export type { TasksRepo } from "./tasks";
 export type { TaskAssignmentsRepo } from "./task-assignments";
+export type { FileVersionsRepo } from "./file-versions";
+export type { FileCommentsRepo } from "./file-comments";
 export type { EmailTemplatesRepo } from "./email-templates";
 export type { EmailLogRepo } from "./email-log";
 
@@ -48,6 +52,9 @@ export interface Repos {
   sessions: SessionsRepo;
   tasks: TasksRepo;
   taskAssignments: TaskAssignmentsRepo;
+  /** Upload history and the comment thread on a deliverable (D-054). */
+  fileVersions: FileVersionsRepo;
+  fileComments: FileCommentsRepo;
   emailTemplates: EmailTemplatesRepo;
   emailLog: EmailLogRepo;
 }

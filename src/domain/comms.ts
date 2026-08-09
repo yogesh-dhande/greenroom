@@ -1336,6 +1336,54 @@ async function sendTaskDigests(
 }
 
 /**
+ * How many speakers a "Send task digest now" click would actually reach,
+ * without sending anything — the number the Communications page's confirm
+ * dialog promises before an admin commits to the send.
+ *
+ * Runs the identical decision `sendTaskDigests` makes (same
+ * `outstandingTasksOf` + `decideTaskDigest`, same manual cooldown), just
+ * counting `send: true` instead of delivering — so the confirmation can never
+ * name a number the actual send wouldn't produce.
+ */
+export async function previewTaskDigestCount(
+  ctx: CommsContext,
+  event: Event,
+  now: Date = nowOf(ctx),
+): Promise<number> {
+  const [assignments, tasks] = await Promise.all([
+    ctx.repos.taskAssignments.listByEvent(event.id),
+    ctx.repos.tasks.listByEvent(event.id),
+  ]);
+  if (assignments.length === 0) return 0;
+
+  const bySpeaker = new Map<string, TaskAssignment[]>();
+  for (const assignment of assignments) {
+    const forSpeaker = bySpeaker.get(assignment.speakerId) ?? [];
+    forSpeaker.push(assignment);
+    bySpeaker.set(assignment.speakerId, forSpeaker);
+  }
+
+  const speakerIds = [...bySpeaker.keys()];
+  const lastDigestAt = await lastDigestTimes(ctx, event.id, speakerIds);
+  const cooldownMs = MANUAL_TASK_DIGEST_COOLDOWN_HOURS * HOUR_MS;
+
+  let count = 0;
+  for (const speakerId of speakerIds) {
+    const outstanding = outstandingTasksOf(bySpeaker.get(speakerId) ?? [], tasks);
+    const decision = decideTaskDigest({
+      outstandingCount: outstanding.length,
+      eventStartDate: event.startDate,
+      timezone: event.timezone,
+      lastDigestAt: lastDigestAt.get(speakerId) ?? null,
+      now,
+      cooldownMs,
+    });
+    if (decision.send) count += 1;
+  }
+  return count;
+}
+
+/**
  * The draft half of the job (D-034, D-038): one email per unfinished proposal
  * whose form closes inside `DRAFT_REMINDER_WINDOW_HOURS`.
  *

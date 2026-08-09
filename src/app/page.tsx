@@ -1,7 +1,20 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { getSessionUser, homePathForRole } from "@/lib/session";
 
-export default function Home() {
+/**
+ * A signed-in visitor who lands back here (bookmark, logo click) needs a way
+ * back into the app — "Sign in" is a dead end that just shows them the form
+ * again. `getSessionUser` is a single cheap cookie+session read (no event
+ * queries), so the marketing page reads it directly rather than staying
+ * static; there's no PPR config here to stream around it.
+ */
+export default async function Home() {
+  const user = await getSessionUser();
+  const home = user
+    ? { href: homePathForRole(user.role), label: user.role === "speaker" ? "Go to your portal" : "Go to admin" }
+    : null;
+
   return (
     <div className="flex flex-1 flex-col bg-background">
       <header className="border-b border-border">
@@ -10,10 +23,10 @@ export default function Home() {
             Greenroom
           </span>
           <Link
-            href="/login"
+            href={home?.href ?? "/login"}
             className="text-sm font-medium text-muted-foreground hover:text-foreground"
           >
-            Sign in
+            {home?.label ?? "Sign in"}
           </Link>
         </div>
       </header>
@@ -28,7 +41,9 @@ export default function Home() {
         </p>
         <div className="mt-8">
           <Button asChild>
-            <Link href="/login">Sign in to your event</Link>
+            <Link href={home?.href ?? "/login"}>
+              {home ? home.label : "Sign in to your event"}
+            </Link>
           </Button>
         </div>
       </main>

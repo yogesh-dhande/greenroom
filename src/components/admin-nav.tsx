@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: "Agenda", href: "/agenda", adminOnly: true },
   { label: "Speakers", href: "/speakers", adminOnly: true },
   { label: "Tasks", href: "/tasks", adminOnly: true },
+  { label: "Files", href: "/files", adminOnly: true },
   { label: "Forms", href: "/forms", adminOnly: true },
   { label: "Communications", href: "/communications", adminOnly: true },
   { label: "Team", href: "/team", adminOnly: true },

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getPublicEvent } from "./data";
 import { PublicNav } from "./public-nav";
+import { programVisible } from "@/domain/program-visibility";
 
 /**
  * Chrome for the public program (spec.md "Important / strongly desired"):
@@ -31,7 +32,7 @@ export default async function PublicEventLayout({
               {event.name}
             </span>
           </Link>
-          <PublicNav eventSlug={eventSlug} />
+          <PublicNav eventSlug={eventSlug} programPublished={programVisible(event)} />
         </div>
       </header>
 

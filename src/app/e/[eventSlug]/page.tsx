@@ -1,11 +1,18 @@
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { getRepos } from "@/lib/db";
-import { EmptyState } from "@/components/empty-state";
-import { formatDateRange } from "@/components/date-format";
 
-/** Public program page for an event (spec.md "Important": public schedule +
- * speaker gallery, embeddable). No auth. */
-export default async function PublicEventPage({
+/**
+ * Legacy alias for the public program. `/e/<slug>` was the first-wave public
+ * page; the real program now lives at `/p/<slug>` (landing, speakers,
+ * schedule, feeds), but `/e/<slug>` is the URL src/domain/comms.ts puts in
+ * every speaker email, so already-delivered links have to keep working.
+ *
+ * Redirecting rather than rendering also means the D-056 publish gate is
+ * enforced in exactly one place — whatever `/p/<slug>` decides to show.
+ * The slug is resolved here first so a bad link still lands on the public
+ * 404 instead of bouncing to one.
+ */
+export default async function LegacyPublicEventPage({
   params,
 }: {
   params: Promise<{ eventSlug: string }>;
@@ -15,20 +22,5 @@ export default async function PublicEventPage({
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) notFound();
 
-  return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-        {event.name}
-      </h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {formatDateRange(event.startDate, event.endDate)}
-        {event.location ? ` · ${event.location}` : ""}
-      </p>
-      <EmptyState
-        className="mt-8"
-        title="The public schedule and speaker gallery aren't live yet"
-        description="A mobile-friendly, embeddable program lands in a later wave."
-      />
-    </div>
-  );
+  permanentRedirect(`/p/${event.slug}`);
 }

@@ -34,7 +34,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { deleteSession, placeSession, unscheduleSession, type PlacementInput } from "./actions";
+import {
+  deleteSession,
+  placeSession,
+  unscheduleSession,
+  updateSessionContent,
+  updateSessionSpeakers,
+  type PlacementInput,
+  type SessionContentInput,
+} from "./actions";
 import {
   NO_ROOM_COLUMN,
   PX_PER_MINUTE,
@@ -72,7 +80,9 @@ export function AgendaBoard({
   sessions,
   people,
   directory,
+  roster,
   canEdit,
+  focusSessionId,
 }: {
   eventSlug: string;
   days: string[];
@@ -83,7 +93,12 @@ export function AgendaBoard({
   people: Record<string, BoardPerson>;
   /** Everyone who can be added to a directly-entered session. */
   directory: BoardPerson[];
+  /** This event's speaker roster — who the edit dialog can add (D-057). */
+  roster: BoardPerson[];
   canEdit: boolean;
+  /** Opens straight into this session's edit dialog on load — the submission
+   * detail page's "Edit title, abstract & track" deep link (D-054(5)). */
+  focusSessionId?: string;
 }) {
   const [optimisticSessions, applyPatch] = useOptimistic(
     sessions,
@@ -92,11 +107,15 @@ export function AgendaBoard({
   );
   const [, startTransition] = useTransition();
 
+  const focusSession = focusSessionId
+    ? (sessions.find((s) => s.id === focusSessionId) ?? null)
+    : null;
   const firstProgrammedDay = sessions.find((s) => s.day)?.day;
-  const [selectedDay, setSelectedDay] = useState(
-    () => (firstProgrammedDay && days.includes(firstProgrammedDay) ? firstProgrammedDay : days[0]),
-  );
-  const [editing, setEditing] = useState<BoardSession | null>(null);
+  const [selectedDay, setSelectedDay] = useState(() => {
+    if (focusSession?.day && days.includes(focusSession.day)) return focusSession.day;
+    return firstProgrammedDay && days.includes(firstProgrammedDay) ? firstProgrammedDay : days[0];
+  });
+  const [editing, setEditing] = useState<BoardSession | null>(focusSession);
   const [dragging, setDragging] = useState<BoardSession | null>(null);
   /** How far below the card's top edge the pointer grabbed it, in minutes —
    * so a card dropped by its middle doesn't jump forward by half its length. */
@@ -157,6 +176,30 @@ export function AgendaBoard({
     startTransition(async () => {
       applyPatch({ id: session.id, changes: placement });
       const result = await placeSession(eventSlug, session.id, placement);
+      if (!result.ok) toast.error(result.error);
+    });
+  }
+
+  function saveContent(session: BoardSession, content: SessionContentInput) {
+    startTransition(async () => {
+      applyPatch({
+        id: session.id,
+        changes: {
+          title: content.title,
+          description: content.description ?? null,
+          trackId: content.trackId ?? null,
+        },
+      });
+      const result = await updateSessionContent(eventSlug, session.id, content);
+      if (!result.ok) toast.error(result.error);
+      else toast.success("Session details saved");
+    });
+  }
+
+  function updateSpeakers(session: BoardSession, speakerIds: string[]) {
+    startTransition(async () => {
+      applyPatch({ id: session.id, changes: { speakerIds } });
+      const result = await updateSessionSpeakers(eventSlug, session.id, { speakerIds });
       if (!result.ok) toast.error(result.error);
     });
   }
@@ -456,10 +499,15 @@ export function AgendaBoard({
         session={editing}
         days={days}
         rooms={rooms}
+        tracks={tracks}
+        people={people}
+        roster={roster}
         defaultDay={selectedDay}
         canEdit={canEdit}
         onOpenChange={(open) => !open && setEditing(null)}
         onPlace={place}
+        onSaveContent={saveContent}
+        onUpdateSpeakers={updateSpeakers}
         onUnschedule={unschedule}
         onDelete={remove}
       />

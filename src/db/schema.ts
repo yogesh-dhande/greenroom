@@ -42,6 +42,13 @@ export const events = sqliteTable("events", {
    * `events.startDate`/`endDate` and every `sessions.day`/time. */
   timezone: text("timezone").notNull().default("UTC"),
   location: text("location"),
+  /** Gate on every attendee-facing program surface (decisions.md D-056):
+   * until an organizer publishes, /p, /embed and the feeds show a
+   * "coming soon" state. New events start unpublished; the public CFP form
+   * has its own open/close window and is unaffected by this flag. */
+  programPublished: integer("program_published", { mode: "boolean" })
+    .notNull()
+    .default(false),
   ...timestamps,
 });
 
@@ -539,6 +546,63 @@ export const taskAssignments = sqliteTable(
     unique("task_assignments_task_speaker_unq").on(t.taskId, t.speakerId),
     index("task_assignments_speaker_idx").on(t.speakerId),
   ],
+);
+
+/**
+ * Every file a speaker has sent for one assignment (decisions.md D-054).
+ * Rows are immutable: replacing a deliverable adds a version, it never
+ * rewrites one, and the newest row is what `task_assignments.file_url`
+ * points at.
+ *
+ * Uploads made before this table existed have no rows, and nothing
+ * backfills them — the assignment's own `file_url` stands in as version 1
+ * until the next upload arrives, which then writes both rows.
+ */
+export const fileVersions = sqliteTable(
+  "file_versions",
+  {
+    id: id(),
+    assignmentId: text("assignment_id")
+      .notNull()
+      .references(() => taskAssignments.id, { onDelete: "cascade" }),
+    /** Stored R2 object key; null for a file that only ever existed as an
+     * absolute URL (an imported deliverable). */
+    fileKey: text("file_key"),
+    /** What serves this version back — `/files/<key>` for our own uploads. */
+    url: text("url").notNull(),
+    filename: text("filename").notNull(),
+    uploadedBy: text("uploaded_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("file_versions_assignment_idx").on(t.assignmentId)],
+);
+
+/**
+ * The comment thread on one deliverable (decisions.md D-054) — speaker and
+ * organizer post to the same list, from the portal task card and the Files
+ * library respectively. Append-only: no edit or delete, so there is no
+ * updated_at and no soft-delete column.
+ */
+export const fileComments = sqliteTable(
+  "file_comments",
+  {
+    id: id(),
+    assignmentId: text("assignment_id")
+      .notNull()
+      .references(() => taskAssignments.id, { onDelete: "cascade" }),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("file_comments_assignment_idx").on(t.assignmentId)],
 );
 
 // ---------------------------------------------------------------------------

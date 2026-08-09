@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/empty-state";
-import { formatDate } from "@/components/date-format";
+import { formatDueDate } from "@/lib/event-time";
 import { assignTaskToConfirmedSpeakers, deleteTask } from "./actions";
 import { TaskFormDialog } from "./task-form-dialog";
 
@@ -141,7 +141,7 @@ export function TasksManager({
                   <Badge variant="outline">{TASK_TYPE_LABEL[task.type] ?? task.type}</Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {task.dueAt ? formatDate(task.dueAt) : "No due date"}
+                  {task.dueAt ? formatDueDate(task.dueAt, eventTimezone) : "No due date"}
                 </TableCell>
                 <TableCell className="tabular-nums text-muted-foreground">
                   {assignmentCounts[task.id] ?? 0}

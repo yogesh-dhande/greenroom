@@ -1,8 +1,15 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import { getSessionUser, homePathForRole } from "@/lib/session";
 import { LoginForm } from "./login-form";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  // Already signed in: the form would just re-send a link to the same
+  // account. Send them where signing in would have taken them.
+  const user = await getSessionUser();
+  if (user) redirect(homePathForRole(user.role));
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-background px-6">
       <div className="w-full max-w-sm">

@@ -97,6 +97,9 @@ const EVENT: NewEvent = {
   endDate: EVENT_DAY_3,
   timezone: "America/Los_Angeles",
   location: "Moscone West, San Francisco",
+  // Explicit: new events default to unpublished (decisions.md D-056), but the
+  // demo exists to be walked through — its public program has to be live.
+  programPublished: true,
 };
 
 const TRACK_SEEDS: Array<Pick<NewTrack, "name" | "color">> = [
@@ -562,7 +565,7 @@ const SCHEDULE: Array<{ day: string; startTime: string; endTime: string; room: n
 async function seed(repos: Repos): Promise<void> {
   // --- event, tracks, rooms -------------------------------------------------
   const event = await repos.events.create(EVENT);
-  console.log(`event      ${event.name} (/e/${event.slug})`);
+  console.log(`event      ${event.name} (/p/${event.slug})`);
 
   const tracks: Track[] = [];
   for (const t of TRACK_SEEDS) {

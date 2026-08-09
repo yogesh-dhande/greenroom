@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  acceptAttributeForKind,
   checkUpload,
   filenameFromKey,
   fileUrl,
   isServableKey,
   keyFromFileUrl,
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
   safeFilename,
   uploadKey,
+  uploadProblemMessage,
+  uploadRulesHint,
 } from "@/lib/uploads";
 
 describe("checkUpload", () => {
@@ -23,6 +27,38 @@ describe("checkUpload", () => {
 
   it("accepts exactly the maximum size", () => {
     expect(checkUpload({ size: MAX_UPLOAD_BYTES, type: "application/pdf" })).toBeNull();
+  });
+
+  it("narrows to the kind the request asked for (decisions.md D-054)", () => {
+    const pdf = { size: 100, type: "application/pdf" };
+    const png = { size: 100, type: "image/png" };
+    expect(checkUpload(png, "image")).toBeNull();
+    expect(checkUpload(pdf, "image")).toBe("unsupported-type");
+    expect(checkUpload(pdf, "slides")).toBeNull();
+    expect(checkUpload(png, "slides")).toBe("unsupported-type");
+    // Size still outranks type: an oversized image is too large, not wrong.
+    expect(checkUpload({ size: MAX_UPLOAD_BYTES + 1, type: "application/pdf" }, "image")).toBe(
+      "too-large",
+    );
+  });
+});
+
+describe("upload kinds", () => {
+  it("offers the picker only the types the kind allows", () => {
+    const image = acceptAttributeForKind("image");
+    expect(image).toContain("image/png");
+    expect(image).not.toContain("application/pdf");
+    expect(acceptAttributeForKind("any")).toContain("application/pdf");
+  });
+
+  it("states the rule and the size limit in one line", () => {
+    expect(uploadRulesHint("image")).toContain("JPG");
+    expect(uploadRulesHint("image")).toContain(MAX_UPLOAD_LABEL);
+  });
+
+  it("names the expected kind when the wrong type is picked", () => {
+    expect(uploadProblemMessage("unsupported-type", "slides")).toContain("PowerPoint");
+    expect(uploadProblemMessage("unsupported-type")).toContain("image, PDF, or document");
   });
 });
 

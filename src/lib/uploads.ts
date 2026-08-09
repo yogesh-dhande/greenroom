@@ -55,6 +55,53 @@ export function isImageUploadType(type: string): boolean {
   return (ALLOWED_IMAGE_TYPES as readonly string[]).includes(type);
 }
 
+/** What a slide deck may arrive as — PowerPoint, or the PDF export people
+ * actually send. Keynote has no registered content type, so a .key file is
+ * only accepted under `any`. */
+const ALLOWED_SLIDE_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+] as const;
+
+const ALLOWED_DOCUMENT_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "text/markdown",
+] as const;
+
+/**
+ * The kind of file a request is asking for (decisions.md D-054 — accepted
+ * file types). Narrower than `ALLOWED_UPLOAD_TYPES`, which stays the outer
+ * bound every upload is checked against no matter what asked for it.
+ */
+export type UploadKind = "image" | "slides" | "document" | "any";
+
+const UPLOAD_KIND_TYPES: Record<UploadKind, readonly string[]> = {
+  image: ALLOWED_IMAGE_TYPES,
+  slides: ALLOWED_SLIDE_TYPES,
+  document: ALLOWED_DOCUMENT_TYPES,
+  any: ALLOWED_UPLOAD_TYPES,
+};
+
+const UPLOAD_KIND_LABEL: Record<UploadKind, string> = {
+  image: "an image — JPG, PNG, WebP, GIF, or AVIF",
+  slides: "a slide deck — PDF or PowerPoint",
+  document: "a document — PDF, Word, or plain text",
+  any: "an image, PDF, or document",
+};
+
+/** `accept` attribute for a file input asking for this kind. */
+export function acceptAttributeForKind(kind: UploadKind): string {
+  return UPLOAD_KIND_TYPES[kind].join(",");
+}
+
+/** One line stating what may be picked and how big it may be, shown next to
+ * the control so the rule is known before a file is chosen, not after. */
+export function uploadRulesHint(kind: UploadKind): string {
+  return `Accepts ${UPLOAD_KIND_LABEL[kind]}, up to ${MAX_UPLOAD_LABEL}.`;
+}
+
 /** Every key the app writes lives under this prefix, so the public file route
  * can refuse to serve anything else in the bucket (e.g. the incremental
  * cache, which shares the binding). */
@@ -62,21 +109,24 @@ export const UPLOAD_PREFIX = "uploads";
 
 export type UploadProblem = "too-large" | "unsupported-type" | "empty";
 
-export function checkUpload(file: { size: number; type: string }): UploadProblem | null {
+export function checkUpload(
+  file: { size: number; type: string },
+  kind: UploadKind = "any",
+): UploadProblem | null {
   if (file.size === 0) return "empty";
   if (file.size > MAX_UPLOAD_BYTES) return "too-large";
-  if (!(ALLOWED_UPLOAD_TYPES as readonly string[]).includes(file.type)) return "unsupported-type";
+  if (!UPLOAD_KIND_TYPES[kind].includes(file.type)) return "unsupported-type";
   return null;
 }
 
-export function uploadProblemMessage(problem: UploadProblem): string {
+export function uploadProblemMessage(problem: UploadProblem, kind: UploadKind = "any"): string {
   switch (problem) {
     case "empty":
       return "That file looks empty — try another one.";
     case "too-large":
       return `That file is over ${MAX_UPLOAD_LABEL}. Try a smaller version.`;
     case "unsupported-type":
-      return "That file type isn't supported. Use an image, PDF, or document.";
+      return `That file type isn't supported. Use ${UPLOAD_KIND_LABEL[kind]}.`;
   }
 }
 

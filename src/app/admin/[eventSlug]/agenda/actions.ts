@@ -11,6 +11,7 @@ import {
 import { minutesOfDay } from "@/domain/scheduling";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
+import { loadSpeakerRoster } from "../speakers/roster";
 
 /**
  * Agenda-builder writes (spec.md §9, §5). Every drag, resize, and inline edit
@@ -104,6 +105,131 @@ export async function unscheduleSession(eventSlug: string, sessionId: string) {
     return { ok: true as const };
   } catch {
     return fail("Couldn't unschedule the session — try again");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content edits (decisions.md D-054(5)) — an organizer fixing a typo'd title,
+// tightening an abstract, or correcting the track on an already-accepted
+// session. The session row is the single source of truth the public program
+// reads, so this writes it directly rather than forking content onto the
+// submission that produced it.
+// ---------------------------------------------------------------------------
+
+const sessionContentSchema = z.object({
+  title: z.string().trim().min(1, "Title is required"),
+  description: z.string().trim().optional(),
+  trackId: z.string().min(1).nullable().optional(),
+});
+export type SessionContentInput = z.infer<typeof sessionContentSchema>;
+
+/**
+ * Saves an organizer's edits to a session's own content. Available for any
+ * session — accepted, direct-entry, scheduled or still in the tray — since
+ * the same typo can land in any of those paths.
+ */
+export async function updateSessionContent(
+  eventSlug: string,
+  sessionId: string,
+  input: SessionContentInput,
+) {
+  await requireAdmin(agendaPath(eventSlug));
+
+  const parsed = sessionContentSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid session details");
+
+  const repos = await getRepos();
+  const [event, session] = await Promise.all([
+    repos.events.getBySlug(eventSlug),
+    repos.sessions.getById(sessionId),
+  ]);
+  if (!event || !session || session.eventId !== event.id) return fail("Session not found");
+
+  if (parsed.data.trackId) {
+    const track = await repos.tracks.getById(parsed.data.trackId);
+    if (!track || track.eventId !== event.id) return fail("That track isn't part of this event");
+  }
+
+  try {
+    await repos.sessions.update(sessionId, {
+      title: parsed.data.title,
+      description: parsed.data.description || null,
+      trackId: parsed.data.trackId ?? null,
+    });
+    revalidatePath(agendaPath(eventSlug));
+    // The public program and its embed read this same session row.
+    revalidatePath(`/p/${eventSlug}/schedule`);
+    revalidatePath(`/embed/${eventSlug}/schedule`);
+    if (session.submissionId) {
+      revalidatePath(`/admin/${eventSlug}/submissions`);
+      revalidatePath(`/admin/${eventSlug}/submissions/${session.submissionId}`);
+    }
+    return { ok: true as const };
+  } catch {
+    return fail("Couldn't save those details — try again");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Speaker list (decisions.md D-057) — a session converted from an accepted
+// submission previously had no surface to add a late co-speaker or correct
+// the list; this is the organizer-driven edit path (the CFP sync path,
+// src/domain/submissions.ts syncSpeakers, already keeps a session's speakers
+// in step with pre-acceptance edits).
+// ---------------------------------------------------------------------------
+
+const sessionSpeakersSchema = z.object({
+  /** Zero is valid — some sessions are placeholders waiting on a name. */
+  speakerIds: z.array(z.string().min(1)).default([]),
+});
+export type SessionSpeakersInput = z.infer<typeof sessionSpeakersSchema>;
+
+/**
+ * Replaces a session's speaker list wholesale — the client always sends the
+ * full set it wants, not a single add/remove, so there's nothing to diff.
+ * Every id must be on the event's roster (loadSpeakerRoster, same source the
+ * Speakers page reads): the dialog only ever offers roster members, this is
+ * defense against a stale or tampered request.
+ */
+export async function updateSessionSpeakers(
+  eventSlug: string,
+  sessionId: string,
+  input: SessionSpeakersInput,
+) {
+  await requireAdmin(agendaPath(eventSlug));
+
+  const parsed = sessionSpeakersSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid speaker list");
+
+  const repos = await getRepos();
+  const [event, session] = await Promise.all([
+    repos.events.getBySlug(eventSlug),
+    repos.sessions.getById(sessionId),
+  ]);
+  if (!event || !session || session.eventId !== event.id) return fail("Session not found");
+
+  const speakerIds = [...new Set(parsed.data.speakerIds)];
+  if (speakerIds.length > 0) {
+    const roster = await loadSpeakerRoster(repos, event.id);
+    const rosterIds = new Set(roster.rollups.map((rollup) => rollup.speaker.id));
+    if (speakerIds.some((id) => !rosterIds.has(id))) {
+      return fail("One of those speakers isn't on this event's roster");
+    }
+  }
+
+  try {
+    await repos.sessions.setSpeakers(sessionId, speakerIds);
+    revalidatePath(agendaPath(eventSlug));
+    revalidatePath(`/p/${eventSlug}/schedule`);
+    revalidatePath(`/embed/${eventSlug}/schedule`);
+    revalidatePath(`/admin/${eventSlug}/speakers`);
+    if (session.submissionId) {
+      revalidatePath(`/admin/${eventSlug}/submissions`);
+      revalidatePath(`/admin/${eventSlug}/submissions/${session.submissionId}`);
+    }
+    return { ok: true as const };
+  } catch {
+    return fail("Couldn't update the speaker list — try again");
   }
 }
 

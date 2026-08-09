@@ -5,6 +5,16 @@ import { useRouter } from "next/navigation";
 import { BellRingIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { MergeData } from "@/domain/comms-templates";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { sendRemindersNow } from "./actions";
@@ -30,6 +40,7 @@ export function CommsHub({
   speakers,
   templates,
   invites,
+  digestPreviewCount,
 }: {
   eventSlug: string;
   /** This event's real merge data (dates, URLs, organizer name) — see
@@ -39,14 +50,20 @@ export function CommsHub({
   speakers: SpeakerOption[];
   templates: TemplateRow[];
   invites: InviteRow[];
+  /** How many speakers a digest send would reach right now, computed
+   * server-side the same way the send itself decides (decisions.md D-039) —
+   * what the confirm dialog promises before the click. */
+  digestPreviewCount: number;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState("log");
   const [running, startRun] = useTransition();
+  const [confirmingDigest, setConfirmingDigest] = useState(false);
 
   function sendDigestsNow() {
     startRun(async () => {
       const result = await sendRemindersNow(eventSlug);
+      setConfirmingDigest(false);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -85,11 +102,36 @@ export function CommsHub({
           <TabsTrigger value="invites">Calendar invites</TabsTrigger>
         </TabsList>
 
-        <Button variant="outline" onClick={sendDigestsNow} disabled={running}>
+        <Button
+          variant="outline"
+          onClick={() => setConfirmingDigest(true)}
+          disabled={running || digestPreviewCount === 0}
+        >
           <BellRingIcon />
           {running ? "Sending…" : "Send task digest now"}
         </Button>
       </div>
+
+      <AlertDialog open={confirmingDigest} onOpenChange={(open) => !open && setConfirmingDigest(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Send a task digest to {digestPreviewCount} speaker{digestPreviewCount === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Each speaker with outstanding onboarding tasks gets one email now, listing everything
+              still open on their checklist. This is a one-time send — nothing gets scheduled, and
+              anyone already emailed in the last 24 hours is skipped.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={running}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={running} onClick={sendDigestsNow}>
+              {running ? "Sending…" : "Send digest"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <TabsContent value="log">
         <EmailLogTable rows={logRows} speakers={speakers} />

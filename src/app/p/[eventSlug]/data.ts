@@ -9,6 +9,7 @@ import {
   type ScheduleDay,
   type SessionWithSpeakers,
 } from "@/domain/program";
+import { programVisible } from "@/domain/program-visibility";
 import { getRepos } from "@/lib/db";
 
 /**
@@ -20,6 +21,12 @@ import { getRepos } from "@/lib/db";
  *
  * No auth anywhere in this module — these are public, unauthenticated pages
  * (spec.md: "public attendee (view-only)").
+ *
+ * `getSchedule`/`getGallery` return nothing at all until the organizer
+ * publishes the program (decisions.md D-056). The gate lives here rather than
+ * in each page so no surface built on these loaders — pages, embeds, feeds —
+ * can leak a draft agenda by forgetting to ask; pages call `programVisible`
+ * themselves only to decide what to render instead.
  */
 
 export const getPublicEvent = cache(
@@ -57,6 +64,8 @@ const getSessionsWithSpeakers = cache(
 export const getGallery = cache(
   async (eventSlug: string): Promise<GallerySpeaker[]> => {
     const event = await getPublicEvent(eventSlug);
+    if (!programVisible(event)) return [];
+
     const repos = await getRepos();
     const [sessions, tracks, rooms] = await Promise.all([
       getSessionsWithSpeakers(event.id),
@@ -98,6 +107,8 @@ export const getGallery = cache(
 export const getSchedule = cache(
   async (eventSlug: string): Promise<ScheduleDay[]> => {
     const event = await getPublicEvent(eventSlug);
+    if (!programVisible(event)) return [];
+
     const repos = await getRepos();
     const [sessions, tracks, rooms] = await Promise.all([
       getSessionsWithSpeakers(event.id),

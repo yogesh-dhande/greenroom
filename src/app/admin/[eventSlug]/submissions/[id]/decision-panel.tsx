@@ -172,7 +172,20 @@ export function DecisionPanel({
                 </Link>
                 {session.scheduled
                   ? " and placed on the agenda."
-                  : " — not yet placed on the agenda."}
+                  : " — not yet placed on the agenda."}{" "}
+                {/* The session row is the record the public program reads —
+                    a typo'd title or abstract gets fixed there, not by
+                    forking content onto this submission (decisions.md
+                    D-054(5)). Deep-links into the agenda board's own edit
+                    dialog for this session. */}
+                <Link
+                  href={`/admin/${eventSlug}/agenda?session=${session.id}`}
+                  className="text-primary underline underline-offset-4"
+                  data-testid="edit-session-link"
+                >
+                  Edit title, abstract & track
+                </Link>
+                .
               </>
             )}
           </p>

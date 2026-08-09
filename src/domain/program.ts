@@ -612,6 +612,11 @@ export interface ProgramFeedSpeaker {
 
 export interface ProgramFeed {
   event: { name: string; timezone: string };
+  /** False while the organizer hasn't published (decisions.md D-056), in
+   * which case `sessions` and `speakers` are empty by definition. Lets a
+   * consumer tell "not announced yet" from "announced, nothing scheduled"
+   * instead of guessing from an empty list. */
+  programPublished: boolean;
   sessions: ProgramFeedSession[];
   speakers: ProgramFeedSpeaker[];
 }
@@ -625,12 +630,13 @@ export interface ProgramFeed {
  * same visibility rules, same resolved names, no internal ids.
  */
 export function buildProgramFeed(
-  event: { name: string; timezone: string },
+  event: { name: string; timezone: string; programPublished: boolean },
   days: ScheduleDay[],
   speakers: GallerySpeaker[],
 ): ProgramFeed {
   return {
     event: { name: event.name, timezone: event.timezone },
+    programPublished: event.programPublished,
     sessions: flattenSchedule(days).map((session) => ({
       title: session.title,
       description: session.description,

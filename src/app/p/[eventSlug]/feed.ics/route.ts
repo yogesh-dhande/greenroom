@@ -1,6 +1,7 @@
 import { getSchedule } from "../data";
 import { scheduleFeedEntries } from "@/domain/program";
-import { buildItineraryCalendar } from "@/lib/ics";
+import { programVisible } from "@/domain/program-visibility";
+import { buildEmptyCalendar, buildItineraryCalendar } from "@/lib/ics";
 import { getRepos } from "@/lib/db";
 
 /**
@@ -28,19 +29,36 @@ export async function GET(
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) return new Response("Not found", { status: 404 });
 
+  // Unpublished (decisions.md D-056): an event-less but well-formed calendar,
+  // never a 404 — a client subscribed to this URL before the program went
+  // live would otherwise report the subscription as broken and may stop
+  // polling it altogether.
+  if (!programVisible(event)) {
+    return icsResponse(
+      buildEmptyCalendar({
+        calendarName: `${event.name} — schedule`,
+        filenameBase: `${eventSlug}-schedule`,
+      }),
+    );
+  }
+
   const days = await getSchedule(eventSlug);
   const entries = scheduleFeedEntries(days);
   if (entries.length === 0) {
     return new Response("No sessions scheduled yet.", { status: 404 });
   }
 
-  const calendar = buildItineraryCalendar({
-    timeZone: event.timezone,
-    calendarName: `${event.name} — schedule`,
-    filenameBase: `${eventSlug}-schedule`,
-    entries,
-  });
+  return icsResponse(
+    buildItineraryCalendar({
+      timeZone: event.timezone,
+      calendarName: `${event.name} — schedule`,
+      filenameBase: `${eventSlug}-schedule`,
+      entries,
+    }),
+  );
+}
 
+function icsResponse(calendar: { content: string; contentType: string }): Response {
   return new Response(calendar.content, {
     headers: {
       "content-type": calendar.contentType,

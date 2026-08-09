@@ -29,6 +29,7 @@ function event(): Event {
     endDate: "2026-06-18",
     timezone: "America/Los_Angeles",
     location: null,
+    programPublished: true,
     ...timestamps(),
   };
 }

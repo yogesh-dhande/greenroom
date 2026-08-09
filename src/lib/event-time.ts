@@ -187,6 +187,21 @@ export function formatShortDate(instant: Date, timeZone: string): string {
   return format(instant, timeZone, { month: "long", day: "numeric" });
 }
 
+/**
+ * "Aug 8, 2026" — full calendar date for an instant in the event's zone, e.g.
+ * a task's dueAt (decisions.md D-055).
+ *
+ * `src/components/date-format.ts`'s `formatDate` renders the same shape but
+ * with no zone, which on Cloudflare Workers is UTC — for an event in a zone
+ * *ahead* of UTC (e.g. Asia/Tokyo), a midnight due date stored as its instant
+ * falls on the *previous* UTC day, so the zone-less formatter shows the due
+ * date one day early. Anywhere a date is *event*-scoped (a task due date, not
+ * a generic UTC timestamp), format it here instead.
+ */
+export function formatDueDate(instant: Date, timeZone: string): string {
+  return format(instant, timeZone, { month: "short", day: "numeric", year: "numeric" });
+}
+
 /** "Friday, June 5, 2026 at 5:00 PM PDT" — deadlines are stored as instants. */
 export function formatDeadline(instant: Date, timeZone: string): string {
   const date = format(instant, timeZone, {

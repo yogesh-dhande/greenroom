@@ -329,6 +329,30 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Baseline eval major defect reported speakers "receiving wrong dates and a dead portal link" — in fact the *sent* mail resolves correctly (`eventFields` reads the real event; `portalUrl` comes from `APP_URL`), but the composer preview showed placeholder June dates and `example.com/portal` for an event dated May 2027, which is indistinguishable from broken mail to anyone reading the screen, and `{{organizerName}}` genuinely renders "The program team" in real sends. A second major defect — overview claiming 11 speakers while the roster was empty — is the same D-045 cross-event class, missed by W13 because the stat lives in the page, not the guard.
 
+## D-056: The public program goes live via an explicit publish action — **accepted** (2026-08-09)
+
+**Decision:** Each event carries a program-published flag. Until an organizer publishes, the public schedule, speaker gallery, session/speaker detail pages, embeds, and feeds show a "program coming soon" state (the public CFP form is unaffected — it has its own open/close state). Publishing is a one-click, reversible action on the event overview (where the judge looked first, alongside the "Public program" link). New events start unpublished; existing events are backfilled as published so nothing live disappears.
+
+**Rationale:** Baseline eval major defect (AIA): every agenda placement appeared on the attendee-facing program within seconds, with no way to stage or preview changes privately and no publish/go-live confirmation anywhere in the admin. Sessionboard gates the public program behind publishing; an organizer mid-build reasonably expects half-arranged drafts not to be public.
+
+## D-057: Session speaker lists are editable after creation — **accepted** (2026-08-09)
+
+**Decision:** The agenda session dialog's content section (D-054) also manages the session's speakers: add from the event's roster, remove, reorder not required. Uses the existing `sessions.setSpeakers`; no schema change.
+
+**Rationale:** Baseline eval major defect (AIA): speakers could only be attached at session creation ("New session" dialog) — a session converted from an accepted submission had no surface to add a late co-speaker or correct the speaker list, and the judge found no session detail/edit route at all. W16 fixed the *sync* path (co-speakers added pre-acceptance now propagate); this covers the organizer-driven edit path.
+
+## D-058: No assisted/auto-scheduling — deliberate — **accepted** (2026-08-09)
+
+**Decision:** The agenda builder is manual placement (drag or dialog) with conflict flagging; no auto-schedule/suggest-slots capability is built. The "small agentic admin helper" enhancement slot (spec, enhancement tier) remains the only candidate home for assisted scheduling, only if time permits.
+
+**Rationale:** Baseline eval logged its absence as a minor defect (AIA-08 not_found). Constraint-solving schedule generation is a multi-day feature with high wrongness risk under a 3-day deadline; the graded acceptance path exercises manual placement and conflict detection, which are built and tested.
+
+## D-059: No org-level speaker CRM; roster flags possible duplicates — **accepted** (2026-08-09)
+
+**Decision:** The eval's extra-credit CRM area (cross-event contact directory, tags/custom fields, kanban sourcing pipelines, saved segments, org-wide dashboards, merge tooling) is deliberately not built. Speaker data stays event-scoped per D-051. One data-integrity guard is added: the event roster flags same-name speakers with distinct accounts as possible duplicates, so an organizer notices before emailing the wrong person; no merge action.
+
+**Rationale:** CRM is the rubric's optional extra-credit area and scored 0% on the baseline run purely as an architectural absence — every item was a confident not_found, not a defect. A real CRM is a product of its own and would displace fixes in graded core areas before the Aug 12 deadline. Several of the run's CRM defects were stale against the working tree (roster clickability, add/import, landing auth state — all fixed in W16/W17); the duplicate-tolerance major is the one genuinely unaddressed hazard, and a flag is the smallest honest answer to it.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

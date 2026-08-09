@@ -1,5 +1,7 @@
 import { getPublicEvent, getSchedule } from "../data";
 import { EmbedSnippet } from "../embed-snippet";
+import { ProgramComingSoon } from "../program-coming-soon";
+import { programVisible } from "@/domain/program-visibility";
 import { PageHeader } from "@/components/page-header";
 import { ScheduleView } from "./schedule-view";
 
@@ -16,6 +18,15 @@ export default async function PublicSchedulePage({
     getPublicEvent(eventSlug),
     getSchedule(eventSlug),
   ]);
+
+  if (!programVisible(event)) {
+    return (
+      <div>
+        <PageHeader title="Schedule" />
+        <ProgramComingSoon eventName={event.name} />
+      </div>
+    );
+  }
 
   return (
     <div>

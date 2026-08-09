@@ -682,6 +682,7 @@ describe("buildProgramFeed", () => {
   const event = {
     name: "AI Engineer Summit 2026",
     timezone: "America/Los_Angeles",
+    programPublished: true,
   };
 
   it("only carries confirmed, scheduled sessions — draft, unscheduled, and cancelled are excluded", () => {
@@ -770,6 +771,16 @@ describe("buildProgramFeed", () => {
       name: "AI Engineer Summit 2026",
       timezone: "America/Los_Angeles",
     });
+  });
+
+  // decisions.md D-056: the gate lives in the loaders, so an unpublished
+  // event reaches the feed builder with nothing to shape — the flag is what
+  // tells a consumer why the document is empty.
+  it("reports an unpublished program as empty rather than absent", () => {
+    const feed = buildProgramFeed({ ...event, programPublished: false }, [], []);
+    expect(feed.programPublished).toBe(false);
+    expect(feed.sessions).toEqual([]);
+    expect(feed.speakers).toEqual([]);
   });
 });
 

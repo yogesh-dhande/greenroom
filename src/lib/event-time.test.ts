@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertTimeZone,
   formatDayRange,
+  formatDueDate,
   formatEventWhen,
   wallClockDurationMinutes,
   zoneOffsetMs,
@@ -88,5 +89,31 @@ describe("formatting for humans", () => {
 
   it("collapses a date range that shares a month", () => {
     expect(formatDayRange("2026-06-16", "2026-06-18", "America/Los_Angeles")).toContain("2026");
+  });
+});
+
+describe("formatDueDate", () => {
+  // The regression this pins (decisions.md D-055): a task due date entered as
+  // "2027-05-01" for an event in a zone *ahead* of UTC (e.g. Tokyo, UTC+9) is
+  // stored as that wall clock's instant (`fromZonedInputValue` /
+  // `zonedWallClockToInstant`) — 2027-04-30T15:00:00Z, already the *previous*
+  // UTC day. `src/components/date-format.ts`'s zone-less `formatDate` calls
+  // `toLocaleDateString` with no timeZone, which on Cloudflare Workers means
+  // UTC, so it reads that instant back as Apr 30 — one day early. Passing the
+  // event's real zone is exactly what fixes it.
+  const dueMidnightTokyo = zonedWallClockToInstant("2027-05-01", "00:00", "Asia/Tokyo");
+
+  it("renders the entered calendar day when given the event's own zone", () => {
+    expect(formatDueDate(dueMidnightTokyo, "Asia/Tokyo")).toBe("May 1, 2027");
+  });
+
+  it("renders a day early in UTC — the exact bug report (2027-05-01 → Apr 30)", () => {
+    // UTC is what a bare, zone-less `toLocaleDateString` resolves to on
+    // Cloudflare Workers — this is the "Apr 30, 2027" the eval caught.
+    expect(formatDueDate(dueMidnightTokyo, "UTC")).toBe("Apr 30, 2027");
+  });
+
+  it("includes the year, unlike the zone-less formatShortDate sibling", () => {
+    expect(formatDueDate(dueMidnightTokyo, "Asia/Tokyo")).toContain("2027");
   });
 });

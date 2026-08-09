@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/session";
 import { getRepos } from "@/lib/db";
 import { isScheduled, type Event, type Form, type Room } from "@/db/entities";
 import { buildAssignmentViews, sortAssignmentViews } from "@/domain/onboarding";
+import { buildCommentThread, buildFileHistory, groupByAssignment } from "@/domain/files";
 import { speakerFacingStatus } from "@/domain/evaluation";
 import { formatEventWhen } from "@/lib/event-time";
 import { PageHeader } from "@/components/page-header";
@@ -35,6 +36,20 @@ export default async function PortalHomePage() {
   const taskIds = Array.from(new Set(assignments.map((assignment) => assignment.taskId)));
   const tasks = await repos.tasks.listByIds(taskIds);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
+
+  // Upload history and comment threads for every task the speaker holds
+  // (decisions.md D-054) — two batched queries, not one per card.
+  const assignmentIds = assignments.map((assignment) => assignment.id);
+  const [fileVersions, fileComments] = await Promise.all([
+    repos.fileVersions.listByAssignments(assignmentIds),
+    repos.fileComments.listByAssignments(assignmentIds),
+  ]);
+  const versionsByAssignment = groupByAssignment(fileVersions);
+  const commentsByAssignment = groupByAssignment(fileComments);
+  const commentAuthors = await repos.users.listByIds(
+    Array.from(new Set(fileComments.map((comment) => comment.authorId))),
+  );
+  const authorsById = new Map(commentAuthors.map((author) => [author.id, author]));
 
   const formIds = Array.from(
     new Set(
@@ -189,6 +204,15 @@ export default async function PortalHomePage() {
                           task={view.task}
                           state={view.state}
                           form={view.task.formId ? (formsById.get(view.task.formId) ?? null) : null}
+                          history={buildFileHistory(
+                            view.assignment,
+                            versionsByAssignment.get(view.assignment.id) ?? [],
+                          )}
+                          comments={buildCommentThread(
+                            commentsByAssignment.get(view.assignment.id) ?? [],
+                            authorsById,
+                          )}
+                          timeZone={event.timezone}
                         />
                       ))}
                     </div>
