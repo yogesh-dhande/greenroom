@@ -1,0 +1,116 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { BellRingIcon } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { sendRemindersNow } from "./actions";
+import { ComposeForm } from "./compose-form";
+import { EmailLogTable } from "./email-log-table";
+import { InvitesPanel } from "./invites-panel";
+import { TemplateEditor } from "./template-editor";
+import type { InviteRow, LogRow, SpeakerOption, TemplateRow } from "./types";
+
+/**
+ * Shell for the four things an organizer does with communications: read what
+ * has been sent, write something new, edit the standard wording, and get
+ * sessions into speakers' calendars.
+ *
+ * The tabs share one client boundary so that sending a message can drop the
+ * user back on the log with the new row visible (`router.refresh()` re-runs
+ * the server component, and the tab state survives because it lives here).
+ */
+export function CommsHub({
+  eventSlug,
+  eventName,
+  logRows,
+  speakers,
+  templates,
+  invites,
+}: {
+  eventSlug: string;
+  eventName: string;
+  logRows: LogRow[];
+  speakers: SpeakerOption[];
+  templates: TemplateRow[];
+  invites: InviteRow[];
+}) {
+  const router = useRouter();
+  const [tab, setTab] = useState("log");
+  const [running, startRun] = useTransition();
+
+  function runReminders() {
+    startRun(async () => {
+      const result = await sendRemindersNow(eventSlug);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      const { sent, failed, skipped, skipSummary } = result.data;
+      if (sent === 0) {
+        // A quiet run is the normal outcome, not a failure — say *why* it was
+        // quiet so the button doesn't look broken (questions.md Q4).
+        toast.success("No reminders needed", {
+          description:
+            skipped > 0
+              ? `Nothing was due: ${skipSummary}.`
+              : "Every task is either done or not due yet.",
+        });
+        return;
+      }
+      toast.success(`Sent ${sent} reminder${sent === 1 ? "" : "s"}`, {
+        description: [
+          failed > 0 ? `${failed} failed to send.` : null,
+          skipped > 0 ? `Skipped ${skipped}: ${skipSummary}.` : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+      router.refresh();
+    });
+  }
+
+  return (
+    <Tabs value={tab} onValueChange={setTab} className="gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <TabsList>
+          <TabsTrigger value="log">Log</TabsTrigger>
+          <TabsTrigger value="compose">Compose</TabsTrigger>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="invites">Calendar invites</TabsTrigger>
+        </TabsList>
+
+        <Button variant="outline" onClick={runReminders} disabled={running}>
+          <BellRingIcon />
+          {running ? "Running…" : "Send reminders now"}
+        </Button>
+      </div>
+
+      <TabsContent value="log">
+        <EmailLogTable rows={logRows} speakers={speakers} />
+      </TabsContent>
+
+      <TabsContent value="compose">
+        <ComposeForm
+          eventSlug={eventSlug}
+          eventName={eventName}
+          speakers={speakers}
+          onSent={() => {
+            setTab("log");
+            router.refresh();
+          }}
+        />
+      </TabsContent>
+
+      <TabsContent value="templates">
+        <TemplateEditor eventSlug={eventSlug} templates={templates} />
+      </TabsContent>
+
+      <TabsContent value="invites">
+        <InvitesPanel eventSlug={eventSlug} invites={invites} />
+      </TabsContent>
+    </Tabs>
+  );
+}

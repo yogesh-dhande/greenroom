@@ -9,9 +9,6 @@ export interface TaskAssignmentsRepo {
    * (spec.md §8). */
   listByEvent(eventId: string): Promise<TaskAssignment[]>;
   listPendingByEvent(eventId: string): Promise<TaskAssignment[]>;
-  /** Pending assignments whose task is due on/before `before` — the
-   * reminder cron's query (src/domain/comms.ts, decisions.md D-013). */
-  listPendingDueBefore(eventId: string, before: Date): Promise<TaskAssignment[]>;
   getByTaskAndSpeaker(taskId: string, speakerId: string): Promise<TaskAssignment | null>;
   create(input: NewTaskAssignment): Promise<TaskAssignment>;
   update(id: string, patch: Partial<NewTaskAssignment>): Promise<TaskAssignment>;

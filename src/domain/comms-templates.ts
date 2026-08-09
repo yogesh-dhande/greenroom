@@ -19,7 +19,7 @@
  * generality: a calendar invite may go out before a room is assigned
  * (spec.md §7), so the copy has to read well both with and without a room.
  */
-import type { EmailKind } from "@/db/entities";
+import type { EmailKind, EmailTrigger } from "@/db/entities";
 
 // ---------------------------------------------------------------------------
 // Merge fields
@@ -319,7 +319,7 @@ A note from the review committee:
 {{decisionNote}}
 
 {{/decisionNote}}
-Practically, that means: nothing is required from you right now, and we'll come back to you with a yes or a no{{#changeDueDate}} by {{changeDueDate}}{{/changeDueDate}}. If your availability changes in the meantime, just reply to this email.
+Practically, that means: nothing is required from you right now, and we'll come back to you with a yes or a no as soon as the schedule settles. If your availability changes in the meantime, just reply to this email.
 
 We know a maybe is the least satisfying answer. Thank you for your patience with it.
 
@@ -355,7 +355,7 @@ Thank you again for thinking of us.
     id: "change_request",
     name: "Change / missing information request",
     description: "Asks the submitter to fix or supply something before review can continue.",
-    kind: "manual",
+    kind: "change_request",
     subject: 'A quick change needed on "{{submissionTitle}}"',
     body: `Hi {{speakerFirstName}},
 
@@ -458,4 +458,253 @@ export function getCommsTemplate(id: CommsTemplateId): CommsTemplate {
 /** Renders one of the built-in templates. */
 export function renderCommsTemplate(id: CommsTemplateId, data: MergeData): RenderedEmail {
   return renderMessage(COMMS_TEMPLATES[id], data);
+}
+
+const TEMPLATE_ID_SET = new Set<string>(COMMS_TEMPLATE_IDS);
+
+export function isCommsTemplateId(value: string): value is CommsTemplateId {
+  return TEMPLATE_ID_SET.has(value);
+}
+
+// ---------------------------------------------------------------------------
+// Per-event overrides
+// ---------------------------------------------------------------------------
+
+/**
+ * An `email_templates` row overrides a built-in template when its **`name`
+ * equals the built-in's id**.
+ *
+ * The shipped `email_templates` table has no "overrides which template"
+ * column and schema changes are frozen, so the join key has to be one of the
+ * existing columns. `name` is the only stable, per-event-unique candidate —
+ * `trigger` is many-to-one (three templates are "manual") and can't identify
+ * a template on its own. The admin UI never asks an organizer to type this:
+ * it writes the id when it creates the override row and shows the built-in's
+ * human `name` in the interface.
+ */
+export type TemplateOverrideRow = {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+};
+
+/** How an override row is classified in `email_templates.trigger`. */
+export const TEMPLATE_TRIGGERS: Record<CommsTemplateId, EmailTrigger> = {
+  submission_confirmation: "manual",
+  submission_accepted: "on_acceptance",
+  submission_waitlisted: "manual",
+  submission_declined: "on_denial",
+  change_request: "manual",
+  task_reminder: "deadline_reminder",
+  calendar_invite: "manual",
+};
+
+export interface ResolvedTemplate {
+  id: CommsTemplateId;
+  subject: string;
+  body: string;
+  /** True when an organizer's per-event copy is in force. */
+  isOverride: boolean;
+  /** The `email_templates` row id, when overridden. */
+  overrideId: string | null;
+}
+
+/**
+ * The copy that will actually go out for `id`: the event's override when one
+ * exists, otherwise the built-in. Pure — callers pass the event's rows in.
+ *
+ * A row whose `name` isn't a known template id is ignored rather than
+ * treated as an override of something: stale rows from a renamed template
+ * must never silently replace live copy.
+ */
+export function resolveCommsTemplate(
+  id: CommsTemplateId,
+  overrides: readonly TemplateOverrideRow[] = [],
+): ResolvedTemplate {
+  const builtIn = COMMS_TEMPLATES[id];
+  // Last write wins if an event somehow holds two rows for one template.
+  const row = [...overrides].reverse().find((candidate) => candidate.name === id);
+  if (!row) {
+    return { id, subject: builtIn.subject, body: builtIn.body, isOverride: false, overrideId: null };
+  }
+  return { id, subject: row.subject, body: row.body, isOverride: true, overrideId: row.id };
+}
+
+/** Every template's current copy, built-in or overridden — the editor's list. */
+export function resolveAllCommsTemplates(
+  overrides: readonly TemplateOverrideRow[] = [],
+): ResolvedTemplate[] {
+  return COMMS_TEMPLATE_IDS.map((id) => resolveCommsTemplate(id, overrides));
+}
+
+// ---------------------------------------------------------------------------
+// Template validation (decisions.md D-020: "the admin UI validates fields
+// before saving")
+// ---------------------------------------------------------------------------
+
+/** Fields src/domain/comms.ts fills in for *every* speaker-facing message. */
+export const COMMON_MERGE_FIELDS: MergeField[] = [
+  "speakerName",
+  "speakerFirstName",
+  "eventName",
+  "eventDates",
+  "eventLocation",
+  "eventTimezone",
+  "eventUrl",
+  "organizerName",
+  "organizerEmail",
+  "portalUrl",
+];
+
+const SESSION_MERGE_FIELDS: MergeField[] = [
+  "sessionTitle",
+  "sessionWhen",
+  "sessionRoom",
+  "sessionDuration",
+];
+
+/**
+ * The merge fields each send path actually has a value for, mirroring the
+ * merge-data assembly in src/domain/comms.ts. Anything outside a template's
+ * list renders empty (D-020), so the editor warns before it can be saved.
+ */
+export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
+  submission_confirmation: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeDueDate"],
+  submission_accepted: [
+    ...COMMON_MERGE_FIELDS,
+    "submissionTitle",
+    "decisionNote",
+    "outstandingTasks",
+    ...SESSION_MERGE_FIELDS,
+  ],
+  submission_waitlisted: [
+    ...COMMON_MERGE_FIELDS,
+    "submissionTitle",
+    "decisionNote",
+    ...SESSION_MERGE_FIELDS,
+  ],
+  submission_declined: [
+    ...COMMON_MERGE_FIELDS,
+    "submissionTitle",
+    "decisionNote",
+    ...SESSION_MERGE_FIELDS,
+  ],
+  change_request: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeRequest", "changeDueDate"],
+  task_reminder: [
+    ...COMMON_MERGE_FIELDS,
+    "taskTitle",
+    "taskInstructions",
+    "taskDueDate",
+    "outstandingTasks",
+  ],
+  calendar_invite: [...COMMON_MERGE_FIELDS, ...SESSION_MERGE_FIELDS],
+};
+
+/** What an organizer-composed one-off message can reference (src/domain/comms.ts
+ * `speakerMergeData`). No submission/session/task context — the composer picks
+ * people, not proposals. */
+export const MANUAL_MERGE_FIELDS: MergeField[] = [...COMMON_MERGE_FIELDS, "outstandingTasks"];
+
+/** Matches `{{x}}`, `{{#x}}`, `{{^x}}` and `{{/x}}` alike. */
+const ANY_PLACEHOLDER_RE = /\{\{[#^/]?\s*(\w+)\s*\}\}/g;
+
+/** `{{placeholders}}` that aren't merge fields at all — always a typo. */
+export function unknownMergePlaceholders(source: string): string[] {
+  const unknown = new Set<string>();
+  for (const match of source.matchAll(ANY_PLACEHOLDER_RE)) {
+    if (!MERGE_FIELD_SET.has(match[1])) unknown.add(match[1]);
+  }
+  return [...unknown];
+}
+
+/** Real merge fields this particular message has no value for. */
+export function unavailableMergeFields(source: string, available: MergeField[]): MergeField[] {
+  const allowed = new Set<string>(available);
+  return mergeFieldsUsed(source).filter((field) => !allowed.has(field));
+}
+
+/** Realistic values so the editor can show what the copy will look like. */
+export function templatePreviewData(overrides: MergeData = {}): MergeData {
+  return {
+    speakerName: "Priya Raman",
+    speakerFirstName: "Priya",
+    eventName: "Your event",
+    eventDates: "June 16–18, 2026",
+    eventLocation: "Moscone West, San Francisco",
+    eventTimezone: "PDT",
+    eventUrl: "https://example.com/e/your-event",
+    organizerName: "The program team",
+    organizerEmail: "hello@example.com",
+    portalUrl: "https://example.com/portal",
+    submissionTitle: "Retrieval that survives production traffic",
+    decisionNote: "The committee loved the production war stories.",
+    changeRequest: "Please trim the abstract to 400 words.",
+    changeDueDate: "March 1, 2026",
+    sessionTitle: "Retrieval that survives production traffic",
+    sessionWhen: "Tuesday, June 16, 2026, 10:00 AM – 10:45 AM PDT",
+    sessionRoom: "Main Stage",
+    sessionDuration: "45 minutes",
+    taskTitle: "Upload your headshot",
+    taskInstructions: "Square image, at least 800×800.",
+    taskDueDate: "June 5, 2026",
+    outstandingTasks: "- Upload your headshot (due June 5)\n- Complete the hotel form (due June 1)",
+    ...overrides,
+  };
+}
+
+export interface TemplateCheck {
+  preview: RenderedEmail;
+  /** `{{placeholders}}` that aren't merge fields at all. */
+  unknown: string[];
+  /** Merge fields this message can't fill in — they'd render blank. */
+  unavailable: MergeField[];
+  /** Merge fields used, and available, but empty in the preview data. */
+  blank: MergeField[];
+  /** Blocking problems, in the words the editor shows. Empty = safe to save. */
+  errors: string[];
+}
+
+/**
+ * Everything the editor needs to tell an organizer whether their copy will
+ * render properly, plus the rendered preview.
+ *
+ * Unknown placeholders and unavailable fields are **errors**, not warnings:
+ * a saved template is used for every future send, so a typo would quietly
+ * blank out a sentence in mail nobody re-reads. An empty subject or body is
+ * an error for the same reason.
+ */
+export function checkTemplateDraft(
+  subject: string,
+  body: string,
+  available: MergeField[],
+  data: MergeData = templatePreviewData(),
+): TemplateCheck {
+  const source = `${subject}\n${body}`;
+  const unknown = unknownMergePlaceholders(source);
+  const unavailable = unavailableMergeFields(source, available);
+
+  const errors: string[] = [];
+  if (!subject.trim()) errors.push("The subject can't be empty.");
+  if (!body.trim()) errors.push("The message body can't be empty.");
+  if (unknown.length > 0) {
+    errors.push(
+      `Not a merge field, so it would arrive blank: ${unknown.map((name) => `{{${name}}}`).join(", ")}`,
+    );
+  }
+  if (unavailable.length > 0) {
+    errors.push(
+      `This message has no value for ${unavailable
+        .map((name) => `{{${name}}}`)
+        .join(", ")} — it would arrive blank.`,
+    );
+  }
+
+  return {
+    preview: renderMessage({ subject, body }, data),
+    unknown,
+    unavailable,
+    blank: missingMergeFields(source, data),
+    errors,
+  };
 }

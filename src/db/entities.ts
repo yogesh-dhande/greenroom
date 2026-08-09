@@ -399,6 +399,8 @@ export const emailKindSchema = z.enum([
   "magic_link",
   "submission_confirmation",
   "decision",
+  /** "We need something from you before review continues" (decisions.md D-023). */
+  "change_request",
   "task_reminder",
   "calendar_invite",
   "manual",

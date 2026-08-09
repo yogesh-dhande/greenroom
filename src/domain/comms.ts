@@ -17,6 +17,8 @@
  * stops the rest, and every outcome comes back in the result array.
  */
 import type {
+  EmailKind,
+  EmailLog,
   EmailTemplate,
   Event,
   Room,
@@ -24,7 +26,7 @@ import type {
   Submission,
   SubmissionDecision,
   Task,
-  TaskAssignment,
+  TaskAssignmentStatus,
   User,
 } from "@/db/entities";
 import type { Repos } from "@/db/repos";
@@ -48,8 +50,9 @@ import {
   type CommsTemplateId,
   type MergeData,
   type RenderedEmail,
-  renderCommsTemplate,
+  type TemplateOverrideRow,
   renderMessage,
+  resolveCommsTemplate,
 } from "@/domain/comms-templates";
 
 export * from "@/domain/comms-templates";
@@ -139,6 +142,38 @@ async function deliver(
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Template resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * The event's per-template overrides, written by the admin Communications
+ * screen's template editor. Loaded once per send call and passed down, so a
+ * message to eight co-speakers is still one read.
+ */
+async function eventTemplateOverrides(
+  ctx: CommsContext,
+  eventId: string,
+): Promise<TemplateOverrideRow[]> {
+  try {
+    return await ctx.repos.emailTemplates.listByEvent(eventId);
+  } catch (error) {
+    // Overridden copy is a nicety; failing to read it must never stop a
+    // decision or a reminder from going out.
+    console.warn(`Could not read email templates for event ${eventId}:`, error);
+    return [];
+  }
+}
+
+/** Renders `id` using the event's override when it has one, else the built-in. */
+function renderForEvent(
+  id: CommsTemplateId,
+  overrides: TemplateOverrideRow[],
+  data: MergeData,
+): RenderedEmail {
+  return renderMessage(resolveCommsTemplate(id, overrides), data);
 }
 
 // ---------------------------------------------------------------------------
@@ -266,13 +301,16 @@ export async function sendSubmissionConfirmation(
   const submission = await ctx.repos.submissions.getById(input.submissionId);
   if (!submission) throw new Error(`Submission ${input.submissionId} not found`);
 
-  const [event, form, speakers] = await Promise.all([
-    requireEvent(ctx, submission.eventId),
+  const event = await requireEvent(ctx, submission.eventId);
+  const [form, speakers, overrides] = await Promise.all([
     ctx.repos.forms.getById(submission.formId),
     submissionSpeakers(ctx, submission.id),
+    eventTemplateOverrides(ctx, event.id),
   ]);
   const recipients = input.includeCoSpeakers ? speakers : speakers.slice(0, 1);
 
+  // Precedence, most specific first: this form's own confirmation copy, the
+  // event's override of the built-in template, then the built-in itself.
   const custom =
     form?.confirmationEmailSubject && form.confirmationEmailBody
       ? { subject: form.confirmationEmailSubject, body: form.confirmationEmailBody }
@@ -288,7 +326,7 @@ export async function sendSubmissionConfirmation(
     };
     const message = custom
       ? renderMessage(custom, data)
-      : renderCommsTemplate("submission_confirmation", data);
+      : renderForEvent("submission_confirmation", overrides, data);
     results.push(
       await deliver(ctx, user.email, message, {
         kind: "submission_confirmation",
@@ -337,10 +375,11 @@ export async function sendDecisionEmail(
   if (!submission) throw new Error(`Submission ${input.submissionId} not found`);
 
   const decision = decisionOf(submission, input.decision);
-  const [event, speakers, session] = await Promise.all([
-    requireEvent(ctx, submission.eventId),
+  const event = await requireEvent(ctx, submission.eventId);
+  const [speakers, session, overrides] = await Promise.all([
     submissionSpeakers(ctx, submission.id),
     ctx.repos.sessions.getBySubmission(submission.id),
+    eventTemplateOverrides(ctx, event.id),
   ]);
   const room = session?.roomId ? await ctx.repos.rooms.getById(session.roomId) : null;
 
@@ -355,7 +394,7 @@ export async function sendDecisionEmail(
       outstandingTasks:
         decision === "approved" ? await outstandingTasksFor(ctx, event, user.id) : "",
     };
-    const message = renderCommsTemplate(DECISION_TEMPLATES[decision], data);
+    const message = renderForEvent(DECISION_TEMPLATES[decision], overrides, data);
     results.push(
       await deliver(ctx, user.email, message, {
         kind: "decision",
@@ -387,9 +426,10 @@ export async function sendChangeRequest(
   const submission = await ctx.repos.submissions.getById(input.submissionId);
   if (!submission) throw new Error(`Submission ${input.submissionId} not found`);
 
-  const [event, speakers] = await Promise.all([
-    requireEvent(ctx, submission.eventId),
+  const event = await requireEvent(ctx, submission.eventId);
+  const [speakers, overrides] = await Promise.all([
     submissionSpeakers(ctx, submission.id),
+    eventTemplateOverrides(ctx, event.id),
   ]);
   const recipients = input.includeCoSpeakers ? speakers : speakers.slice(0, 1);
 
@@ -403,10 +443,8 @@ export async function sendChangeRequest(
       changeDueDate: input.dueAt ? formatDeadline(input.dueAt, event.timezone) : "",
     };
     results.push(
-      await deliver(ctx, user.email, renderCommsTemplate("change_request", data), {
-        // `email_log.kind` has no dedicated change-request value; "manual"
-        // is the closest fit in the shipped schema.
-        kind: "manual",
+      await deliver(ctx, user.email, renderForEvent("change_request", overrides, data), {
+        kind: "change_request",
         relatedType: "submission",
         relatedId: submission.id,
       }),
@@ -433,9 +471,10 @@ export async function sendTaskReminder(
   const task = await ctx.repos.tasks.getById(assignment.taskId);
   if (!task) throw new Error(`Task ${assignment.taskId} not found`);
 
-  const [event, user] = await Promise.all([
-    requireEvent(ctx, task.eventId),
+  const event = await requireEvent(ctx, task.eventId);
+  const [user, overrides] = await Promise.all([
     ctx.repos.users.getById(assignment.speakerId),
+    eventTemplateOverrides(ctx, event.id),
   ]);
   if (!user) throw new Error(`Speaker ${assignment.speakerId} not found`);
 
@@ -446,7 +485,7 @@ export async function sendTaskReminder(
     outstandingTasks: await outstandingTasksFor(ctx, event, user.id, task.id),
   };
   return [
-    await deliver(ctx, user.email, renderCommsTemplate("task_reminder", data), {
+    await deliver(ctx, user.email, renderForEvent("task_reminder", overrides, data), {
       kind: "task_reminder",
       relatedType: "task_assignment",
       relatedId: assignment.id,
@@ -522,9 +561,10 @@ export async function sendCalendarInvite(
     requireEvent(ctx, session.eventId),
     ctx.repos.sessions.listSpeakerIds(session.id),
   ]);
-  const [speakers, room] = await Promise.all([
+  const [speakers, room, overrides] = await Promise.all([
     requireUsers(ctx, speakerIds),
     session.roomId ? ctx.repos.rooms.getById(session.roomId) : Promise.resolve(null),
+    eventTemplateOverrides(ctx, event.id),
   ]);
   if (speakers.length === 0) {
     throw new Error(`Session ${session.id} has no speakers to invite`);
@@ -569,7 +609,7 @@ export async function sendCalendarInvite(
     const delivery = await deliver(
       ctx,
       user.email,
-      renderCommsTemplate("calendar_invite", data),
+      renderForEvent("calendar_invite", overrides, data),
       { kind: "calendar_invite", relatedType: "session", relatedId: session.id },
       {
         calendar: {
@@ -611,71 +651,339 @@ export async function sendManualEmail(
   );
 }
 
+/**
+ * The merge data a one-off message to `user` about `event` can use —
+ * `MANUAL_MERGE_FIELDS` in src/domain/comms-templates.ts is this set, and the
+ * composer validates drafts against it.
+ *
+ * There is deliberately no submission/session context: the composer picks
+ * people, not proposals, so a `{{sessionTitle}}` in a manual message would be
+ * a promise the send path can't keep.
+ */
+export async function speakerMergeData(
+  ctx: CommsContext,
+  event: Event,
+  user: User,
+): Promise<MergeData> {
+  return {
+    ...eventFields(ctx, event),
+    ...speakerFields(user),
+    outstandingTasks: await outstandingTasksFor(ctx, event, user.id),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The communication log (spec.md §7 — "communication log per speaker")
+// ---------------------------------------------------------------------------
+
+/**
+ * Merges the log reads that make up one event's correspondence into a single
+ * newest-first history, with duplicates removed.
+ *
+ * Two reads are needed and they overlap. `email_log` rows are addressed to a
+ * person, not to an event, so an event's mail is "everything sent to one of
+ * its speakers" **plus** "everything sent about one of its submissions,
+ * sessions or task assignments" — the second read catches mail to a
+ * co-speaker who never became an event speaker, and the first catches manual
+ * messages that reference nothing. A row satisfying both would otherwise
+ * appear twice, so identity is the row id.
+ */
+export function buildCommunicationLog(...sets: ReadonlyArray<readonly EmailLog[]>): EmailLog[] {
+  const byId = new Map<string, EmailLog>();
+  for (const set of sets) {
+    for (const entry of set) byId.set(entry.id, entry);
+  }
+  return [...byId.values()].sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime());
+}
+
+export interface CommunicationLogFilter {
+  /** Exact recipient address — the "communication log per speaker" view. */
+  recipient?: string;
+  kind?: EmailKind;
+}
+
+/** Narrows a built log. Empty/absent criteria match everything. */
+export function filterCommunicationLog(
+  entries: readonly EmailLog[],
+  filter: CommunicationLogFilter,
+): EmailLog[] {
+  const recipient = filter.recipient?.trim().toLowerCase();
+  return entries.filter((entry) => {
+    if (recipient && entry.to.toLowerCase() !== recipient) return false;
+    if (filter.kind && entry.kind !== filter.kind) return false;
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Calendar invite status (spec.md §7 — the update-after-room-change story)
+// ---------------------------------------------------------------------------
+
+export interface InviteSummary {
+  /** Successful invites recorded for this session, across all recipients. */
+  sentCount: number;
+  lastSentAt: Date | null;
+  /** Distinct addresses that have received an invite for it. */
+  recipients: string[];
+  failedCount: number;
+}
+
+/**
+ * Per-session invite history, derived from `email_log` rows for
+ * `relatedType: "session"`. Pure, so the page reads the log once and the
+ * status of every session on the agenda falls out of it.
+ */
+export function summarizeSessionInvites(
+  logs: readonly EmailLog[],
+): Map<string, InviteSummary> {
+  const summaries = new Map<string, InviteSummary>();
+  for (const row of logs) {
+    if (row.kind !== "calendar_invite" || row.relatedType !== "session" || !row.relatedId) continue;
+    const summary = summaries.get(row.relatedId) ?? {
+      sentCount: 0,
+      lastSentAt: null,
+      recipients: [],
+      failedCount: 0,
+    };
+    if (row.status === "sent") {
+      summary.sentCount += 1;
+      if (!summary.lastSentAt || row.sentAt.getTime() > summary.lastSentAt.getTime()) {
+        summary.lastSentAt = row.sentAt;
+      }
+      if (!summary.recipients.includes(row.to)) summary.recipients.push(row.to);
+    } else {
+      summary.failedCount += 1;
+    }
+    summaries.set(row.relatedId, summary);
+  }
+  return summaries;
+}
+
+export type InviteBlocker = "unscheduled" | "no_speakers" | "cancelled";
+
+/** Why this session can't be invited on yet, or null when it can. */
+export function inviteBlocker(
+  session: Pick<Session, "day" | "startTime" | "endTime" | "status">,
+  speakerCount: number,
+): InviteBlocker | null {
+  if (session.status === "cancelled") return "cancelled";
+  if (!session.day || !session.startTime || !session.endTime) return "unscheduled";
+  if (speakerCount === 0) return "no_speakers";
+  return null;
+}
+
+/** What an admin is told about a session that can't be invited on. */
+export const INVITE_BLOCKER_LABELS: Record<InviteBlocker, string> = {
+  unscheduled: "Needs a day and time on the agenda before speakers can be invited.",
+  no_speakers: "No speaker is assigned to this session yet.",
+  cancelled: "This session is cancelled.",
+};
+
 // ---------------------------------------------------------------------------
 // The reminder cron (decisions.md D-013)
 // ---------------------------------------------------------------------------
 
-export interface ReminderCandidate {
-  assignment: TaskAssignment;
-  task: Task;
-  user: User;
-  event: Event;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Nudge the same speaker about the same task at most this often (Q4). */
+export const DEFAULT_REMINDER_COOLDOWN_DAYS = 3;
+/** Only remind about work due inside this window (or already overdue). */
+export const DEFAULT_REMINDER_LOOKAHEAD_DAYS = 7;
+
+export const REMINDER_SKIP_REASONS = [
+  "completed",
+  "event_started",
+  "not_due",
+  "cooldown",
+] as const;
+export type ReminderSkipReason = (typeof REMINDER_SKIP_REASONS)[number];
+
+/** Why a candidate was passed over, in the words the admin summary shows. */
+export const REMINDER_SKIP_LABELS: Record<ReminderSkipReason, string> = {
+  completed: "already done",
+  event_started: "event already under way",
+  not_due: "not due yet",
+  cooldown: "reminded in the last few days",
+};
+
+export interface ReminderDecisionInput {
+  /** The assignment's current state — a finished task is never nudged. */
+  status: TaskAssignmentStatus;
+  /** The task's deadline; null means the task has no date to remind about. */
+  dueAt: Date | null;
+  /** When a `task_reminder` for this exact assignment last went out. */
+  lastRemindedAt: Date | null;
+  /** The event's first day ("YYYY-MM-DD" in `timezone`); null = undated. */
+  eventStartDate: string | null;
+  timezone: string;
+  now: Date;
+  cooldownDays: number;
+  lookaheadDays: number;
+}
+
+export type ReminderDecision = { send: true } | { send: false; reason: ReminderSkipReason };
+
+const SEND: ReminderDecision = { send: true };
+
+/**
+ * Should this speaker be nudged about this task right now?
+ *
+ * The cadence is questions.md Q4's working assumption, made explicit and
+ * pure so it can be tested without a database: **at most one reminder per
+ * (task, speaker) every three days, stopping as soon as the task is done or
+ * the event has started.** Order matters — the checks run strongest-first, so
+ * the reason reported to an admin is the most fundamental one ("already done"
+ * beats "reminded recently", which is only true incidentally).
+ *
+ * Once the event is under way a reminder is worse than useless: the speaker
+ * is on site, the deadline it names has passed, and the mail reads as a bot
+ * that didn't notice the event started. Admins keep the manual composer for
+ * anything genuinely still needed.
+ */
+export function decideReminder(input: ReminderDecisionInput): ReminderDecision {
+  if (input.status === "completed") return { send: false, reason: "completed" };
+
+  if (input.eventStartDate) {
+    const eventBegins = zonedWallClockToInstant(input.eventStartDate, "00:00", input.timezone);
+    if (input.now.getTime() >= eventBegins.getTime()) {
+      return { send: false, reason: "event_started" };
+    }
+  }
+
+  // No deadline, or a deadline beyond the lookahead: nothing to nudge about.
+  if (!input.dueAt) return { send: false, reason: "not_due" };
+  const horizon = input.now.getTime() + input.lookaheadDays * DAY_MS;
+  if (input.dueAt.getTime() > horizon) return { send: false, reason: "not_due" };
+
+  if (input.lastRemindedAt) {
+    const cooledDownAt = input.lastRemindedAt.getTime() + input.cooldownDays * DAY_MS;
+    if (input.now.getTime() < cooledDownAt) return { send: false, reason: "cooldown" };
+  }
+
+  return SEND;
 }
 
 export interface RunReminderJobInput extends Omit<CommsContext, "appUrl"> {
   appUrl?: string;
   /** Remind about anything due within this many days. Default 7. */
   lookaheadDays?: number;
-  /** Don't re-remind about the same assignment inside this window. Default 3 days. */
+  /** Don't re-remind about the same assignment inside this window. Default 3. */
   cooldownDays?: number;
+  /** Restrict the run to one event — the admin "send reminders now" button. */
+  eventId?: string;
 }
 
 export interface RunReminderJobResult {
   remindersSent: number;
   remindersFailed: number;
-  /** Skipped because a reminder went out inside the cooldown window. */
+  /** Candidates passed over, all reasons combined. */
   skipped: number;
+  skippedByReason: Record<ReminderSkipReason, number>;
+  /** Who was actually emailed, for the admin's "what did that do?" summary. */
+  sentTo: string[];
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+function emptyResult(): RunReminderJobResult {
+  return {
+    remindersSent: 0,
+    remindersFailed: 0,
+    skipped: 0,
+    skippedByReason: { completed: 0, event_started: 0, not_due: 0, cooldown: 0 },
+    sentTo: [],
+  };
+}
 
 /**
- * Cron-triggered deadline reminders, wired up in custom-worker.ts's
- * `scheduled` handler (every 15 minutes per wrangler.jsonc).
+ * Deadline reminders (decisions.md D-013). Runs from custom-worker.ts's
+ * `scheduled` handler on the wrangler.jsonc cron, and from the admin
+ * Communications screen's "Send reminders now" button — the same function
+ * either way, so the button can never drift from what the cron does.
  *
- * Idempotency comes from `email_log` rather than a "reminded" flag: an
- * assignment is skipped when a `task_reminder` for it was recorded inside the
- * cooldown window, so re-running the job — or running it on overlapping
- * schedules — never double-sends.
+ * Idempotency comes from `email_log` rather than a "reminded" flag: the last
+ * recorded `task_reminder` for an assignment is what the cooldown is measured
+ * against, so re-running the job — or running it on overlapping schedules —
+ * never double-sends. That also means a manual run costs an admin nothing:
+ * anything already nudged this week is simply reported as skipped.
+ *
+ * One `email_log` read per event covers every candidate, rather than one per
+ * assignment: the cron runs every 15 minutes and mostly has nothing to do.
  */
 export async function runReminderJob(
   input: RunReminderJobInput,
 ): Promise<RunReminderJobResult> {
   const ctx: CommsContext = { ...input, appUrl: input.appUrl ?? "http://localhost:3000" };
   const now = nowOf(ctx);
-  const horizon = new Date(now.getTime() + (input.lookaheadDays ?? 7) * DAY_MS);
-  const cooldownStart = new Date(now.getTime() - (input.cooldownDays ?? 3) * DAY_MS);
+  const cooldownDays = input.cooldownDays ?? DEFAULT_REMINDER_COOLDOWN_DAYS;
+  const lookaheadDays = input.lookaheadDays ?? DEFAULT_REMINDER_LOOKAHEAD_DAYS;
 
-  const result: RunReminderJobResult = { remindersSent: 0, remindersFailed: 0, skipped: 0 };
+  const result = emptyResult();
 
-  for (const event of await ctx.repos.events.listAll()) {
-    const assignments = await ctx.repos.taskAssignments.listPendingDueBefore(event.id, horizon);
+  const allEvents = await ctx.repos.events.listAll();
+  const events = input.eventId
+    ? allEvents.filter((event) => event.id === input.eventId)
+    : allEvents;
+
+  for (const event of events) {
+    const [assignments, tasks] = await Promise.all([
+      ctx.repos.taskAssignments.listByEvent(event.id),
+      ctx.repos.tasks.listByEvent(event.id),
+    ]);
+    if (assignments.length === 0) continue;
+
+    const tasksById = new Map(tasks.map((task) => [task.id, task]));
+    const lastRemindedAt = await lastReminderTimes(
+      ctx,
+      assignments.map((assignment) => assignment.id),
+    );
+
     for (const assignment of assignments) {
-      const recentlyReminded = await ctx.repos.emailLog.count({
-        kind: "task_reminder",
-        relatedType: "task_assignment",
-        relatedId: assignment.id,
-        status: "sent",
-        sentSince: cooldownStart,
+      const task = tasksById.get(assignment.taskId);
+      if (!task) continue;
+
+      const decision = decideReminder({
+        status: assignment.status,
+        dueAt: task.dueAt,
+        lastRemindedAt: lastRemindedAt.get(assignment.id) ?? null,
+        eventStartDate: event.startDate,
+        timezone: event.timezone,
+        now,
+        cooldownDays,
+        lookaheadDays,
       });
-      if (recentlyReminded > 0) {
+
+      if (!decision.send) {
         result.skipped += 1;
+        result.skippedByReason[decision.reason] += 1;
         continue;
       }
+
       const [delivery] = await sendTaskReminder(ctx, { assignmentId: assignment.id });
-      if (delivery?.status === "sent") result.remindersSent += 1;
-      else result.remindersFailed += 1;
+      if (delivery?.status === "sent") {
+        result.remindersSent += 1;
+        result.sentTo.push(delivery.to);
+      } else {
+        result.remindersFailed += 1;
+      }
     }
   }
   return result;
+}
+
+/** assignment id → when its most recent successful reminder went out. */
+async function lastReminderTimes(
+  ctx: CommsContext,
+  assignmentIds: string[],
+): Promise<Map<string, Date>> {
+  const latest = new Map<string, Date>();
+  if (assignmentIds.length === 0) return latest;
+
+  const rows = await ctx.repos.emailLog.listByRelatedIds("task_assignment", assignmentIds);
+  for (const row of rows) {
+    if (row.kind !== "task_reminder" || row.status !== "sent" || !row.relatedId) continue;
+    const current = latest.get(row.relatedId);
+    if (!current || row.sentAt.getTime() > current.getTime()) {
+      latest.set(row.relatedId, row.sentAt);
+    }
+  }
+  return latest;
 }

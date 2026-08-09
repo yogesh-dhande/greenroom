@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkTemplateDraft,
   COMMS_TEMPLATES,
   COMMS_TEMPLATE_IDS,
   getCommsTemplate,
+  MANUAL_MERGE_FIELDS,
   MERGE_FIELDS,
   mergeFieldsUsed,
   missingMergeFields,
@@ -10,6 +12,9 @@ import {
   renderMessage,
   renderSubject,
   renderText,
+  resolveAllCommsTemplates,
+  resolveCommsTemplate,
+  TEMPLATE_MERGE_FIELDS,
   textToHtml,
   type MergeData,
 } from "@/domain/comms-templates";
@@ -287,5 +292,145 @@ describe("the built-in templates", () => {
     });
     expect(unscheduled.text).toContain("still building the schedule");
     expect(unscheduled.text).not.toContain("currently slated");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-event overrides
+// ---------------------------------------------------------------------------
+
+describe("resolveCommsTemplate", () => {
+  it("uses Greenroom's copy when the event hasn't edited anything", () => {
+    const resolved = resolveCommsTemplate("task_reminder");
+    expect(resolved.subject).toBe(COMMS_TEMPLATES.task_reminder.subject);
+    expect(resolved.isOverride).toBe(false);
+    expect(resolved.overrideId).toBeNull();
+  });
+
+  it("prefers the event's own wording", () => {
+    const resolved = resolveCommsTemplate("task_reminder", [
+      {
+        id: "row-1",
+        name: "task_reminder",
+        subject: "Nudge: {{taskTitle}}",
+        body: "Hi {{speakerFirstName}}",
+      },
+    ]);
+    expect(resolved.subject).toBe("Nudge: {{taskTitle}}");
+    expect(resolved.isOverride).toBe(true);
+    expect(resolved.overrideId).toBe("row-1");
+  });
+
+  it("ignores rows belonging to other templates", () => {
+    // The override's `name` is the join key back to the built-in id, so a
+    // row for a different template must not leak into this one.
+    const resolved = resolveCommsTemplate("task_reminder", [
+      { id: "row-1", name: "submission_accepted", subject: "Other", body: "Other" },
+    ]);
+    expect(resolved.isOverride).toBe(false);
+  });
+
+  it("ignores a free-text row that isn't overriding anything", () => {
+    const resolved = resolveCommsTemplate("task_reminder", [
+      { id: "row-1", name: "Sponsor thank-you", subject: "Thanks", body: "Thanks" },
+    ]);
+    expect(resolved.isOverride).toBe(false);
+  });
+
+  it("takes the last write when an event somehow holds two rows for one template", () => {
+    const resolved = resolveCommsTemplate("task_reminder", [
+      { id: "row-1", name: "task_reminder", subject: "First", body: "First" },
+      { id: "row-2", name: "task_reminder", subject: "Second", body: "Second" },
+    ]);
+    expect(resolved.overrideId).toBe("row-2");
+  });
+
+  it("resolves every built-in, overridden or not", () => {
+    const all = resolveAllCommsTemplates([
+      { id: "row-1", name: "change_request", subject: "Ours", body: "Ours" },
+    ]);
+    expect(all).toHaveLength(COMMS_TEMPLATE_IDS.length);
+    expect(all.filter((template) => template.isOverride).map((t) => t.id)).toEqual([
+      "change_request",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Editing a template
+// ---------------------------------------------------------------------------
+
+describe("checkTemplateDraft", () => {
+  const available = TEMPLATE_MERGE_FIELDS.task_reminder;
+
+  it("passes the built-in copy it will be editing", () => {
+    for (const id of COMMS_TEMPLATE_IDS) {
+      const check = checkTemplateDraft(
+        COMMS_TEMPLATES[id].subject,
+        COMMS_TEMPLATES[id].body,
+        TEMPLATE_MERGE_FIELDS[id],
+      );
+      expect(check.errors, id).toEqual([]);
+    }
+  });
+
+  it("rejects a misspelled merge field", () => {
+    // The whole point of validating on save: {{speakername}} renders as
+    // nothing at all, in every future send, with nobody left to notice.
+    const check = checkTemplateDraft("Hi {{speakername}}", "Body", available);
+    expect(check.unknown).toEqual(["speakername"]);
+    expect(check.errors.join(" ")).toContain("{{speakername}}");
+  });
+
+  it("rejects a real field this message can't fill in", () => {
+    const check = checkTemplateDraft("Subject", "About {{sessionRoom}}", available);
+    expect(check.unavailable).toEqual(["sessionRoom"]);
+    expect(check.errors.join(" ")).toContain("no value for");
+  });
+
+  it("rejects empty copy", () => {
+    expect(checkTemplateDraft("  ", "Body", available).errors).toContain(
+      "The subject can't be empty.",
+    );
+    expect(checkTemplateDraft("Subject", "  ", available).errors).toContain(
+      "The message body can't be empty.",
+    );
+  });
+
+  it("checks section tags, not just plain placeholders", () => {
+    const check = checkTemplateDraft("Subject", "{{#nonsense}}x{{/nonsense}}", available);
+    expect(check.unknown).toEqual(["nonsense"]);
+  });
+
+  it("returns a filled-in preview alongside the verdict", () => {
+    const check = checkTemplateDraft("Hi {{speakerFirstName}}", "About {{taskTitle}}", available);
+    expect(check.errors).toEqual([]);
+    expect(check.preview.subject).toBe("Hi Priya");
+    expect(check.preview.text).toContain("Upload your headshot");
+  });
+
+  it("flags a valid field with no value as blank rather than as an error", () => {
+    const check = checkTemplateDraft("Subject", "Due {{taskDueDate}}", available, {
+      taskDueDate: "",
+    });
+    expect(check.errors).toEqual([]);
+    expect(check.blank).toEqual(["taskDueDate"]);
+  });
+
+  it("keeps every template's field list inside the merge-field vocabulary", () => {
+    for (const id of COMMS_TEMPLATE_IDS) {
+      for (const field of TEMPLATE_MERGE_FIELDS[id]) {
+        expect(MERGE_FIELDS, `${id}/${field}`).toContain(field);
+      }
+    }
+  });
+
+  it("only offers a one-off message fields that don't need a submission", () => {
+    // The composer picks people, not proposals — a manual send has no
+    // submission or session to draw on.
+    for (const field of MANUAL_MERGE_FIELDS) {
+      expect(field.startsWith("submission"), field).toBe(false);
+      expect(field.startsWith("session"), field).toBe(false);
+    }
   });
 });

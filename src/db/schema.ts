@@ -442,11 +442,16 @@ export const emailLog = sqliteTable(
     id: id(),
     to: text("to").notNull(),
     subject: text("subject").notNull(),
+    // Drizzle's `enum` is a compile-time union only — the column is plain
+    // `text NOT NULL` with no CHECK constraint (migrations/0000), so keeping
+    // this list in step with `emailKindSchema` in src/db/entities.ts needs no
+    // migration and no DDL change.
     kind: text("kind", {
       enum: [
         "magic_link",
         "submission_confirmation",
         "decision",
+        "change_request",
         "task_reminder",
         "calendar_invite",
         "manual",

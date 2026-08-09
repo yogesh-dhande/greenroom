@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { taskAssignmentSchema, type NewTaskAssignment } from "@/db/entities";
 import { taskAssignments, tasks } from "@/db/schema";
 import type { TaskAssignmentsRepo } from "@/db/repos/task-assignments";
@@ -7,11 +7,9 @@ import type { DrizzleD1 } from "./client";
 export function createTaskAssignmentsRepo(db: DrizzleD1): TaskAssignmentsRepo {
   /** Assignments belong to a task, and only tasks carry the event — so every
    * event-scoped query resolves the event's task ids first. */
-  async function taskIdsForEvent(eventId: string, dueBefore?: Date): Promise<string[]> {
+  async function taskIdsForEvent(eventId: string): Promise<string[]> {
     const rows = await db.query.tasks.findMany({
-      where: dueBefore
-        ? and(eq(tasks.eventId, eventId), lte(tasks.dueAt, dueBefore))
-        : eq(tasks.eventId, eventId),
+      where: eq(tasks.eventId, eventId),
       columns: { id: true },
     });
     return rows.map((r) => r.id);
@@ -51,9 +49,6 @@ export function createTaskAssignmentsRepo(db: DrizzleD1): TaskAssignmentsRepo {
     },
     async listPendingByEvent(eventId) {
       return byTaskIds(await taskIdsForEvent(eventId), true);
-    },
-    async listPendingDueBefore(eventId, before) {
-      return byTaskIds(await taskIdsForEvent(eventId, before), true);
     },
     async getByTaskAndSpeaker(taskId, speakerId) {
       const row = await db.query.taskAssignments.findFirst({

@@ -28,6 +28,29 @@ export default {
     const repos = createD1Repos(env.DB);
     const sender = getEmailSender(env);
     const appUrl = env.APP_URL ?? env.BETTER_AUTH_URL ?? "http://localhost:3000";
-    ctx.waitUntil(runReminderJob({ repos, sender, appUrl }).then(() => undefined));
+
+    // The cadence itself lives in runReminderJob (questions.md Q4: at most one
+    // nudge per task every three days, stopping once the task is done or the
+    // event has started), so this handler stays a wiring shim — the admin
+    // "Send reminders now" button calls the identical function.
+    //
+    // The run is summarised to the log because a cron firing every 15 minutes
+    // is otherwise invisible: `wrangler tail` should show why a quiet run was
+    // quiet, not just that it happened.
+    ctx.waitUntil(
+      runReminderJob({ repos, sender, appUrl })
+        .then((result) => {
+          console.log(
+            `reminders: ${result.remindersSent} sent, ${result.remindersFailed} failed, ` +
+              `${result.skipped} skipped (${Object.entries(result.skippedByReason)
+                .filter(([, count]) => count > 0)
+                .map(([reason, count]) => `${reason}: ${count}`)
+                .join(", ") || "none"})`,
+          );
+        })
+        .catch((error: unknown) => {
+          console.error("reminder job failed:", error);
+        }),
+    );
   },
 } satisfies ExportedHandler<CloudflareEnv>;

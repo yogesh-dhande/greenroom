@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, type SQL } from "drizzle-orm";
 import { emailLogSchema, type NewEmailLog } from "@/db/entities";
 import { emailLog } from "@/db/schema";
 import type { EmailLogFilter, EmailLogRepo } from "@/db/repos/email-log";
@@ -13,9 +13,28 @@ export function createEmailLogRepo(db: DrizzleD1): EmailLogRepo {
       });
       return rows.map((r) => emailLogSchema.parse(r));
     },
+    async listByRecipients(emails) {
+      if (emails.length === 0) return [];
+      const rows = await db.query.emailLog.findMany({
+        where: inArray(emailLog.to, emails),
+        orderBy: [desc(emailLog.sentAt)],
+      });
+      return rows.map((r) => emailLogSchema.parse(r));
+    },
     async listByRelated(relatedType, relatedId) {
       const rows = await db.query.emailLog.findMany({
         where: and(eq(emailLog.relatedType, relatedType), eq(emailLog.relatedId, relatedId)),
+        orderBy: [desc(emailLog.sentAt)],
+      });
+      return rows.map((r) => emailLogSchema.parse(r));
+    },
+    async listByRelatedIds(relatedType, relatedIds) {
+      if (relatedIds.length === 0) return [];
+      const rows = await db.query.emailLog.findMany({
+        where: and(
+          eq(emailLog.relatedType, relatedType),
+          inArray(emailLog.relatedId, relatedIds),
+        ),
         orderBy: [desc(emailLog.sentAt)],
       });
       return rows.map((r) => emailLogSchema.parse(r));

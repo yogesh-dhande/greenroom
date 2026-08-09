@@ -21,7 +21,25 @@ export interface EmailLogRepo {
   /** Communication log per speaker (spec.md §7), keyed by email address so
    * it survives a speaker never claiming their account. */
   listByRecipient(email: string): Promise<EmailLog[]>;
+  /**
+   * The same log for a whole roster in one read — the admin Communications
+   * screen shows every message sent to an event's speakers, and one query per
+   * speaker would be a round trip per row.
+   *
+   * `email_log` has no event column (a send is addressed to a person, not to
+   * an event), so event scoping is composed from this plus `listByRelatedIds`
+   * rather than expressed as a filter here — see `buildCommunicationLog` in
+   * src/domain/comms.ts. Newest first.
+   */
+  listByRecipients(emails: string[]): Promise<EmailLog[]>;
   listByRelated(relatedType: EmailRelatedType, relatedId: string): Promise<EmailLog[]>;
+  /**
+   * Batch form of `listByRelated`: every send about any of `relatedIds`.
+   * Backs both the per-session calendar-invite status and the reminder job's
+   * cooldown lookup, each of which needs "the latest for each of these N
+   * things" and would otherwise issue N queries. Newest first.
+   */
+  listByRelatedIds(relatedType: EmailRelatedType, relatedIds: string[]): Promise<EmailLog[]>;
   /** Newest first — backs the admin Communications view. */
   listRecent(limit: number): Promise<EmailLog[]>;
   /**
