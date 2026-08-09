@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 import type { Form } from "@/db/entities";
 import { isScheduled } from "@/db/entities";
-import { TASK_STATE_LABEL, type AssignmentView, type TaskState } from "@/domain/onboarding";
+import {
+  otherSpeakersWithSameName,
+  TASK_STATE_LABEL,
+  type AssignmentView,
+  type TaskState,
+} from "@/domain/onboarding";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import { fileUrl, filenameFromKey, isImageKey, keyFromFileUrl } from "@/lib/uploads";
@@ -13,10 +18,16 @@ import { formatDueDate } from "@/lib/event-time";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EMAIL_KIND_LABELS } from "../../communications/types";
 import { loadSpeakerRoster } from "../roster";
 import { SpeakerHeadshotForm } from "./speaker-headshot-form";
 import { SpeakerNotesForm } from "./speaker-notes-form";
 import { SpeakerProfileForm } from "./speaker-profile-form";
+
+/** Most recent sends shown before the list collapses to "…and N older" —
+ * a speaker who's been through a few events can otherwise produce a card
+ * that's mostly scroll. */
+const EMAIL_HISTORY_LIMIT = 20;
 
 /** Same task-state palette as the roster (decisions.md D-018 semantic tokens). */
 const STATE_BADGE_CLASS: Record<TaskState, string> = {
@@ -117,6 +128,19 @@ export default async function SpeakerRecordPage({
   );
   const headshotKey = speaker.headshotUrl ? keyFromFileUrl(speaker.headshotUrl) : null;
 
+  // Other roster entries sharing this speaker's display name (decisions.md
+  // D-059).
+  const duplicates = otherSpeakersWithSameName(rollups, speaker.id);
+
+  // `email_log` is keyed by address, not by event (see EmailLogRepo's
+  // listByRecipient doc) — mail this speaker was sent for *any* event they've
+  // spoken at shows up here, not just this one. That's deliberate: the same
+  // person's inbox doesn't reset between events. The d1 repo already orders
+  // newest-first, so no re-sort is needed here.
+  const emailHistory = await repos.emailLog.listByRecipient(speaker.email);
+  const emailHistoryShown = emailHistory.slice(0, EMAIL_HISTORY_LIMIT);
+  const emailHistoryOlderCount = emailHistory.length - emailHistoryShown.length;
+
   return (
     <div>
       <Link
@@ -143,6 +167,42 @@ export default async function SpeakerRecordPage({
           </div>
         }
       />
+
+      {duplicates.length > 0 ? (
+        // Same hazard the roster badge flags (decisions.md D-059), but with
+        // follow-through: the roster's badge had no way to actually see the
+        // colliding record, which is what this card fixes. Display only — no
+        // merge/link action, per D-059 and D-065.
+        <Card className="mb-4 border-warning bg-warning/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Badge variant="outline" className="border-warning bg-warning/10 text-warning">
+                Possible duplicate
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Another roster entry uses the same display name as this speaker. These are distinct
+              speaker records that happen to share a name — open the record below to compare
+              before assuming they&apos;re the same person.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-2">
+              {duplicates.map((other) => (
+                <li key={other.id}>
+                  <Link
+                    href={`/admin/${eventSlug}/speakers/${other.id}`}
+                    className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    {other.name ?? other.email}
+                  </Link>
+                  <span className="ml-2 text-xs text-muted-foreground">{other.email}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-4 lg:col-span-2">
@@ -298,7 +358,7 @@ export default async function SpeakerRecordPage({
           </Card>
         </div>
 
-        <div className="lg:col-span-1">
+        <div className="flex flex-col gap-4 lg:col-span-1">
           <Card>
             <CardHeader>
               <CardTitle>Internal notes</CardTitle>
@@ -312,6 +372,52 @@ export default async function SpeakerRecordPage({
                 speakerId={speaker.id}
                 notes={notesBySpeaker.get(speaker.id) ?? null}
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Email history</CardTitle>
+              <CardDescription>
+                Mail sent to {speaker.email}. Logged by address rather than by event, so this
+                includes messages from any event they&apos;ve spoken at, not just this one.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {emailHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No email logged for this address yet.</p>
+              ) : (
+                <>
+                  <ul className="flex flex-col gap-3">
+                    {emailHistoryShown.map((log) => (
+                      <li key={log.id} className="flex flex-col gap-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium text-foreground">{log.subject}</span>
+                          {log.status === "sent" ? (
+                            <span className="text-xs text-muted-foreground">Sent</span>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="border-destructive bg-destructive/10 text-destructive"
+                              title={log.error ?? undefined}
+                            >
+                              Failed
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {EMAIL_KIND_LABELS[log.kind]} · {formatDueDate(log.sentAt, event.timezone)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {emailHistoryOlderCount > 0 ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      …and {emailHistoryOlderCount} older
+                    </p>
+                  ) : null}
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

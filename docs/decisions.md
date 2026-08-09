@@ -383,6 +383,12 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Run-3 logged a minor that the builder "has no built-in session-format question type even though formats are configured at event level" — but the premise is wrong: no event-level formats exist anywhere in the data model, so there is nothing for a built-in type to stay in sync *with*. Inventing an event-level format registry to justify the field type would add a second source of truth for something two existing mechanisms already express, days before the deadline. Recorded so the recurring eval flag reads as a choice, not an oversight (same pattern as D-058/D-059).
 
+## D-065: Duplicate speakers get visibility and cross-links, not a merge tool — **accepted** (2026-08-09)
+
+**Decision:** The "Possible duplicate" name-collision flag (D-059's hazard surface) appears on the speaker's profile page as well as the roster list, and the profile notice links to each colliding record so an organizer can open them side by side. The profile also gains an address-scoped email-history panel (from the existing send log). No merge/link/combine action is built.
+
+**Rationale:** Run-3's one CRM major was "duplicate detection with no remedy" — the badge existed only on the list, with no way to act on it. The display half is a cheap real gap: an organizer who lands on a duplicate's profile saw no warning at all, and comparing records required hunting the roster. Merging is the opposite: user records anchor submissions, sessions, task assignments, and auth identity, so a merge is a multi-table rewrite with auth implications — high-risk days before the deadline, and cross-event contact identity is already deliberately out of scope (D-059). Visibility plus navigation covers the organizer's actual next step (compare, then fix data by hand); the remaining CRM defects (per-event records, per-event notes) are D-059's architecture, not bugs.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
