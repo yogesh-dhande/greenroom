@@ -10,6 +10,7 @@ import type {
 import {
   BLIND_REVIEW_NOTICE,
   assignmentsForReviewer,
+  blindSubmissionIds,
   canScoreSubmission,
   criterionIdFromLabel,
   criterionRange,
@@ -35,6 +36,7 @@ import {
   speakerLine,
   summarizeRound,
   validateScorecard,
+  viewerHasBlindAssignment,
   withoutSpeakers,
   type ResultRow,
 } from "@/domain/rounds";
@@ -764,5 +766,26 @@ describe("blind review (D-049)", () => {
       { title: "Nobody here", speakers: [] },
     ]);
     expect(withoutSpeakers(rows, false)).toEqual(rows);
+  });
+
+  it("finds a blind assignment among the viewer's own scorecards on a submission", () => {
+    expect(viewerHasBlindAssignment([])).toBe(false);
+    expect(viewerHasBlindAssignment([{ round: round() }])).toBe(false);
+    // One blind round is enough — a sighted round beside it must not undo it.
+    expect(
+      viewerHasBlindAssignment([{ round: round() }, { round: round({ blindReview: true }) }]),
+    ).toBe(true);
+  });
+
+  it("keys the viewer's blind submissions for a list, ignoring other events' rounds", () => {
+    const rounds = [round({ id: "round-1" }), round({ id: "round-2", blindReview: true })];
+    const mine = [
+      assignment({ id: "a1", roundId: "round-1", submissionId: "sub-1" }),
+      assignment({ id: "a2", roundId: "round-2", submissionId: "sub-2" }),
+      // Held on another event's blind round, which this event never lists.
+      assignment({ id: "a3", roundId: "round-9", submissionId: "sub-3" }),
+    ];
+    expect(blindSubmissionIds(rounds, mine)).toEqual(new Set(["sub-2"]));
+    expect(blindSubmissionIds([], mine)).toEqual(new Set());
   });
 });

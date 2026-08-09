@@ -5,7 +5,13 @@ import { createsSessionsDirectly, type FormField } from "@/db/entities";
 import { DIRECT_TO_SESSION_LABEL, prefillValues, publicFields } from "@/domain/forms";
 import { loadSubmissionDetail } from "@/domain/submissions";
 import { canRecordDecision, canViewSubmission, tallyReviews } from "@/domain/review";
-import { hidesSpeakerIdentity, rollupProgressLabel } from "@/domain/rounds";
+import {
+  BLIND_REVIEW_NOTICE,
+  hidesSpeakerIdentity,
+  reviewerVisibleFields,
+  rollupProgressLabel,
+  viewerHasBlindAssignment,
+} from "@/domain/rounds";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
 import { fileUrl, filenameFromKey } from "@/lib/uploads";
@@ -69,18 +75,6 @@ export default async function SubmissionDetailPage({
 
   const { submission, form, tracks } = detail;
   const isDirectToSession = createsSessionsDirectly(form);
-  const fields = publicFields(
-    form.fields,
-    tracks.map((track) => track.name),
-  );
-  const values = prefillValues(fields, {
-    answers: submission.answers,
-    title: submission.title,
-    description: submission.description,
-    trackNames: detail.trackNames,
-    primarySpeaker: { name: detail.primarySpeaker.name, email: detail.primarySpeaker.email },
-    coSpeakers: detail.coSpeakers,
-  });
 
   const [reviews, session, decider] = await Promise.all([
     repos.reviews.listBySubmission(id),
@@ -108,6 +102,30 @@ export default async function SubmissionDetailPage({
     loadViewerScorecards(repos, event.id, viewer.id, id),
   ]);
   const rollup = rollupFor(rollups, id);
+
+  // The track queue reaches this record (D-035(1)/D-047), so a reviewer scoring
+  // this proposal in a blind round would otherwise read the author here that
+  // the round's own scorecard withheld. Same withholding, same source of truth:
+  // the identity questions are filtered out *before* the values are built, so a
+  // withheld answer never reaches the browser. Admins are never anonymized —
+  // blind review keeps the scorer unbiased, not the organizer (D-049).
+  const blind = viewer.role !== "admin" && viewerHasBlindAssignment(myScorecards);
+  const fields = reviewerVisibleFields(
+    publicFields(
+      form.fields,
+      tracks.map((track) => track.name),
+    ),
+    blind,
+  );
+  const values = prefillValues(fields, {
+    answers: submission.answers,
+    title: submission.title,
+    description: submission.description,
+    trackNames: detail.trackNames,
+    primarySpeaker: { name: detail.primarySpeaker.name, email: detail.primarySpeaker.email },
+    coSpeakers: detail.coSpeakers,
+  });
+
   const taskById = new Map(eventTasks.map((task) => [task.id, task]));
   const speakerTaskCount = assignments
     .flat()
@@ -140,7 +158,17 @@ export default async function SubmissionDetailPage({
             <CardHeader>
               <CardTitle>The proposal</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-col gap-4">
+              {/* One marker where the author would have been, so the gap reads
+                  as a rule rather than as missing data (D-049). */}
+              {blind ? (
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs font-semibold tracking-wider uppercase text-muted-foreground">
+                    Speaker
+                  </p>
+                  <p className="text-sm text-muted-foreground">{BLIND_REVIEW_NOTICE}</p>
+                </div>
+              ) : null}
               <AnswerList fields={fields} values={values} />
             </CardContent>
           </Card>

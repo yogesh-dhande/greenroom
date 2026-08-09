@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { DIRECT_TO_SESSION_LABEL } from "@/domain/forms";
+import { BLIND_REVIEW_NOTICE } from "@/domain/rounds";
 import {
   Table,
   TableBody,
@@ -108,7 +109,7 @@ export default async function SubmissionsPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map(({ submission, trackNames, speakers, tally, rollup }) => (
+                {rows.map(({ submission, trackNames, speakers, blind, tally, rollup }) => (
                   <TableRow key={submission.id} className="relative">
                     <TableCell className="max-w-96 font-medium whitespace-normal text-foreground">
                       {/* Whole-row click target: the title link's overlay
@@ -126,9 +127,14 @@ export default async function SubmissionsPage({
                       </Link>
                     </TableCell>
                     <TableCell className="max-w-64 truncate text-muted-foreground">
-                      {speakers.length === 0
-                        ? "—"
-                        : speakers.map((person) => personName(person)).join(", ")}
+                      {/* A row this viewer scores in a blind round reads the
+                          same marker its scorecard does — the queue must not be
+                          the way around the round's blindness (D-049). */}
+                      {blind
+                        ? BLIND_REVIEW_NOTICE
+                        : speakers.length === 0
+                          ? "—"
+                          : speakers.map((person) => personName(person)).join(", ")}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {trackNames.length === 0 ? "—" : trackNames.join(", ")}

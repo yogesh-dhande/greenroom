@@ -10,6 +10,7 @@ import {
 import type { Repos } from "@/db/repos";
 import { tallyReviewsBySubmission, visibleSubmissions, type ReviewTally } from "@/domain/review";
 import {
+  blindSubmissionIds,
   isRoundOpen,
   rollupRoundsBySubmission,
   scorecardAnswers,
@@ -33,6 +34,9 @@ export interface QueueRow {
   trackIds: string[];
   trackNames: string[];
   speakers: Array<Pick<User, "id" | "name" | "email">>;
+  /** This viewer is scoring this row in a blind round (decisions.md D-049), so
+   * `speakers` was emptied in the loader and the cell shows the marker. */
+  blind: boolean;
   tally: ReviewTally;
   /** Filed round scorecards for this submission (decisions.md D-048); empty
    * for a reviewer, who never sees another reviewer's round work (D-035). */
@@ -208,6 +212,25 @@ export async function loadViewerScorecards(
   return cards;
 }
 
+/**
+ * The submissions this viewer is scoring blind on this event (decisions.md
+ * D-049). The track-scoped queue lists proposals a reviewer may hold a blind
+ * assignment on, so the list has to ask the same question the round's own
+ * surfaces ask. Admins are never anonymized, and skip the reads.
+ */
+async function blindSubmissionIdsFor(
+  repos: Repos,
+  eventId: string,
+  viewer: SessionUser,
+): Promise<Set<string>> {
+  if (viewer.role === "admin") return new Set();
+  const [rounds, mine] = await Promise.all([
+    repos.reviewRounds.listByEvent(eventId),
+    repos.reviewRounds.listAssignmentsByReviewer(viewer.id),
+  ]);
+  return blindSubmissionIds(rounds, mine);
+}
+
 /** The tracks a reviewer owns *on this event*; admins get an empty list and
  * are never filtered by it. */
 export async function reviewerTrackIdsFor(
@@ -254,13 +277,14 @@ export async function loadSubmissionQueue(
     { directSessionFormIds: directFormIds },
   );
 
-  const [speakerLinks, reviews, rollups] = await Promise.all([
+  const [speakerLinks, reviews, rollups, blindIds] = await Promise.all([
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((s) => s.id)),
     repos.reviews.listBySubmissionIds(submissions.map((s) => s.id)),
     // Rounds roll up onto the record for the organizer only (D-048, D-035).
     viewer.role === "admin"
       ? loadRoundRollups(repos, event.id)
       : Promise.resolve<Record<string, SubmissionRollup>>({}),
+    blindSubmissionIdsFor(repos, event.id, viewer),
   ]);
   const people = await repos.users.listByIds([...new Set(speakerLinks.map((l) => l.userId))]);
   const peopleById = new Map(people.map((person) => [person.id, person]));
@@ -283,13 +307,18 @@ export async function loadSubmissionQueue(
 
   const rows: QueueRow[] = submissions.map((submission) => {
     const trackIds = trackIdsBySubmission[submission.id] ?? [];
+    // Dropped in the loader, like a blind round's own queue (D-049): the names
+    // aren't in the rendered output either, so blind holds for anyone reading
+    // the HTML as well as anyone reading the screen.
+    const blind = blindIds.has(submission.id);
     return {
       submission,
       trackIds,
       trackNames: trackIds
         .map((id) => trackNameById.get(id))
         .filter((name): name is string => Boolean(name)),
-      speakers: speakersBySubmission.get(submission.id) ?? [],
+      blind,
+      speakers: blind ? [] : (speakersBySubmission.get(submission.id) ?? []),
       tally: tallies[submission.id] ?? {
         total: 0,
         approve: 0,

@@ -743,6 +743,40 @@ export function speakerLine(names: string[], blind: boolean): string {
 }
 
 /**
+ * Whether this viewer holds an assignment in a blind round on the submission
+ * they are looking at — the question every *other* surface has to ask before
+ * it renders the author (D-049).
+ *
+ * Takes the viewer's own scorecards for one submission, so the caller reuses
+ * the read it already made. One blind round is enough: blindness that a second,
+ * sighted round could undo would not be blindness at all.
+ */
+export function viewerHasBlindAssignment(
+  cards: Array<{ round: Pick<ReviewRound, "blindReview"> }>,
+): boolean {
+  return cards.some((card) => hidesSpeakerIdentity(card.round));
+}
+
+/**
+ * The same question asked across a whole event: which submissions this viewer
+ * is scoring blind, keyed for a list to look up per row (D-049).
+ *
+ * Only the rounds passed in are matched, so assignments this reviewer holds on
+ * another event's rounds can never blind a row here.
+ */
+export function blindSubmissionIds(
+  rounds: Array<Pick<ReviewRound, "id" | "blindReview">>,
+  assignments: Array<Pick<RoundAssignment, "roundId" | "submissionId">>,
+): Set<string> {
+  const blindRounds = new Set(rounds.filter(hidesSpeakerIdentity).map((round) => round.id));
+  return new Set(
+    assignments
+      .filter((assignment) => blindRounds.has(assignment.roundId))
+      .map((assignment) => assignment.submissionId),
+  );
+}
+
+/**
  * Strips the author off round-queue rows before the page renders them.
  *
  * Applied in the loader rather than by hiding markup: on a blind round the
