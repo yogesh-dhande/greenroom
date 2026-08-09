@@ -63,6 +63,7 @@ stdin — nothing lands in your shell history or the repo):
 | `BETTER_AUTH_SECRET` | yes | Session/token signing key. Generate with `openssl rand -base64 32`. |
 | `BETTER_AUTH_URL` | yes | The canonical origin users visit, e.g. `https://events.example.com` — magic-link callbacks are built from it. |
 | `APP_URL` | no | Origin used in links inside outgoing email; falls back to `BETTER_AUTH_URL`. |
+| `ADMIN_EMAILS` | no | Comma-separated addresses promoted to admin whenever they sign in (D-043) — the hands-off way to get your first admin. Case-insensitive. Without it, promote by hand as in §7. |
 | `SENDGRID_API_KEY` | for real email | SendGrid API key. Without it, no email (including sign-in links) can be delivered in production. |
 | `EMAIL_FROM_ADDRESS` | for real email | Must be a [SendGrid-verified sender](https://www.twilio.com/docs/sendgrid/ui/sending-email/sender-verification). Also becomes the `ORGANIZER` on calendar invites, so deliverability and RSVP replies both depend on it. |
 | `EMAIL_FROM_NAME` | no | Display name on outgoing email. Defaults to "Greenroom". |
@@ -105,18 +106,40 @@ digest, CFP draft reminders, and the Airtable sync from `custom-worker.ts`'s
 
 ## 7. First sign-in and the first admin
 
-Visit your deployment, request a magic link, and sign in. New accounts get
-the `speaker` role, so your first account must be promoted by hand:
+New accounts get the `speaker` role, so something has to grant the first
+admin. There are two ways, and only one of them is automatic (D-043):
+
+**With `ADMIN_EMAILS` (recommended).** Set it in §4:
+
+```sh
+npx wrangler secret put ADMIN_EMAILS   # e.g. you@example.com,cofounder@example.com
+```
+
+Then visit your deployment, request a magic link, and sign in — every
+address on that list is promoted to admin as it signs in, existing accounts
+included. The check runs on every sign-in, so removing someone from the
+list doesn't demote them (do that from Team), and re-adding them restores
+admin the next time they sign in.
+
+**By hand.** If you'd rather not set the variable, sign in first and then
+promote the row:
 
 ```sh
 npx wrangler d1 execute DB --remote --command \
   "UPDATE users SET role='admin' WHERE email='you@example.com'"
 ```
 
-Sign out and back in (or just reload) and `/admin` is yours. From there you
-can create your event; further role management currently needs the same
-one-liner (`role` is `admin`, `reviewer`, or `speaker`; reviewers also need
-rows in `reviewer_tracks` — a team-management UI is planned).
+Reload and `/admin` is yours. There is deliberately no "first account to
+sign in becomes admin" fallback — on a public URL that's a race anyone can
+enter.
+
+From there, create your event and manage everyone else from **Team**
+(`/admin/<event>/team`): promote to admin or reviewer, remove access, tick
+which tracks each reviewer's queue is drawn from, and add someone by email
+whether or not they already have an account. Greenroom doesn't send
+invitation email yet — share your sign-in URL with them and they'll land
+with the role you picked. The one thing Team refuses is removing the last
+admin, so an instance can't be locked out of itself.
 
 ## Verifying it works
 

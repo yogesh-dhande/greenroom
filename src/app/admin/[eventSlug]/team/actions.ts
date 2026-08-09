@@ -1,0 +1,238 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { newUserSchema, roleSchema } from "@/db/entities";
+import { checkRoleChange, normalizeEmail, planInvite, ROLE_LABELS } from "@/domain/team";
+import { getRepos } from "@/lib/db";
+import { requireAdmin } from "@/lib/session";
+
+function fail(error: string) {
+  return { ok: false as const, error };
+}
+
+/** Every write here is organizer-only — the same guard event settings uses. */
+function teamPath(eventSlug: string) {
+  return `/admin/${eventSlug}/team`;
+}
+
+/** Name if we have one, address otherwise — for messages a human reads. */
+function labelFor(person: { name: string | null; email: string }) {
+  return person.name?.trim() || person.email;
+}
+
+// ---------------------------------------------------------------------------
+// Role changes
+// ---------------------------------------------------------------------------
+
+const changeRoleInputSchema = z.object({
+  userId: z.string().min(1),
+  role: roleSchema,
+});
+export type ChangeRoleInput = z.infer<typeof changeRoleInputSchema>;
+
+/**
+ * Promotes to admin/reviewer or demotes to speaker.
+ *
+ * The one thing this refuses is a change that would leave the instance with
+ * zero admins — including an admin demoting themselves, which would lock the
+ * whole team out of /admin with no in-app way back (see `checkRoleChange`).
+ */
+export async function changeTeamRole(eventSlug: string, input: ChangeRoleInput) {
+  await requireAdmin(teamPath(eventSlug));
+
+  const parsed = changeRoleInputSchema.safeParse(input);
+  if (!parsed.success) return fail("Invalid role change");
+
+  const repos = await getRepos();
+  const target = await repos.users.getById(parsed.data.userId);
+  if (!target) return fail("That account no longer exists");
+
+  const admins = await repos.users.listByRole("admin");
+  const check = checkRoleChange({
+    adminIds: admins.map((a) => a.id),
+    targetId: target.id,
+    targetRole: target.role,
+    nextRole: parsed.data.role,
+    targetLabel: labelFor(target),
+  });
+  if (!check.ok) return fail(check.error);
+  if (!check.changed) {
+    return { ok: true as const, data: { message: `${labelFor(target)} is already ${ROLE_LABELS[target.role].toLowerCase()}` } };
+  }
+
+  try {
+    await repos.users.update(target.id, { role: parsed.data.role });
+    // Dropping out of the reviewer role should drop the routing that came
+    // with it, or the person keeps showing up as a track's reviewer while
+    // having no access to the queue.
+    if (target.role === "reviewer" && parsed.data.role !== "reviewer") {
+      await repos.tracks.setReviewerTracks(target.id, []);
+    }
+  } catch {
+    return fail("Couldn't change that role — try again");
+  }
+
+  revalidatePath(teamPath(eventSlug));
+  return {
+    ok: true as const,
+    data: {
+      message:
+        parsed.data.role === "speaker"
+          ? `${labelFor(target)} was removed from the team`
+          : `${labelFor(target)} is now ${ROLE_LABELS[parsed.data.role].toLowerCase() === "admin" ? "an admin" : "a reviewer"}`,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reviewer track assignment
+// ---------------------------------------------------------------------------
+
+const reviewerTracksInputSchema = z.object({
+  userId: z.string().min(1),
+  trackIds: z.array(z.string().min(1)),
+});
+export type ReviewerTracksInput = z.infer<typeof reviewerTracksInputSchema>;
+
+/**
+ * Replaces a reviewer's tracks *for this event only* — `reviewer_tracks` is
+ * not event-scoped, so a blanket replace would quietly unassign them from
+ * every other event on the instance.
+ *
+ * An empty selection is allowed on purpose (a reviewer parked between rounds
+ * is a real state); the UI says out loud that their queue will be empty.
+ */
+export async function setReviewerTracks(eventSlug: string, input: ReviewerTracksInput) {
+  await requireAdmin(teamPath(eventSlug));
+
+  const parsed = reviewerTracksInputSchema.safeParse(input);
+  if (!parsed.success) return fail("Invalid track selection");
+
+  const repos = await getRepos();
+  const event = await repos.events.getBySlug(eventSlug);
+  if (!event) return fail("Event not found");
+
+  const target = await repos.users.getById(parsed.data.userId);
+  if (!target) return fail("That account no longer exists");
+  if (target.role !== "reviewer") return fail("Only reviewers can be assigned tracks");
+
+  try {
+    await repos.tracks.setReviewerTracksForEvent(target.id, event.id, parsed.data.trackIds);
+  } catch {
+    return fail("Couldn't save those tracks — try again");
+  }
+
+  revalidatePath(teamPath(eventSlug));
+  return {
+    ok: true as const,
+    data: { count: parsed.data.trackIds.length },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Invite by email
+// ---------------------------------------------------------------------------
+
+const inviteInputSchema = z.object({
+  email: z.email("Enter a valid email address"),
+  role: z.enum(["admin", "reviewer"]),
+});
+export type InviteInput = z.infer<typeof inviteInputSchema>;
+
+/**
+ * Adds someone to the team by address.
+ *
+ * If the address already has an account it's simply given the role; if it
+ * doesn't, we write the `users` row now, with the role already set. That row
+ * is not a placeholder better-auth has to reconcile later: its magic-link
+ * verify handler looks the address up with `findUserByEmail` and only calls
+ * `createUser` when it finds nothing, so a pre-created row is adopted as-is on
+ * first sign-in (it flips `emailVerified` and never touches `role`). That's
+ * why there is no `invites` table and no migration for this wave.
+ *
+ * No invitation email is sent (W12 scope) — the admin passes on the sign-in
+ * URL themselves, which the form says.
+ */
+export async function inviteTeammate(eventSlug: string, input: InviteInput) {
+  await requireAdmin(teamPath(eventSlug));
+
+  const parsed = inviteInputSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid invite");
+
+  const email = normalizeEmail(parsed.data.email);
+  const repos = await getRepos();
+  const existing = await repos.users.getByEmail(email);
+  const plan = planInvite({
+    email,
+    role: parsed.data.role,
+    existing: existing ? { id: existing.id, role: existing.role } : null,
+  });
+
+  if (plan.action === "none" && existing) {
+    return fail(`${labelFor(existing)} is already ${ROLE_LABELS[plan.role].toLowerCase() === "admin" ? "an admin" : "a reviewer"}`);
+  }
+
+  if (plan.action === "change_role" && existing) {
+    const admins = await repos.users.listByRole("admin");
+    const check = checkRoleChange({
+      adminIds: admins.map((a) => a.id),
+      targetId: existing.id,
+      targetRole: existing.role,
+      nextRole: plan.role,
+      targetLabel: labelFor(existing),
+    });
+    if (!check.ok) return fail(check.error);
+
+    try {
+      await repos.users.update(existing.id, { role: plan.role });
+    } catch {
+      return fail("Couldn't update that account — try again");
+    }
+    revalidatePath(teamPath(eventSlug));
+    return {
+      ok: true as const,
+      data: {
+        created: false,
+        email,
+        message: `${labelFor(existing)} already had an account — they're now ${plan.role === "admin" ? "an admin" : "a reviewer"}`,
+      },
+    };
+  }
+
+  // No account yet: write the row the magic link will land on.
+  const candidate = newUserSchema.safeParse({
+    email,
+    // Left unverified: the first magic link they click is what proves the
+    // address, exactly as it would for a brand-new signup.
+    emailVerified: false,
+    name: null,
+    role: plan.role,
+    title: null,
+    company: null,
+    bio: null,
+    headshotUrl: null,
+    websiteUrl: null,
+    linkedinUrl: null,
+    twitterUrl: null,
+    socials: null,
+    image: null,
+  });
+  if (!candidate.success) return fail("Enter a valid email address");
+
+  try {
+    await repos.users.create(candidate.data);
+  } catch {
+    return fail("Couldn't add that person — try again");
+  }
+
+  revalidatePath(teamPath(eventSlug));
+  return {
+    ok: true as const,
+    data: {
+      created: true,
+      email,
+      message: `${email} can now sign in as ${plan.role === "admin" ? "an admin" : "a reviewer"}`,
+    },
+  };
+}

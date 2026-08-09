@@ -18,4 +18,11 @@ export interface TracksRepo {
   unassignReviewer(userId: string, trackId: string): Promise<void>;
   /** Replaces a reviewer's whole track assignment set in one call. */
   setReviewerTracks(userId: string, trackIds: string[]): Promise<void>;
+  /**
+   * Replaces a reviewer's assignments *within one event*, leaving their tracks
+   * on every other event untouched — `reviewer_tracks` has no event column, so
+   * an admin editing one event's team must not silently unassign someone from
+   * another event. Track ids that don't belong to `eventId` are ignored.
+   */
+  setReviewerTracksForEvent(userId: string, eventId: string, trackIds: string[]): Promise<void>;
 }

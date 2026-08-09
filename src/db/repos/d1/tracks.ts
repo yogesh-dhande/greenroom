@@ -74,5 +74,31 @@ export function createTracksRepo(db: DrizzleD1): TracksRepo {
         .values(trackIds.map((trackId) => ({ userId, trackId })))
         .onConflictDoNothing();
     },
+    async setReviewerTracksForEvent(userId, eventId, trackIds) {
+      const eventTracks = await db.query.tracks.findMany({
+        where: eq(tracks.eventId, eventId),
+        columns: { id: true },
+      });
+      const eventTrackIds = eventTracks.map((t) => t.id);
+      if (eventTrackIds.length === 0) return;
+
+      await db
+        .delete(reviewerTracks)
+        .where(
+          and(
+            eq(reviewerTracks.userId, userId),
+            inArray(reviewerTracks.trackId, eventTrackIds),
+          ),
+        );
+
+      // Anything outside this event is dropped rather than trusted: the ids
+      // arrive from a form post.
+      const allowed = trackIds.filter((trackId) => eventTrackIds.includes(trackId));
+      if (allowed.length === 0) return;
+      await db
+        .insert(reviewerTracks)
+        .values(allowed.map((trackId) => ({ userId, trackId })))
+        .onConflictDoNothing();
+    },
   };
 }

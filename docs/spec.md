@@ -16,6 +16,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 1. Event configuration
 - Create an event with basic identity, dates, tracks, and rooms — only what the submission, onboarding, and scheduling workflows need. Multi-event capable.
+- **Team management** from the admin UI: an admin promotes accounts to admin or reviewer, removes access, assigns each reviewer their tracks for the event, and adds someone by email (an address with no account yet is pre-created, so their first magic link lands with the intended role — no invitation email is sent; the admin shares the sign-in URL). Removing the last admin is refused. The first admin on a fresh deployment comes from the `ADMIN_EMAILS` env var (D-043).
 
 ### 2. Call-for-speakers forms
 - Multiple configurable public submission forms per event: welcome/explanatory copy, abstract fields (title, description, custom fields), one-or-more track selection, speaker **and co-speaker** info (multi-speaker supported, never required), bio/headshot/supporting-file fields, required-field validation.

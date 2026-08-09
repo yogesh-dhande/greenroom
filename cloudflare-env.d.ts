@@ -11,6 +11,14 @@ interface CloudflareEnv {
   /** Origin used for portal/event links inside outgoing email; falls back to
    * BETTER_AUTH_URL. */
   APP_URL?: string;
+  /**
+   * Comma-separated list of email addresses promoted to admin when they sign
+   * in (decisions.md D-043, src/domain/team.ts). Case-insensitive and
+   * whitespace tolerant. Optional, and the only automatic route to admin:
+   * leave it unset and the first admin is promoted by hand instead
+   * (docs/deploying.md §7).
+   */
+  ADMIN_EMAILS?: string;
   SENDGRID_API_KEY?: string;
   /** From identity on every outgoing email (src/lib/email.ts). The address
    * also becomes the calendar invite's ORGANIZER, so it must be a real,

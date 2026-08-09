@@ -62,7 +62,7 @@ export default async function EventAdminLayout({
             </p>
             <p className="text-xs text-muted-foreground">{formatDateRange(event.startDate, event.endDate)}</p>
           </div>
-          <AdminNav eventSlug={eventSlug} />
+          <AdminNav eventSlug={eventSlug} role={user.role} />
         </aside>
         <main className="min-w-0 flex-1 overflow-y-auto px-6 py-6">{children}</main>
       </div>

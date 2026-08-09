@@ -6,10 +6,7 @@ Workflow: when a question is answered, record the answer as a first-class entry 
 
 ---
 
-**Q9 — How does the first admin get admin access on a fresh instance? (owner, asked 2026-08-09)**
-The owner raised this while scoping the W12 team-management page. Today the bootstrap is accidental: the local seed creates an admin, and the deployed instance's admins were written into D1 by hand — a fresh self-hosted deployment has no path to its first admin at all. It matters because Greenroom is an open-source product others will deploy, and the team page is useless until someone can reach it. **Working assumption (recommended to owner, not yet confirmed):** an `ADMIN_EMAILS` env var/secret promotes matching accounts on sign-in; if it's unset and no admin exists yet, the first account to sign in becomes admin, and that rule switches off permanently once any admin exists.
-
-*(Q4, Q6 and Q8 were closed 2026-08-09 by the owner's directive to match Sessionboard's documented behavior; see decisions.md D-039, D-040, D-041.)*
+*(No open questions right now. Q4, Q6 and Q8 were closed 2026-08-09 by the owner's directive to match Sessionboard's documented behavior — see decisions.md D-039, D-040, D-041; Q9 was answered by the owner 2026-08-09 — see D-043.)*
 
 ## Product defaults we chose without explicit guidance
 

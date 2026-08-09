@@ -5,6 +5,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import * as schema from "@/db/schema";
 import { createDb } from "@/db/repos/d1/client";
 import { createD1Repos } from "@/db/repos/d1";
+import { decideAdminBootstrap, parseAdminEmails } from "@/domain/team";
 import { createLoggingEmailSender, getEmailSender } from "@/lib/email";
 
 /**
@@ -21,10 +22,15 @@ import { createLoggingEmailSender, getEmailSender } from "@/lib/email";
 export async function getAuth() {
   const { env } = await getCloudflareContext({ async: true });
   const db = createDb(env.DB);
+  // Reads/writes this file does on its own behalf still go through the
+  // storage-agnostic repo layer; the raw Drizzle client above exists only
+  // because better-auth's adapter demands one.
+  const repos = createD1Repos(env.DB);
   // Sign-in links are part of a speaker's communication history (spec.md §7),
   // so they go through the same email_log-writing wrapper as everything else.
-  const sender = createLoggingEmailSender(getEmailSender(env), createD1Repos(env.DB).emailLog);
+  const sender = createLoggingEmailSender(getEmailSender(env), repos.emailLog);
   const isDev = process.env.NODE_ENV !== "production";
+  const adminEmails = parseAdminEmails(env.ADMIN_EMAILS);
 
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
@@ -51,6 +57,48 @@ export async function getAuth() {
     account: { modelName: "authAccounts" },
     verification: { modelName: "authVerifications" },
     emailAndPassword: { enabled: false },
+    databaseHooks: {
+      session: {
+        create: {
+          /**
+           * First-admin bootstrap (decisions.md D-043).
+           *
+           * `ADMIN_EMAILS` (comma-separated, case-insensitive) is the only
+           * automatic route to admin: every address on it is promoted as it
+           * signs in. There is no "first account wins" fallback — an instance
+           * deployed without the variable is promoted by hand instead
+           * (docs/deploying.md §7). Decision logic itself is the pure
+           * `decideAdminBootstrap` in src/domain/team.ts.
+           *
+           * Hooked here — just before the session row is written — rather than
+           * on user creation, so it also catches an account that already
+           * existed as a speaker before the operator set the variable, and so
+           * the new role is already committed when /dashboard reads it to
+           * route the person home.
+           *
+           * Never throws: a bootstrap that can't run is a missing promotion,
+           * not a failed sign-in, and locking everyone out is the worse of the
+           * two failures.
+           */
+          async before(session) {
+            // Nothing to promote to when the operator named nobody.
+            if (adminEmails.length === 0) return;
+            try {
+              const user = await repos.users.getById(session.userId);
+              if (!user) return;
+              const decision = decideAdminBootstrap({
+                email: user.email,
+                role: user.role,
+                adminEmails,
+              });
+              if (decision.promote) await repos.users.update(user.id, { role: "admin" });
+            } catch (error) {
+              console.error("admin bootstrap check failed", error);
+            }
+          },
+        },
+      },
+    },
     plugins: [
       magicLink({
         sendMagicLink: async ({ email, url }) => {
