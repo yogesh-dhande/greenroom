@@ -105,6 +105,18 @@ const TRACK_SEEDS: Array<Pick<NewTrack, "name" | "color">> = [
   { name: "Evals & Reliability", color: "#b45309" },
 ];
 
+// The five abstract avatar SVGs committed under public/demo-headshots/
+// (D-046) — reused for both speaker headshotUrls and the completed
+// "upload your headshot" task attachments below, since files.greenroom.dev
+// is NXDOMAIN and every URL there rendered nothing.
+const DEMO_HEADSHOT_FILES = [
+  "/demo-headshots/priya.svg",
+  "/demo-headshots/aisha.svg",
+  "/demo-headshots/hannah.svg",
+  "/demo-headshots/sofia.svg",
+  "/demo-headshots/ngozi.svg",
+];
+
 const ROOM_SEEDS: Array<Pick<NewRoom, "name" | "capacity">> = [
   { name: "Main Stage", capacity: 1200 },
   { name: "Workshop A", capacity: 120 },
@@ -126,7 +138,7 @@ const SPEAKER_SEEDS: Array<{
     title: "Staff ML Engineer",
     company: "Northwind Labs",
     bio: "Builds retrieval systems that survive contact with real users. Previously search infra at a large marketplace.",
-    headshotUrl: "https://files.greenroom.dev/demo/priya.jpg",
+    headshotUrl: "/demo-headshots/priya.svg",
   },
   {
     email: "tom.beckett@example.com",
@@ -142,7 +154,7 @@ const SPEAKER_SEEDS: Array<{
     title: "Head of AI Platform",
     company: "Meridian Health",
     bio: "Runs the platform team behind a clinical documentation assistant used in 40 hospitals.",
-    headshotUrl: "https://files.greenroom.dev/demo/aisha.jpg",
+    headshotUrl: "/demo-headshots/aisha.svg",
   },
   {
     email: "l.fernandez@example.com",
@@ -158,7 +170,7 @@ const SPEAKER_SEEDS: Array<{
     title: "Research Engineer",
     company: "Blue Harbor AI",
     bio: "Works on evaluation harnesses and the unglamorous business of measuring regressions.",
-    headshotUrl: "https://files.greenroom.dev/demo/hannah.jpg",
+    headshotUrl: "/demo-headshots/hannah.svg",
   },
   {
     email: "d.oyelaran@example.com",
@@ -174,7 +186,7 @@ const SPEAKER_SEEDS: Array<{
     title: "CTO",
     company: "Pomodoro Robotics",
     bio: "Ships embodied agents that have to be right the first time.",
-    headshotUrl: "https://files.greenroom.dev/demo/sofia.jpg",
+    headshotUrl: "/demo-headshots/sofia.svg",
   },
   {
     email: "jw.park@example.com",
@@ -193,7 +205,7 @@ const SPEAKER_SEEDS: Array<{
     title: "VP of Engineering",
     company: "Fathom Systems",
     bio: "Invited keynote: fifteen years of putting models in front of people who never asked for them.",
-    headshotUrl: "https://files.greenroom.dev/demo/ngozi.jpg",
+    headshotUrl: "/demo-headshots/ngozi.svg",
   },
 ];
 
@@ -251,6 +263,16 @@ function cfpFields(trackNames: string[]): FormField[] {
       type: "file",
       label: "Headshot",
       helpText: "Square, at least 800×800. You can add this later if needed.",
+    },
+    {
+      // Reserved co-speakers repeater (src/domain/forms.ts DEFAULT_CFP_FIELDS)
+      // — every new form gets it by default, so the demo CFP shouldn't be the
+      // one form that's missing it (D-046). Never required: `required` is
+      // stripped from this field type unconditionally (D-038(5)).
+      id: "co_speakers",
+      type: "co_speakers",
+      label: "Co-speakers",
+      helpText: "Anyone presenting with you. Leave empty if you're speaking alone.",
     },
     {
       id: "prior_talk_url",
@@ -482,11 +504,38 @@ const SUBMISSION_SEEDS: SubmissionSeed[] = [
   },
 ];
 
-/** Day/room/time for the three sessions that are placed on the agenda. */
+/**
+ * Day/room/time for six of the seven approved sessions (D-046: most seeded
+ * sessions belong on the agenda, or the public speakers page — which shows
+ * all seven speaker cards — looks inconsistent with a near-empty schedule
+ * feed). Indexed 1:1 against the "approved" SUBMISSION_SEEDS entries below,
+ * in order. The seventh session (the invited keynote, D-041) is deliberately
+ * never placed — see `invitedSession` further down — so the agenda still
+ * demos the parking-lot / "time to be announced" state for exactly one talk.
+ *
+ * Checked against src/domain/scheduling.ts detectConflicts: every entry uses
+ * a distinct room whenever its time overlaps another entry on the same day,
+ * every submission's speaker(s) appear in exactly one placement, and same-
+ * track entries (session.trackId is only the *first* selected track) never
+ * overlap in time — so this produces zero speaker/room/track conflicts.
+ */
 const SCHEDULE: Array<{ day: string; startTime: string; endTime: string; room: number }> = [
+  // "Retrieval that survives production traffic" (Priya, 45m, AI Engineering) — Main Stage
   { day: EVENT_DAY_1, startTime: "10:00", endTime: "10:45", room: 0 },
+  // "Cutting inference spend by 80%..." (Tom, 30m, AI Engineering) — Community Hall
   { day: EVENT_DAY_1, startTime: "11:00", endTime: "11:30", room: 3 },
+  // "Shipping an agent into a hospital" (Aisha + Luis, 45m, Agents & Tool Use) — Main Stage
   { day: EVENT_DAY_2, startTime: "14:00", endTime: "14:45", room: 0 },
+  // "Evals you'll actually keep running" (Hannah, 45m, Evals & Reliability) — Main Stage,
+  // after the 10:00 slot clears; different track/speaker from the 11:00 Community Hall talk.
+  { day: EVENT_DAY_1, startTime: "11:00", endTime: "11:45", room: 0 },
+  // "Tool schemas are your real prompt" (Damola, 30m, Agents & Tool Use) — Workshop A,
+  // after the same-track hospital talk ends, so no track_overlap.
+  { day: EVENT_DAY_2, startTime: "15:00", endTime: "15:30", room: 1 },
+  // "Hands-on: building a recovery loop for flaky agents" (Sofia, 90m workshop,
+  // Agents & Tool Use) — Workshop A, its own day, room capacity (120) covers
+  // the "classroom for 60" requirement in the submission.
+  { day: EVENT_DAY_3, startTime: "10:00", endTime: "11:30", room: 1 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1126,9 +1175,12 @@ async function seed(repos: Repos): Promise<void> {
                 }
               : null
           : null,
+        // Locally-served asset (D-046) rather than files.greenroom.dev (NXDOMAIN)
+        // — same fix as the speaker headshotUrls above, so a completed
+        // "upload your headshot" task links to a file that actually resolves.
         fileUrl:
           completed && task.type === "file_request"
-            ? `https://files.greenroom.dev/demo/headshot-${speakerPos + 1}.jpg`
+            ? rotate(DEMO_HEADSHOT_FILES, speakerPos)
             : null,
       };
       await repos.taskAssignments.create(assignment);

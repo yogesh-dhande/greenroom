@@ -1,6 +1,9 @@
 "use client";
 
-import type { ScheduleSessionView } from "@/domain/program";
+import {
+  speakerAffiliationLabel,
+  type ScheduleSessionView,
+} from "@/domain/program";
 import { formatEventDay, formatEventTimeRange } from "@/lib/event-time";
 import {
   Dialog,
@@ -15,10 +18,18 @@ import { Button } from "@/components/ui/button";
 import { StarToggle } from "./star-toggle";
 
 /** One label/value row of the session's particulars. */
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+function DetailRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
-      <dt className="shrink-0 text-sm text-muted-foreground sm:w-24">{label}</dt>
+      <dt className="shrink-0 text-sm text-muted-foreground sm:w-24">
+        {label}
+      </dt>
       <dd className="text-sm font-medium text-foreground">{children}</dd>
     </div>
   );
@@ -52,8 +63,8 @@ export function SessionDialog({
             <DialogHeader>
               <DialogTitle>{session.title}</DialogTitle>
               <DialogDescription>
-                {session.speakerNames.length > 0
-                  ? session.speakerNames.join(", ")
+                {session.speakers.length > 0
+                  ? session.speakers.map(speakerAffiliationLabel).join(", ")
                   : "Speakers to be announced."}
               </DialogDescription>
             </DialogHeader>
@@ -62,10 +73,19 @@ export function SessionDialog({
               <DetailRow label="When">
                 {formatEventDay(session.day, timezone)}
                 {", "}
-                {formatEventTimeRange(session.day, session.startTime, session.endTime, timezone)}
+                {formatEventTimeRange(
+                  session.day,
+                  session.startTime,
+                  session.endTime,
+                  timezone,
+                )}
               </DetailRow>
-              <DetailRow label="Room">{session.roomName ?? "To be announced"}</DetailRow>
-              <DetailRow label="Track">{session.trackName ?? "General"}</DetailRow>
+              <DetailRow label="Room">
+                {session.roomName ?? "To be announced"}
+              </DetailRow>
+              <DetailRow label="Track">
+                {session.trackName ?? "General"}
+              </DetailRow>
               <DetailRow label="Format">{session.formatLabel}</DetailRow>
             </dl>
 

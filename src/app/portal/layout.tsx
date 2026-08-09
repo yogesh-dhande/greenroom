@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { SignOutButton } from "@/components/sign-out-button";
+import { Button } from "@/components/ui/button";
 
 /** Speaker portal chrome: a simple top bar, no left nav (spec.md §6 — a
  * speaker's whole world is submissions/sessions/tasks/profile, which fit on
- * one page each without a nav rail). */
+ * one page each without a nav rail). The one thing that *does* need a
+ * standing link is the profile editor: it's reachable from nowhere else once
+ * a speaker leaves the portal home, and spec.md §6 requires it stay reachable
+ * from navigation rather than by URL alone. */
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser("/portal");
 
@@ -22,6 +26,9 @@ export default async function PortalLayout({ children }: { children: React.React
           <span className="text-sm text-muted-foreground">Speaker portal</span>
         </div>
         <div className="flex items-center gap-3">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/portal/profile">Your profile</Link>
+          </Button>
           <span className="text-xs text-muted-foreground">{user.email}</span>
           <SignOutButton />
         </div>

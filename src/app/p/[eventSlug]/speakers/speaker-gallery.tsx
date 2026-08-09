@@ -34,8 +34,12 @@ export function SpeakerGallery({
   const [query, setQuery] = useState("");
   const [openSpeakerId, setOpenSpeakerId] = useState<string | null>(null);
 
-  const shown = useMemo(() => filterSpeakers(speakers, query), [speakers, query]);
-  const openSpeaker = speakers.find((speaker) => speaker.id === openSpeakerId) ?? null;
+  const shown = useMemo(
+    () => filterSpeakers(speakers, query),
+    [speakers, query],
+  );
+  const openSpeaker =
+    speakers.find((speaker) => speaker.id === openSpeakerId) ?? null;
 
   if (speakers.length === 0) {
     return (
@@ -106,11 +110,20 @@ export function SpeakerGallery({
  * anywhere opens the profile while the accessible name stays the speaker's —
  * the profile links sit above the overlay and keep working as links.
  */
-function SpeakerCard({ speaker, onOpen }: { speaker: GallerySpeaker; onOpen: () => void }) {
+function SpeakerCard({
+  speaker,
+  onOpen,
+}: {
+  speaker: GallerySpeaker;
+  onOpen: () => void;
+}) {
   return (
     <article className="relative flex flex-col gap-3 rounded-xl bg-card p-5 text-card-foreground ring-1 ring-foreground/10 transition-shadow focus-within:ring-2 focus-within:ring-ring hover:ring-foreground/20">
       <div className="flex items-center gap-3">
-        <SpeakerHeadshot name={speaker.name} headshotUrl={speaker.headshotUrl} />
+        <SpeakerHeadshot
+          name={speaker.name}
+          headshotUrl={speaker.headshotUrl}
+        />
         <div className="min-w-0">
           <h3 className="truncate font-heading text-base font-semibold text-foreground">
             <button
@@ -132,7 +145,9 @@ function SpeakerCard({ speaker, onOpen }: { speaker: GallerySpeaker; onOpen: () 
       </div>
 
       {speaker.bio && (
-        <p className="line-clamp-4 text-sm leading-6 text-muted-foreground">{speaker.bio}</p>
+        <p className="line-clamp-4 text-sm leading-6 text-muted-foreground">
+          {speaker.bio}
+        </p>
       )}
 
       <div className="mt-auto flex flex-col gap-3">
@@ -144,12 +159,24 @@ function SpeakerCard({ speaker, onOpen }: { speaker: GallerySpeaker; onOpen: () 
                 className="text-sm font-medium text-foreground before:mr-1.5 before:text-primary before:content-['—']"
               >
                 {talk.title}
+                {/* Mirrors the speaker detail modal's "Time to be announced"
+                    (speaker-dialog.tsx) so the grid never disagrees with the
+                    schedule about a talk that isn't placed yet. */}
+                {!(talk.day && talk.startTime && talk.endTime) && (
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    · time to be announced
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         )}
 
-        <SpeakerProfileLinks speaker={speaker} className="border-t border-border pt-3" />
+        <SpeakerProfileLinks
+          speaker={speaker}
+          className="border-t border-border pt-3"
+        />
       </div>
     </article>
   );

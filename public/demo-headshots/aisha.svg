@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Abstract portrait avatar, violet">
+<defs>
+<linearGradient id="bg" x1="0" y1="1" x2="1" y2="0">
+<stop offset="0%" stop-color="#4c1d95"/>
+<stop offset="100%" stop-color="#8b5cf6"/>
+</linearGradient>
+</defs>
+<rect width="200" height="200" fill="url(#bg)"/>
+<circle cx="100" cy="120" r="72" fill="#2e1065" opacity="0.35"/>
+<path d="M36 200 C36 146 164 146 164 200 Z" fill="#f5f3ff"/>
+<circle cx="100" cy="80" r="40" fill="#f5f3ff"/>
+<rect x="14" y="130" width="34" height="34" fill="#c4b5fd" opacity="0.8" transform="rotate(45 31 147)"/>
+</svg>

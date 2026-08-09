@@ -30,16 +30,18 @@ export function isPubliclyVisible(session: Pick<Session, "status">): boolean {
  * speaker lineup before the full timetable is locked in, so a session
  * waiting in the agenda's parking lot still counts as an "accepted" talk.
  */
-export function gallerySessions<T extends Pick<Session, "status">>(sessions: T[]): T[] {
+export function gallerySessions<T extends Pick<Session, "status">>(
+  sessions: T[],
+): T[] {
   return sessions.filter(isPubliclyVisible);
 }
 
 /** A session ready to print on the public schedule: confirmed, and placed
  * on the agenda (day + both times set). Mirrors entities.ts `isScheduled`,
  * generic so callers can pass the richer SessionWithSpeakers shape. */
-function isPlacedOnAgenda<T extends Pick<Session, "day" | "startTime" | "endTime">>(
-  session: T,
-): boolean {
+function isPlacedOnAgenda<
+  T extends Pick<Session, "day" | "startTime" | "endTime">,
+>(session: T): boolean {
   return Boolean(session.day && session.startTime && session.endTime);
 }
 
@@ -129,8 +131,14 @@ export function buildGallery(
         day: session.day,
         startTime: session.startTime,
         endTime: session.endTime,
-        roomName: (session.roomId ? lookups.roomById?.get(session.roomId)?.name : null) ?? null,
-        trackName: (session.trackId ? lookups.trackById?.get(session.trackId)?.name : null) ?? null,
+        roomName:
+          (session.roomId
+            ? lookups.roomById?.get(session.roomId)?.name
+            : null) ?? null,
+        trackName:
+          (session.trackId
+            ? lookups.trackById?.get(session.trackId)?.name
+            : null) ?? null,
       };
       const existing = bySpeaker.get(speakerId);
       if (existing) {
@@ -162,6 +170,27 @@ export function buildGallery(
 // Schedule: sessions -> days -> time slots
 // ---------------------------------------------------------------------------
 
+/** A session speaker as the schedule needs to render them: name plus the
+ * affiliation (spec.md "Public program depth") already available on
+ * `ProgramPerson` but, until now, dropped by `buildSchedule`. */
+export interface ScheduleSessionSpeaker {
+  name: string;
+  title: string | null;
+  company: string | null;
+}
+
+/** "Name — Title, Company", the label session surfaces (cards, detail modal)
+ * render per speaker. Falls back to a bare name when a speaker filled in
+ * neither field, rather than a trailing "—" or empty affiliation. */
+export function speakerAffiliationLabel(
+  speaker: ScheduleSessionSpeaker,
+): string {
+  const affiliation = [speaker.title, speaker.company]
+    .filter(Boolean)
+    .join(", ");
+  return affiliation ? `${speaker.name} — ${affiliation}` : speaker.name;
+}
+
 export interface ScheduleSessionView {
   id: string;
   title: string;
@@ -177,7 +206,7 @@ export interface ScheduleSessionView {
   roomName: string | null;
   /** Derived from the duration — see `sessionFormatLabel`. */
   formatLabel: string;
-  speakerNames: string[];
+  speakers: ScheduleSessionSpeaker[];
 }
 
 /** Sessions sharing one exact day + time range — a conference's "10:00 AM"
@@ -196,8 +225,9 @@ export interface ScheduleDay {
 export interface ScheduleLookups {
   trackById: Map<string, { name: string; color: string | null }>;
   roomById: Map<string, { name: string }>;
-  /** Display name per speaker id (already resolved to "name or email"). */
-  speakerNameById: Map<string, string>;
+  /** Name (already resolved to "name or email") plus title/company per
+   * speaker id — the affiliation session surfaces render alongside the name. */
+  speakerById: Map<string, ScheduleSessionSpeaker>;
 }
 
 /**
@@ -217,8 +247,12 @@ export function buildSchedule(
 
   const byDay = new Map<string, ScheduleSessionView[]>();
   for (const session of eligible) {
-    const track = session.trackId ? lookups.trackById.get(session.trackId) : undefined;
-    const room = session.roomId ? lookups.roomById.get(session.roomId) : undefined;
+    const track = session.trackId
+      ? lookups.trackById.get(session.trackId)
+      : undefined;
+    const room = session.roomId
+      ? lookups.roomById.get(session.roomId)
+      : undefined;
     const view: ScheduleSessionView = {
       id: session.id,
       title: session.title,
@@ -230,9 +264,11 @@ export function buildSchedule(
       trackColor: track?.color ?? null,
       roomName: room?.name ?? null,
       formatLabel: sessionFormatLabel(session.startTime, session.endTime),
-      speakerNames: session.speakerIds
-        .map((id) => lookups.speakerNameById.get(id))
-        .filter((name): name is string => Boolean(name)),
+      speakers: session.speakerIds
+        .map((id) => lookups.speakerById.get(id))
+        .filter((speaker): speaker is ScheduleSessionSpeaker =>
+          Boolean(speaker),
+        ),
     };
     const list = byDay.get(session.day) ?? [];
     list.push(view);
@@ -257,7 +293,11 @@ export function buildSchedule(
       ) {
         currentSlot.sessions.push(item);
       } else {
-        slots.push({ startTime: item.startTime, endTime: item.endTime, sessions: [item] });
+        slots.push({
+          startTime: item.startTime,
+          endTime: item.endTime,
+          sessions: [item],
+        });
       }
     }
     return { day, slots };
@@ -288,7 +328,18 @@ export function foldText(value: string): string {
 }
 
 /** Name particles and honorific suffixes that are not the sortable surname. */
-const NAME_SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "phd", "md", "mba"]);
+const NAME_SUFFIXES = new Set([
+  "jr",
+  "jr.",
+  "sr",
+  "sr.",
+  "ii",
+  "iii",
+  "iv",
+  "phd",
+  "md",
+  "mba",
+]);
 
 /**
  * The token a directory sorts on: the last name part, ignoring a trailing
@@ -299,16 +350,24 @@ const NAME_SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "phd
  */
 export function surnameKey(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
-  while (parts.length > 1 && NAME_SUFFIXES.has(foldText(parts[parts.length - 1]))) {
+  while (
+    parts.length > 1 &&
+    NAME_SUFFIXES.has(foldText(parts[parts.length - 1]))
+  ) {
     parts.pop();
   }
   return foldText(parts[parts.length - 1] ?? name);
 }
 
 /** Alphabetical by surname, then by full name so co-surnames are stable. */
-export function compareBySurname(a: { name: string }, b: { name: string }): number {
+export function compareBySurname(
+  a: { name: string },
+  b: { name: string },
+): number {
   const bySurname = surnameKey(a.name).localeCompare(surnameKey(b.name));
-  return bySurname !== 0 ? bySurname : foldText(a.name).localeCompare(foldText(b.name));
+  return bySurname !== 0
+    ? bySurname
+    : foldText(a.name).localeCompare(foldText(b.name));
 }
 
 /**
@@ -341,13 +400,21 @@ export interface ScheduleFilters {
  * talk without the words having to be adjacent.
  */
 export function sessionMatchesQuery(
-  session: Pick<ScheduleSessionView, "title" | "speakerNames" | "trackName" | "roomName">,
+  session: Pick<
+    ScheduleSessionView,
+    "title" | "speakers" | "trackName" | "roomName"
+  >,
   query: string,
 ): boolean {
   const terms = foldText(query).split(/\s+/).filter(Boolean);
   if (terms.length === 0) return true;
   const haystack = foldText(
-    [session.title, ...session.speakerNames, session.trackName, session.roomName]
+    [
+      session.title,
+      ...session.speakers.map((speaker) => speaker.name),
+      session.trackName,
+      session.roomName,
+    ]
       .filter(Boolean)
       .join(" "),
   );
@@ -374,14 +441,19 @@ export function sessionMatchesFilters(
  * days that end up empty — a day tab with nothing behind it is worse than no
  * tab at all.
  */
-export function filterScheduleDays(days: ScheduleDay[], filters: ScheduleFilters): ScheduleDay[] {
+export function filterScheduleDays(
+  days: ScheduleDay[],
+  filters: ScheduleFilters,
+): ScheduleDay[] {
   return days
     .map((day) => ({
       day: day.day,
       slots: day.slots
         .map((slot) => ({
           ...slot,
-          sessions: slot.sessions.filter((session) => sessionMatchesFilters(session, filters)),
+          sessions: slot.sessions.filter((session) =>
+            sessionMatchesFilters(session, filters),
+          ),
         }))
         .filter((slot) => slot.sessions.length > 0),
     }))
@@ -406,7 +478,9 @@ export interface ScheduleFacetOptions {
 
 /** The distinct facet values actually present on the schedule, so the filter
  * dropdowns never offer a choice that matches nothing. */
-export function scheduleFacetOptions(days: ScheduleDay[]): ScheduleFacetOptions {
+export function scheduleFacetOptions(
+  days: ScheduleDay[],
+): ScheduleFacetOptions {
   const tracks = new Set<string>();
   const rooms = new Set<string>();
   const formats = new Set<string>();
@@ -415,7 +489,8 @@ export function scheduleFacetOptions(days: ScheduleDay[]): ScheduleFacetOptions 
     if (session.roomName) rooms.add(session.roomName);
     formats.add(session.formatLabel);
   }
-  const alphabetical = (values: Set<string>) => [...values].sort((a, b) => a.localeCompare(b));
+  const alphabetical = (values: Set<string>) =>
+    [...values].sort((a, b) => a.localeCompare(b));
   return {
     tracks: alphabetical(tracks),
     rooms: alphabetical(rooms),
@@ -450,7 +525,10 @@ export function itinerarySessions(
 }
 
 /** Toggling a star, as a pure operation on the stored id list. */
-export function toggleStarred(starredIds: readonly string[], sessionId: string): string[] {
+export function toggleStarred(
+  starredIds: readonly string[],
+  sessionId: string,
+): string[] {
   return starredIds.includes(sessionId)
     ? starredIds.filter((id) => id !== sessionId)
     : [...starredIds, sessionId];
@@ -484,12 +562,17 @@ export function speakerMatchesQuery(
 ): boolean {
   const terms = foldText(query).split(/\s+/).filter(Boolean);
   if (terms.length === 0) return true;
-  const haystack = foldText([speaker.name, speaker.title, speaker.company].filter(Boolean).join(" "));
+  const haystack = foldText(
+    [speaker.name, speaker.title, speaker.company].filter(Boolean).join(" "),
+  );
   return terms.every((term) => haystack.includes(term));
 }
 
 /** Narrows the gallery, preserving its surname ordering. */
-export function filterSpeakers(speakers: GallerySpeaker[], query: string): GallerySpeaker[] {
+export function filterSpeakers(
+  speakers: GallerySpeaker[],
+  query: string,
+): GallerySpeaker[] {
   return speakers.filter((speaker) => speakerMatchesQuery(speaker, query));
 }
 
@@ -508,7 +591,12 @@ export interface ProgramFeedSession {
   endTime: string;
   roomName: string | null;
   trackName: string | null;
+  /** @deprecated Superseded by `speakers` (name + title + company). Kept,
+   * unchanged, so existing feed consumers reading bare names don't break. */
   speakerNames: string[];
+  /** Name plus title/company per speaker (spec.md "Public program depth") —
+   * additive alongside `speakerNames` rather than a breaking rename. */
+  speakers: ScheduleSessionSpeaker[];
 }
 
 /** One speaker row in the public feed. No email: the public gallery/schedule
@@ -551,7 +639,8 @@ export function buildProgramFeed(
       endTime: session.endTime,
       roomName: session.roomName,
       trackName: session.trackName,
-      speakerNames: session.speakerNames,
+      speakerNames: session.speakers.map((speaker) => speaker.name),
+      speakers: session.speakers,
     })),
     speakers: speakers.map((speaker) => ({
       name: speaker.name,
@@ -570,7 +659,10 @@ export function buildProgramFeed(
  * origin, so an external feed consumer always gets a URL it can fetch
  * without knowing where Greenroom is hosted.
  */
-export function resolveFeedAssetUrl(origin: string, url: string | null): string | null {
+export function resolveFeedAssetUrl(
+  origin: string,
+  url: string | null,
+): string | null {
   if (!url) return null;
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
   return `${origin}${url.startsWith("/") ? url : `/${url}`}`;

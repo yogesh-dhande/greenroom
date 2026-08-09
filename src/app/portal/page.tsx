@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { UserRoundIcon } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { getRepos } from "@/lib/db";
 import { isScheduled, type Event, type Form, type Room } from "@/db/entities";
@@ -6,6 +7,7 @@ import { buildAssignmentViews, sortAssignmentViews } from "@/domain/onboarding";
 import { speakerFacingStatus } from "@/domain/evaluation";
 import { formatEventWhen } from "@/lib/event-time";
 import { PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
@@ -66,6 +68,26 @@ export default async function PortalHomePage() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader title="Your speaker home" description={`Signed in as ${user.email}`} />
+
+      {/* Profile lives outside any one event, so it gets its own card rather
+          than a slot inside an event section (spec.md §6 — the profile editor
+          must be reachable from portal navigation, not just by URL). */}
+      <Card>
+        <CardContent className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <UserRoundIcon className="size-8 shrink-0 rounded-full bg-muted p-1.5 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Your profile</p>
+              <p className="text-sm text-muted-foreground">
+                Bio, headshot, and links — shown on the admin roster and public speaker gallery.
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/portal/profile">Edit your profile</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       {events.length === 0 ? (
         <EmptyState

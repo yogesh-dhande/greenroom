@@ -8,7 +8,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 **Product priority:** a fast, obvious **admin experience for nontechnical event professionals** — real event producers will use it during evaluation. Complete the job, don't clone the interface; a working end-to-end vertical beats broad feature coverage; speed is an explicit differentiator (Sessionboard is slow).
 
-**Users:** event administrator (primary), speaker/submitter, reviewer, public attendee (view-only). Roles: admin, reviewer, speaker — reviewers see only their tracks' submissions; speakers see only their own data.
+**Users:** event administrator (primary), speaker/submitter, reviewer, public attendee (view-only). Roles: admin, reviewer, speaker — reviewers see only their tracks' submissions; speakers see only their own data. A reviewer's admin-area access is **event-scoped**: they can open only events where they have assigned tracks — the event switcher, admin index, and every event page enforce it (admins see all events; D-045).
 
 ---
 
@@ -32,7 +32,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 3. Public submission flow
 - Speakers submit via a public CFP page with no admin access; submissions remain **editable by the submitter** afterward (admin edit-lock deadlines: enhancement).
-- Submitters can **save an unfinished proposal as a draft** and resume it from an emailed link — no account needed. Drafts don't reach reviewers until submitted (D-038; see Important tier).
+- Submitters can **save an unfinished proposal as a draft** and resume it from an emailed link — no account needed. Drafts don't reach reviewers until submitted (D-038; see Important tier). A **signed-in** speaker who returns to the public form while holding a draft on it sees a resume notice linking to that draft instead of a silently blank form.
 - Admins can **enter a proposal on a speaker's behalf** from the admin area (invited talks, abstracts that arrived by email), using the event's own form questions (D-038).
 
 ### 4. Review & decisions
@@ -47,7 +47,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Direct session entry for guaranteed speakers (e.g. sponsors) without a submission — also reachable through a session-type form, whose submissions run the same conversion automatically on arrival (D-041).
 
 ### 6. Speaker portal & onboarding
-- Speaker sees their submissions/sessions, acceptance state, and incomplete tasks; edits their own profile (name, title, company, bio, social/web links) and headshot, which feed the admin roster and public gallery.
+- Speaker sees their submissions/sessions, acceptance state, and incomplete tasks; edits their own profile (name, title, company, bio, social/web links) and headshot, which feed the admin roster and public gallery. The profile editor must be **reachable from the portal navigation** — a page that exists only by URL doesn't count.
 - Tasks cover the underlying jobs: complete a form, upload a file (slides, photos), confirm information. Organizer's canonical examples (2026-08-08) — must-have: **hotel stay requirement form**, **flight reimbursement form**; optional: finalize talk description, finalize bio/photos, announce participation, invite colleagues with speaker discount.
 - Auth: email magic links for **all roles**, no passwords ([decisions.md](decisions.md) D-007).
 
@@ -76,7 +76,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Portal resource/wiki pages for speaker guidance, with HTML embeds for existing reference material.
 - **Multi-round scored evaluations** — *built* (promoted from enhancement tier by the evaluator rubric, D-031; design in D-035): two or more named review rounds, each with its own open/close dates, scorecard (numeric, dropdown, free-text criteria; numeric criteria carry weights), and reviewer pool. Organizers assign submissions to a named reviewer individually or a whole track at once; each reviewer's queue contains exactly their assignments and nothing else, and they may recuse themselves from one with a reason the organizer sees. Per-submission aggregate score in a table sortable by score, per-reviewer progress counts, and CSV export of scores and statuses. Rounds sit alongside the §4 recommendation flow rather than replacing it; the binding decision stays admin-only (D-025, D-029).
 - **Content-management depth** (D-031): file re-upload creates versions (latest marked, older accessible); comments on uploaded files (author + timestamp, cross-role); a session approval status that gates what the public program shows; a central files library across sessions.
-- **Public program depth** (D-031): keyword search (titles + speaker names) and track filters on the sessions/schedule views; speaker directory search; session and speaker detail views; personal itinerary (star sessions, persists, `.ics` export).
+- **Public program depth** (D-031): keyword search (titles + speaker names) and track filters on the sessions/schedule views; speaker directory search; session and speaker detail views; personal itinerary (star sessions, persists, `.ics` export). Session surfaces (cards, detail view, feeds) carry speaker **name, title, and company** and a short description snippet; a speaker card's talk list labels not-yet-scheduled talks ("time to be announced") so the gallery never silently disagrees with the schedule.
 
 ## Useful enhancements (only if time permits)
 
@@ -114,3 +114,4 @@ Create/open event → configure & publish CFP form → submit a realistic talk v
 - **Performance:** explicit judging bonus and differentiator — fast page loads and responsive interactions everywhere; edge-cache public pages.
 - **Operator-friendly:** no technical knowledge (Airtable, APIs, automation internals) required to use the product; event-work terminology.
 - **Product judgment:** unspecified states/edge cases are resolved with common sense — the tiebreaker is "would the customer actually use this."
+- **Demo credibility:** the seeded demo event must actually exercise the graded capabilities — the live CFP form includes the co-speakers block, seeded headshot URLs resolve to real images served from the app's own origin, and most seeded sessions are placed on the agenda (D-046). A feature the demo data leaves dormant reads as missing to every evaluator.

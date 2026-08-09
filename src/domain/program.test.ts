@@ -23,6 +23,7 @@ import {
   sessionFormatLabel,
   sessionMatchesFilters,
   sessionMatchesQuery,
+  speakerAffiliationLabel,
   speakerMatchesQuery,
   surnameKey,
   toggleStarred,
@@ -35,7 +36,9 @@ import {
 
 /** A confirmed, scheduled session with sensible defaults, overridable per
  * test — mirrors the fixture builder in scheduling.test.ts. */
-function session(overrides: Partial<SessionWithSpeakers> & { id: string }): SessionWithSpeakers {
+function session(
+  overrides: Partial<SessionWithSpeakers> & { id: string },
+): SessionWithSpeakers {
   return {
     eventId: "evt-1",
     title: overrides.id,
@@ -54,7 +57,9 @@ function session(overrides: Partial<SessionWithSpeakers> & { id: string }): Sess
   };
 }
 
-function person(overrides: Partial<ProgramPerson> & { id: string; name: string }): ProgramPerson {
+function person(
+  overrides: Partial<ProgramPerson> & { id: string; name: string },
+): ProgramPerson {
   return {
     title: null,
     company: null,
@@ -73,19 +78,30 @@ describe("isPubliclyVisible / gallerySessions / scheduleSessions", () => {
 
   it("gallery keeps confirmed sessions whether or not they're scheduled", () => {
     const scheduled = session({ id: "a", status: "confirmed" });
-    const unscheduled = session({ id: "b", status: "confirmed", day: null, startTime: null, endTime: null });
+    const unscheduled = session({
+      id: "b",
+      status: "confirmed",
+      day: null,
+      startTime: null,
+      endTime: null,
+    });
     const cancelled = session({ id: "c", status: "cancelled" });
     const draft = session({ id: "d", status: "draft" });
 
-    expect(gallerySessions([scheduled, unscheduled, cancelled, draft])).toEqual([
-      scheduled,
-      unscheduled,
-    ]);
+    expect(gallerySessions([scheduled, unscheduled, cancelled, draft])).toEqual(
+      [scheduled, unscheduled],
+    );
   });
 
   it("schedule keeps only confirmed sessions that are actually placed", () => {
     const scheduled = session({ id: "a", status: "confirmed" });
-    const unscheduled = session({ id: "b", status: "confirmed", day: null, startTime: null, endTime: null });
+    const unscheduled = session({
+      id: "b",
+      status: "confirmed",
+      day: null,
+      startTime: null,
+      endTime: null,
+    });
     const cancelled = session({
       id: "c",
       status: "cancelled",
@@ -93,11 +109,15 @@ describe("isPubliclyVisible / gallerySessions / scheduleSessions", () => {
       startTime: "11:00",
       endTime: "11:30",
     });
-    const partiallyPlaced = session({ id: "d", status: "confirmed", startTime: null });
+    const partiallyPlaced = session({
+      id: "d",
+      status: "confirmed",
+      startTime: null,
+    });
 
-    expect(scheduleSessions([scheduled, unscheduled, cancelled, partiallyPlaced])).toEqual([
-      scheduled,
-    ]);
+    expect(
+      scheduleSessions([scheduled, unscheduled, cancelled, partiallyPlaced]),
+    ).toEqual([scheduled]);
   });
 });
 
@@ -106,14 +126,23 @@ describe("buildGallery", () => {
     const priya = person({ id: "u1", name: "Priya Raman" });
     const sessions = [
       // Deliberately out of order, and the later one listed first.
-      session({ id: "s2", title: "A second talk", speakerIds: ["u1"], startTime: "14:00", endTime: "14:30" }),
+      session({
+        id: "s2",
+        title: "A second talk",
+        speakerIds: ["u1"],
+        startTime: "14:00",
+        endTime: "14:30",
+      }),
       session({ id: "s1", title: "Retrieval at scale", speakerIds: ["u1"] }),
     ];
 
     const gallery = buildGallery(sessions, new Map([["u1", priya]]));
 
     expect(gallery).toHaveLength(1);
-    expect(gallery[0].talks.map((t) => t.title)).toEqual(["Retrieval at scale", "A second talk"]);
+    expect(gallery[0].talks.map((t) => t.title)).toEqual([
+      "Retrieval at scale",
+      "A second talk",
+    ]);
   });
 
   it("puts a speaker's unscheduled talks after their placed ones", () => {
@@ -203,10 +232,13 @@ describe("buildGallery", () => {
     ];
     const anna = person({ id: "u-a", name: "Anna Alvarez" });
 
-    const gallery = buildGallery(sessions, new Map([
-      ["u-z", zed],
-      ["u-a", anna],
-    ]));
+    const gallery = buildGallery(
+      sessions,
+      new Map([
+        ["u-z", zed],
+        ["u-a", anna],
+      ]),
+    );
 
     expect(gallery.map((g) => g.name)).toEqual(["Anna Alvarez", "Zed Ng"]);
   });
@@ -219,23 +251,44 @@ describe("buildSchedule", () => {
       ["r1", { name: "Main Stage" }],
       ["r2", { name: "Workshop A" }],
     ]),
-    speakerNameById: new Map([
-      ["u1", "Priya Raman"],
-      ["u2", "Tom Beckett"],
+    speakerById: new Map([
+      [
+        "u1",
+        { name: "Priya Raman", title: "Staff Engineer", company: "Northwind" },
+      ],
+      ["u2", { name: "Tom Beckett", title: null, company: null }],
     ]),
   };
 
   it("groups sessions by day, in start-time order", () => {
     const sessions = [
-      session({ id: "s2", day: "2026-06-16", startTime: "14:00", endTime: "14:45" }),
-      session({ id: "s1", day: "2026-06-16", startTime: "10:00", endTime: "10:45" }),
-      session({ id: "s3", day: "2026-06-17", startTime: "09:00", endTime: "09:30" }),
+      session({
+        id: "s2",
+        day: "2026-06-16",
+        startTime: "14:00",
+        endTime: "14:45",
+      }),
+      session({
+        id: "s1",
+        day: "2026-06-16",
+        startTime: "10:00",
+        endTime: "10:45",
+      }),
+      session({
+        id: "s3",
+        day: "2026-06-17",
+        startTime: "09:00",
+        endTime: "09:30",
+      }),
     ];
 
     const days = buildSchedule(sessions, lookups);
 
     expect(days.map((d) => d.day)).toEqual(["2026-06-16", "2026-06-17"]);
-    expect(days[0].slots.map((slot) => slot.sessions[0].id)).toEqual(["s1", "s2"]);
+    expect(days[0].slots.map((slot) => slot.sessions[0].id)).toEqual([
+      "s1",
+      "s2",
+    ]);
   });
 
   it("groups sessions sharing the same day and time range into one slot", () => {
@@ -266,7 +319,9 @@ describe("buildSchedule", () => {
     // Room name ordering: Main Stage before Workshop A.
     expect(day.slots[0].sessions.map((s) => s.id)).toEqual(["s1", "s2"]);
     expect(day.slots[0].sessions[0].trackName).toBe("AI Engineering");
-    expect(day.slots[0].sessions[0].speakerNames).toEqual(["Priya Raman"]);
+    expect(day.slots[0].sessions[0].speakers).toEqual([
+      { name: "Priya Raman", title: "Staff Engineer", company: "Northwind" },
+    ]);
   });
 
   it("excludes cancelled and unscheduled sessions from the schedule", () => {
@@ -277,7 +332,9 @@ describe("buildSchedule", () => {
     ];
 
     const days = buildSchedule(sessions, lookups);
-    const allIds = days.flatMap((d) => d.slots.flatMap((slot) => slot.sessions.map((s) => s.id)));
+    const allIds = days.flatMap((d) =>
+      d.slots.flatMap((slot) => slot.sessions.map((s) => s.id)),
+    );
     expect(allIds).toEqual(["s1"]);
   });
 });
@@ -286,8 +343,18 @@ describe("buildSchedule", () => {
 // Public program depth (spec.md "Public program depth", decisions.md D-031)
 // ---------------------------------------------------------------------------
 
+/** A bare-name schedule speaker — most tests below only care about the name
+ * matching, not the affiliation. */
+function scheduleSpeaker(
+  name: string,
+): ScheduleSessionView["speakers"][number] {
+  return { name, title: null, company: null };
+}
+
 /** A schedule row with sensible defaults — the built view, not the entity. */
-function view(overrides: Partial<ScheduleSessionView> & { id: string }): ScheduleSessionView {
+function view(
+  overrides: Partial<ScheduleSessionView> & { id: string },
+): ScheduleSessionView {
   return {
     title: overrides.id,
     description: null,
@@ -298,7 +365,7 @@ function view(overrides: Partial<ScheduleSessionView> & { id: string }): Schedul
     trackColor: null,
     roomName: null,
     formatLabel: "30-minute talk",
-    speakerNames: [],
+    speakers: [],
     ...overrides,
   };
 }
@@ -312,7 +379,7 @@ const RETRIEVAL = view({
   trackName: "AI Engineering",
   roomName: "Main Stage",
   formatLabel: "45-minute talk",
-  speakerNames: ["Priya Raman"],
+  speakers: [scheduleSpeaker("Priya Raman")],
 });
 const INFERENCE = view({
   id: "s2",
@@ -322,7 +389,7 @@ const INFERENCE = view({
   endTime: "11:30",
   trackName: "AI Engineering",
   roomName: "Community Hall",
-  speakerNames: ["Tom Beckett"],
+  speakers: [scheduleSpeaker("Tom Beckett")],
 });
 const HOSPITAL = view({
   id: "s3",
@@ -333,7 +400,7 @@ const HOSPITAL = view({
   trackName: "Agents & Tool Use",
   roomName: "Main Stage",
   formatLabel: "45-minute talk",
-  speakerNames: ["Aisha Nwosu", "Luis Fernández"],
+  speakers: [scheduleSpeaker("Aisha Nwosu"), scheduleSpeaker("Luis Fernández")],
 });
 
 /** Two days, three sessions, mixed tracks/rooms/formats. */
@@ -366,7 +433,13 @@ describe("foldText / surnameKey / compareBySurname", () => {
   });
 
   it("orders a directory alphabetically by surname, not by first name", () => {
-    const names = ["Priya Raman", "Tom Beckett", "Luis Fernández", "Jae-won Park", "Sofia Rossi"];
+    const names = [
+      "Priya Raman",
+      "Tom Beckett",
+      "Luis Fernández",
+      "Jae-won Park",
+      "Sofia Rossi",
+    ];
     const sorted = names.map((name) => ({ name })).sort(compareBySurname);
     expect(sorted.map((s) => s.name)).toEqual([
       "Tom Beckett",
@@ -383,6 +456,45 @@ describe("sessionFormatLabel", () => {
     expect(sessionFormatLabel("10:00", "10:30")).toBe("30-minute talk");
     expect(sessionFormatLabel("10:00", "10:45")).toBe("45-minute talk");
     expect(sessionFormatLabel("13:00", "14:30")).toBe("90-minute workshop");
+  });
+});
+
+describe("speakerAffiliationLabel", () => {
+  it('renders "Name — Title, Company" when both are filled in', () => {
+    expect(
+      speakerAffiliationLabel({
+        name: "Priya Raman",
+        title: "Staff Engineer",
+        company: "Northwind",
+      }),
+    ).toBe("Priya Raman — Staff Engineer, Northwind");
+  });
+
+  it("drops the missing half rather than a stray separator", () => {
+    expect(
+      speakerAffiliationLabel({
+        name: "Tom Beckett",
+        title: "Founder",
+        company: null,
+      }),
+    ).toBe("Tom Beckett — Founder");
+    expect(
+      speakerAffiliationLabel({
+        name: "Tom Beckett",
+        title: null,
+        company: "Northwind",
+      }),
+    ).toBe("Tom Beckett — Northwind");
+  });
+
+  it("falls back to the bare name when neither title nor company is set", () => {
+    expect(
+      speakerAffiliationLabel({
+        name: "Priya Raman",
+        title: null,
+        company: null,
+      }),
+    ).toBe("Priya Raman");
   });
 });
 
@@ -419,17 +531,33 @@ describe("sessionMatchesFilters / filterScheduleDays", () => {
   it("an unset facet never narrows anything", () => {
     expect(sessionMatchesFilters(RETRIEVAL, {})).toBe(true);
     expect(
-      sessionMatchesFilters(RETRIEVAL, { track: ANY_FACET, room: ANY_FACET, format: ANY_FACET }),
+      sessionMatchesFilters(RETRIEVAL, {
+        track: ANY_FACET,
+        room: ANY_FACET,
+        format: ANY_FACET,
+      }),
     ).toBe(true);
   });
 
   it("filters by track, room and format", () => {
-    expect(sessionMatchesFilters(RETRIEVAL, { track: "AI Engineering" })).toBe(true);
-    expect(sessionMatchesFilters(RETRIEVAL, { track: "Agents & Tool Use" })).toBe(false);
-    expect(sessionMatchesFilters(INFERENCE, { room: "Community Hall" })).toBe(true);
-    expect(sessionMatchesFilters(INFERENCE, { room: "Main Stage" })).toBe(false);
-    expect(sessionMatchesFilters(INFERENCE, { format: "30-minute talk" })).toBe(true);
-    expect(sessionMatchesFilters(RETRIEVAL, { format: "30-minute talk" })).toBe(false);
+    expect(sessionMatchesFilters(RETRIEVAL, { track: "AI Engineering" })).toBe(
+      true,
+    );
+    expect(
+      sessionMatchesFilters(RETRIEVAL, { track: "Agents & Tool Use" }),
+    ).toBe(false);
+    expect(sessionMatchesFilters(INFERENCE, { room: "Community Hall" })).toBe(
+      true,
+    );
+    expect(sessionMatchesFilters(INFERENCE, { room: "Main Stage" })).toBe(
+      false,
+    );
+    expect(sessionMatchesFilters(INFERENCE, { format: "30-minute talk" })).toBe(
+      true,
+    );
+    expect(sessionMatchesFilters(RETRIEVAL, { format: "30-minute talk" })).toBe(
+      false,
+    );
   });
 
   it("drops slots and whole days that no longer hold anything", () => {
@@ -474,7 +602,9 @@ describe("personal itinerary", () => {
   });
 
   it("silently drops ids that are no longer on the public schedule", () => {
-    expect(itinerarySessions(DAYS, ["s1", "cancelled-since"]).map((s) => s.id)).toEqual(["s1"]);
+    expect(
+      itinerarySessions(DAYS, ["s1", "cancelled-since"]).map((s) => s.id),
+    ).toEqual(["s1"]);
     expect(itinerarySessions(DAYS, [])).toEqual([]);
   });
 
@@ -497,7 +627,9 @@ describe("personal itinerary", () => {
 });
 
 describe("speakerMatchesQuery / filterSpeakers", () => {
-  const speaker = (overrides: Partial<GallerySpeaker> & { id: string; name: string }) =>
+  const speaker = (
+    overrides: Partial<GallerySpeaker> & { id: string; name: string },
+  ) =>
     ({
       title: null,
       company: null,
@@ -543,9 +675,14 @@ describe("buildProgramFeed", () => {
   const lookups = {
     trackById: new Map([["t1", { name: "AI Engineering", color: "#0e7490" }]]),
     roomById: new Map([["r1", { name: "Main Stage" }]]),
-    speakerNameById: new Map([["u1", "Priya Raman"]]),
+    speakerById: new Map([
+      ["u1", { name: "Priya Raman", title: null, company: null }],
+    ]),
   };
-  const event = { name: "AI Engineer Summit 2026", timezone: "America/Los_Angeles" };
+  const event = {
+    name: "AI Engineer Summit 2026",
+    timezone: "America/Los_Angeles",
+  };
 
   it("only carries confirmed, scheduled sessions — draft, unscheduled, and cancelled are excluded", () => {
     const scheduled = session({
@@ -565,8 +702,14 @@ describe("buildProgramFeed", () => {
       endTime: null,
     });
 
-    const days = buildSchedule([scheduled, draft, cancelled, unscheduled], lookups);
-    const gallery = buildGallery([scheduled, draft, cancelled, unscheduled], new Map());
+    const days = buildSchedule(
+      [scheduled, draft, cancelled, unscheduled],
+      lookups,
+    );
+    const gallery = buildGallery(
+      [scheduled, draft, cancelled, unscheduled],
+      new Map(),
+    );
 
     const feed = buildProgramFeed(event, days, gallery);
 
@@ -579,7 +722,10 @@ describe("buildProgramFeed", () => {
       endTime: "10:30",
       roomName: "Main Stage",
       trackName: "AI Engineering",
+      // Both the legacy bare-name array (unchanged, for existing feed
+      // consumers) and the richer speakers array (name + title + company).
       speakerNames: ["Priya Raman"],
+      speakers: [{ name: "Priya Raman", title: null, company: null }],
     });
   });
 
@@ -629,15 +775,18 @@ describe("buildProgramFeed", () => {
 
 describe("resolveFeedAssetUrl", () => {
   it("resolves a relative /files/ path against the given origin", () => {
-    expect(resolveFeedAssetUrl("https://example.com", "/files/uploads/priya.jpg")).toBe(
-      "https://example.com/files/uploads/priya.jpg",
-    );
+    expect(
+      resolveFeedAssetUrl("https://example.com", "/files/uploads/priya.jpg"),
+    ).toBe("https://example.com/files/uploads/priya.jpg");
   });
 
   it("leaves an already-absolute URL untouched", () => {
-    expect(resolveFeedAssetUrl("https://example.com", "https://cdn.example/priya.jpg")).toBe(
-      "https://cdn.example/priya.jpg",
-    );
+    expect(
+      resolveFeedAssetUrl(
+        "https://example.com",
+        "https://cdn.example/priya.jpg",
+      ),
+    ).toBe("https://cdn.example/priya.jpg");
   });
 
   it("passes null through", () => {
@@ -653,7 +802,7 @@ describe("scheduleFeedEntries", () => {
   const lookups = {
     trackById: new Map(),
     roomById: new Map([["r1", { name: "Main Stage" }]]),
-    speakerNameById: new Map(),
+    speakerById: new Map(),
   };
 
   it("maps the public schedule to buildItineraryCalendar's entry shape", () => {
@@ -706,10 +855,9 @@ describe("scheduleFeedEntries", () => {
     );
     expect(inspection.errors.join(" ")).not.toMatch(/VTIMEZONE/);
     expect(inspection.properties.VERSION).toEqual(["2.0"]);
-    expect(unfoldIcs(calendar.content).filter((l) => l.startsWith("SUMMARY:"))).toEqual([
-      "SUMMARY:Retrieval at scale",
-      "SUMMARY:Shipping an agent",
-    ]);
+    expect(
+      unfoldIcs(calendar.content).filter((l) => l.startsWith("SUMMARY:")),
+    ).toEqual(["SUMMARY:Retrieval at scale", "SUMMARY:Shipping an agent"]);
     // METHOD:PUBLISH, no ORGANIZER/ATTENDEE — this is a feed, not an invite.
     expect(calendar.content).toContain("METHOD:PUBLISH");
     expect(calendar.content).not.toContain("ORGANIZER");

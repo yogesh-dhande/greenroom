@@ -17,7 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { checkUpload, filenameFromKey, fileUrl, UPLOAD_ACCEPT_ATTRIBUTE, uploadProblemMessage } from "@/lib/uploads";
+import {
+  checkUpload,
+  filenameFromKey,
+  fileUrl,
+  isImageKey,
+  UPLOAD_ACCEPT_ATTRIBUTE,
+  uploadProblemMessage,
+} from "@/lib/uploads";
 import { CoSpeakersField } from "./co-speakers-field";
 import type { UploadAction } from "./types";
 
@@ -54,7 +61,20 @@ function FileControl({
           <div className="flex flex-col gap-2">
             {key ? (
               <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
-                <PaperclipIcon className="size-4 shrink-0 text-muted-foreground" />
+                {isImageKey(key) ? (
+                  // A headshot (or any other image answer) previews as a
+                  // thumbnail rather than a bare filename — same idea as the
+                  // current-headshot block on /portal/profile, just sized to
+                  // sit inline in a single form row.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={fileUrl(key)}
+                    alt=""
+                    className="size-8 shrink-0 rounded object-cover"
+                  />
+                ) : (
+                  <PaperclipIcon className="size-4 shrink-0 text-muted-foreground" />
+                )}
                 <a
                   href={fileUrl(key)}
                   target="_blank"

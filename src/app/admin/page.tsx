@@ -1,19 +1,19 @@
 import Link from "next/link";
 import { PlusIcon } from "lucide-react";
-import { getRepos } from "@/lib/db";
-import { getSessionUser } from "@/lib/session";
+import { listAccessibleEvents, requireAdminOrReviewer } from "@/lib/session";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { formatDateRange } from "@/components/date-format";
 
-/** Landing spot for /admin: every event this admin/reviewer can reach, plus
- * the obvious way to spin up a new one. Multi-event capable (spec.md §1). */
+/** Landing spot for /admin: every event this admin/reviewer can reach — all of
+ * them for an admin, the ones they hold a track on for a reviewer (D-045) —
+ * plus the obvious way to spin up a new one. Multi-event capable (spec.md §1). */
 export default async function AdminIndexPage() {
-  const [repos, user] = await Promise.all([getRepos(), getSessionUser()]);
-  const events = await repos.events.listAll();
-  const canCreate = user?.role === "admin";
+  const user = await requireAdminOrReviewer("/admin");
+  const events = await listAccessibleEvents(user);
+  const canCreate = user.role === "admin";
 
   if (events.length === 0) {
     return (
@@ -24,7 +24,7 @@ export default async function AdminIndexPage() {
           description={
             canCreate
               ? "Create an event to start building your call for speakers — name, dates, and timezone is all it takes to begin."
-              : "Ask an admin to create the first event, or run `npm run seed` to load sample data."
+              : "You review by track: an admin gives you access to an event by assigning you one of its tracks."
           }
           action={
             canCreate ? (

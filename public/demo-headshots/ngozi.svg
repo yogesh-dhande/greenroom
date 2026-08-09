@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Abstract portrait avatar, indigo">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#3b82f6"/>
+<stop offset="100%" stop-color="#1e1b4b"/>
+</linearGradient>
+</defs>
+<rect width="200" height="200" fill="url(#bg)"/>
+<circle cx="100" cy="120" r="72" fill="#0b1026" opacity="0.35"/>
+<path d="M36 200 C36 146 164 146 164 200 Z" fill="#eef2ff"/>
+<circle cx="100" cy="80" r="40" fill="#eef2ff"/>
+<polygon points="14,150 46,132 46,168" fill="#a5b4fc" opacity="0.8"/>
+</svg>

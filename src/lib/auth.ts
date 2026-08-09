@@ -46,7 +46,12 @@ export async function getAuth() {
       additionalFields: {
         // New signups are speakers (they arrive through a public CFP form);
         // admins and reviewers are promoted deliberately.
-        role: { type: "string", required: false, defaultValue: "speaker", input: false },
+        role: {
+          type: "string",
+          required: false,
+          defaultValue: "speaker",
+          input: false,
+        },
         title: { type: "string", required: false, input: false },
         company: { type: "string", required: false, input: false },
         bio: { type: "string", required: false, input: false },
@@ -91,7 +96,8 @@ export async function getAuth() {
                 role: user.role,
                 adminEmails,
               });
-              if (decision.promote) await repos.users.update(user.id, { role: "admin" });
+              if (decision.promote)
+                await repos.users.update(user.id, { role: "admin" });
             } catch (error) {
               console.error("admin bootstrap check failed", error);
             }
@@ -101,6 +107,10 @@ export async function getAuth() {
     },
     plugins: [
       magicLink({
+        // Pinned rather than left to better-auth's default: the email copy
+        // below hard-codes "5 minutes", so a library upgrade changing the
+        // default must not silently make that copy wrong.
+        expiresIn: 300,
         sendMagicLink: async ({ email, url }) => {
           if (isDev) {
             // Local development has no mail provider: print the link and

@@ -133,3 +133,15 @@ export function filenameFromKey(key: string): string {
   // Strip the random uniqueness segment we added in `uploadKey`.
   return last.replace(/^[0-9a-f]{8}-/, "");
 }
+
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "avif"]);
+
+/** Whether a stored key is one of the image types a browser can render
+ * directly — the file control uses this to swap the filename link's icon for
+ * an actual thumbnail (a headshot upload, most often). Keys carry no content
+ * type, so this is an extension guess, same as the browser's own `accept`
+ * negotiation was. */
+export function isImageKey(key: string): boolean {
+  const ext = filenameFromKey(key).split(".").pop()?.toLowerCase();
+  return ext ? IMAGE_EXTENSIONS.has(ext) : false;
+}

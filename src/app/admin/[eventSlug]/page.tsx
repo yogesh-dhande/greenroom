@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { getRepos } from "@/lib/db";
+import { requireEventAccess } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/stat-card";
@@ -13,10 +13,9 @@ export default async function EventOverviewPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
+  const { event } = await requireEventAccess(eventSlug);
 
+  const repos = await getRepos();
   const [submissions, sessions, speakers, tasks] = await Promise.all([
     repos.submissions.listByEvent(event.id),
     repos.sessions.listByEvent(event.id),

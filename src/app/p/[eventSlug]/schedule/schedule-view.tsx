@@ -9,6 +9,7 @@ import {
   flattenSchedule,
   itinerarySessions,
   scheduleFacetOptions,
+  speakerAffiliationLabel,
   type ScheduleDay,
   type ScheduleSessionView,
 } from "@/domain/program";
@@ -75,11 +76,13 @@ export function ScheduleView({
 
   const total = useMemo(() => countScheduleSessions(days), [days]);
   const shown = countScheduleSessions(filteredDays);
-  const isFiltered = query.trim() !== "" || [track, room, format].some((f) => f !== ANY_FACET);
+  const isFiltered =
+    query.trim() !== "" || [track, room, format].some((f) => f !== ANY_FACET);
 
   const mine = useMemo(() => itinerarySessions(days, starred), [days, starred]);
   const openSession =
-    flattenSchedule(days).find((session) => session.id === openSessionId) ?? null;
+    flattenSchedule(days).find((session) => session.id === openSessionId) ??
+    null;
 
   if (days.length === 0) {
     return (
@@ -96,7 +99,9 @@ export function ScheduleView({
   // still has results. "none" keeps Radix from auto-selecting anything while
   // nothing matches.
   const activeTab =
-    tab && (tab === MINE || dayValues.includes(tab)) ? tab : (dayValues[0] ?? "none");
+    tab && (tab === MINE || dayValues.includes(tab))
+      ? tab
+      : (dayValues[0] ?? "none");
 
   function clearFilters() {
     setQuery("");
@@ -158,12 +163,17 @@ export function ScheduleView({
           aria-live="polite"
           data-testid="session-count"
         >
-          {shown === total ? `${total} sessions` : `${shown} of ${total} sessions`}
+          {shown === total
+            ? `${total} sessions`
+            : `${shown} of ${total} sessions`}
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setTab} className="gap-6">
-        <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+        <TabsList
+          variant="line"
+          className="w-full justify-start overflow-x-auto"
+        >
           {filteredDays.map((day) => (
             <TabsTrigger key={day.day} value={day.day}>
               {formatEventDay(day.day, timezone).replace(/^\w+, /, "")}
@@ -175,14 +185,23 @@ export function ScheduleView({
         </TabsList>
 
         {filteredDays.map((day) => (
-          <TabsContent key={day.day} value={day.day} className="flex flex-col gap-6">
+          <TabsContent
+            key={day.day}
+            value={day.day}
+            className="flex flex-col gap-6"
+          >
             {day.slots.map((slot) => (
               <section
                 key={`${slot.startTime}-${slot.endTime}`}
                 className="flex flex-col gap-2 sm:flex-row sm:gap-6"
               >
                 <div className="shrink-0 font-mono text-sm whitespace-nowrap text-muted-foreground sm:w-44 sm:pt-4">
-                  {formatEventTimeRange(day.day, slot.startTime, slot.endTime, timezone)}
+                  {formatEventTimeRange(
+                    day.day,
+                    slot.startTime,
+                    slot.endTime,
+                    timezone,
+                  )}
                 </div>
                 <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-2">
                   {slot.sessions.map((session) => (
@@ -192,7 +211,10 @@ export function ScheduleView({
                       onOpen={() => setOpenSessionId(session.id)}
                       itinerary={
                         itinerary
-                          ? { isStarred: isStarred(session.id), onToggle: () => toggle(session.id) }
+                          ? {
+                              isStarred: isStarred(session.id),
+                              onToggle: () => toggle(session.id),
+                            }
                           : undefined
                       }
                     />
@@ -213,21 +235,33 @@ export function ScheduleView({
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-sm text-muted-foreground" data-testid="itinerary-count">
-                    {mine.length} starred {mine.length === 1 ? "session" : "sessions"}
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="itinerary-count"
+                  >
+                    {mine.length} starred{" "}
+                    {mine.length === 1 ? "session" : "sessions"}
                   </p>
                   {/* A real download URL, not a client-built blob: the file
                       is written by src/app/p/[eventSlug]/itinerary.ics, so
                       iCalendar generation stays in src/lib/ics.ts (D-003)
                       and the `ics` package stays out of this bundle. */}
-                  <Button asChild variant="outline" size="sm" className="ml-auto">
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                  >
                     <a href={icsHref} download>
                       <CalendarPlusIcon aria-hidden />
                       Add to calendar (.ics)
                     </a>
                   </Button>
                 </div>
-                <ol className="flex flex-col gap-3" data-testid="itinerary-list">
+                <ol
+                  className="flex flex-col gap-3"
+                  data-testid="itinerary-list"
+                >
                   {mine.map((session) => (
                     <li key={session.id}>
                       <SessionCard
@@ -341,7 +375,11 @@ function SessionCard({
             <span
               aria-hidden
               className="size-2 shrink-0 rounded-full bg-muted-foreground"
-              style={session.trackColor ? { backgroundColor: session.trackColor } : undefined}
+              style={
+                session.trackColor
+                  ? { backgroundColor: session.trackColor }
+                  : undefined
+              }
             />
             {session.trackName}
           </span>
@@ -356,7 +394,12 @@ function SessionCard({
       {showDay && timezone && (
         <p className="font-mono text-xs text-muted-foreground">
           {formatEventDay(session.day, timezone).replace(/^\w+, /, "")} ·{" "}
-          {formatEventTimeRange(session.day, session.startTime, session.endTime, timezone)}
+          {formatEventTimeRange(
+            session.day,
+            session.startTime,
+            session.endTime,
+            timezone,
+          )}
         </p>
       )}
 
@@ -370,8 +413,16 @@ function SessionCard({
         </button>
       </h3>
 
-      {session.speakerNames.length > 0 && (
-        <p className="text-sm text-muted-foreground">{session.speakerNames.join(", ")}</p>
+      {session.description && (
+        <p className="line-clamp-2 text-sm text-muted-foreground">
+          {session.description}
+        </p>
+      )}
+
+      {session.speakers.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {session.speakers.map(speakerAffiliationLabel).join(", ")}
+        </p>
       )}
 
       {itinerary && (

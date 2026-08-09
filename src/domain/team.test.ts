@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  accessibleEvents,
+  canAccessEvent,
   checkRoleChange,
   decideAdminBootstrap,
   normalizeEmail,
@@ -186,5 +188,41 @@ describe("planInvite", () => {
 describe("normalizeEmail", () => {
   it("trims and lowercases", () => {
     expect(normalizeEmail("  Ada@Example.COM  ")).toBe("ada@example.com");
+  });
+});
+
+describe("canAccessEvent", () => {
+  it("lets an admin into any event, including one they hold no track on", () => {
+    expect(canAccessEvent("admin", "e1", [])).toBe(true);
+    expect(canAccessEvent("admin", "e9", ["e1"])).toBe(true);
+  });
+
+  it("lets a reviewer into the events they hold a track on", () => {
+    expect(canAccessEvent("reviewer", "e1", ["e1", "e2"])).toBe(true);
+  });
+
+  it("keeps a reviewer out of every other event", () => {
+    expect(canAccessEvent("reviewer", "e3", ["e1", "e2"])).toBe(false);
+    expect(canAccessEvent("reviewer", "e1", [])).toBe(false);
+  });
+
+  it("never admits a speaker, whatever list is passed", () => {
+    expect(canAccessEvent("speaker", "e1", ["e1"])).toBe(false);
+  });
+});
+
+describe("accessibleEvents", () => {
+  const events = [{ id: "e1" }, { id: "e2" }, { id: "e3" }];
+
+  it("gives an admin every event", () => {
+    expect(accessibleEvents("admin", events, [])).toEqual(events);
+  });
+
+  it("narrows a reviewer to their own events, in the order given", () => {
+    expect(accessibleEvents("reviewer", events, ["e3", "e1"])).toEqual([{ id: "e1" }, { id: "e3" }]);
+  });
+
+  it("gives a reviewer with no track assignments nothing", () => {
+    expect(accessibleEvents("reviewer", events, [])).toEqual([]);
   });
 });

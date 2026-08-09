@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getRepos } from "@/lib/db";
-import { requireAdminOrReviewer } from "@/lib/session";
+import { listAccessibleEvents, requireEventAccess } from "@/lib/session";
 import { AdminNav } from "@/components/admin-nav";
 import { EventSwitcher } from "@/components/event-switcher";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -11,6 +9,10 @@ import { formatDateRange } from "@/components/date-format";
  * Event-scoped admin chrome: sticky top bar (wordmark, event switcher,
  * signed-in user + sign out) and the left nav, wrapped around every
  * /admin/[eventSlug]/* page.
+ *
+ * Also the outer half of the event-scoped guard (decisions.md D-045): a
+ * reviewer with no track on this event never renders a child page, and the
+ * switcher only offers events they can actually open.
  */
 export default async function EventAdminLayout({
   children,
@@ -20,14 +22,8 @@ export default async function EventAdminLayout({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const user = await requireAdminOrReviewer(`/admin/${eventSlug}`);
-
-  const repos = await getRepos();
-  const [event, events] = await Promise.all([
-    repos.events.getBySlug(eventSlug),
-    repos.events.listAll(),
-  ]);
-  if (!event) notFound();
+  const { user, event } = await requireEventAccess(eventSlug);
+  const events = await listAccessibleEvents(user);
 
   return (
     <div className="flex min-h-full flex-1 flex-col">

@@ -1,3 +1,5 @@
+import Link from "next/link";
+import type { Submission } from "@/db/entities";
 import { formatDeadline } from "@/lib/event-time";
 
 /**
@@ -43,6 +45,51 @@ export function SubmitNotice({
     <div className="mt-8 rounded-lg border border-border bg-muted/40 p-8">
       <p className="text-base font-medium text-foreground">{title}</p>
       <div className="mt-2 text-sm text-muted-foreground">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Tells a signed-in speaker they already have an unfinished draft on this
+ * form, without standing in the way of a fresh submission (spec.md §3,
+ * D-038). A silently blank form next to a draft nobody mentioned is how a
+ * second, duplicate draft gets created — this is a nudge, not the
+ * `SubmitNotice` wall the closed/at-limit states use, so the form still
+ * renders right below it.
+ */
+export function DraftResumeNotice({ drafts }: { drafts: Submission[] }) {
+  if (drafts.length === 0) return null;
+  return (
+    <div className="mt-8 rounded-lg border border-warning bg-warning/10 p-4">
+      {drafts.length === 1 ? (
+        <p className="text-sm text-foreground">
+          You have an unfinished draft of this proposal —{" "}
+          <Link
+            href={`/portal/submissions/${drafts[0].id}`}
+            className="font-medium underline-offset-4 hover:underline"
+          >
+            pick up where you left off
+          </Link>
+          , or start a new one below.
+        </p>
+      ) : (
+        <div className="text-sm text-foreground">
+          <p>You have {drafts.length} unfinished drafts on this form:</p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {drafts.map((draft) => (
+              <li key={draft.id}>
+                <Link
+                  href={`/portal/submissions/${draft.id}`}
+                  className="font-medium underline-offset-4 hover:underline"
+                >
+                  {draft.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2">Finish one of those, or start a new proposal below.</p>
+        </div>
+      )}
     </div>
   );
 }

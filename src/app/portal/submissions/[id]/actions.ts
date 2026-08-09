@@ -75,6 +75,11 @@ export async function updateOwnSubmission(
 
   return {
     ok: true,
-    message: wasDraft ? "Proposal submitted." : "Your proposal has been updated.",
+    // Matches the public thanks page's wording (spec.md §3, §7) — submitting
+    // a draft here takes the same confirmation-email path, so it should read
+    // like the same product event rather than a quieter portal-only save.
+    message: wasDraft
+      ? `Proposal submitted. A confirmation email is on its way to ${result.primarySpeaker.email}.`
+      : "Your proposal has been updated.",
   };
 }

@@ -163,6 +163,37 @@ export function planInvite(input: InviteInput): InvitePlan {
 }
 
 // ---------------------------------------------------------------------------
+// Event-scoped admin access (decisions.md D-045)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether this viewer may open an event's admin area.
+ *
+ * Admins reach every event; a reviewer reaches only the events they hold at
+ * least one track on, because track assignment *is* the membership record
+ * (D-045) — there is no second source of truth to consult. A speaker never
+ * belongs here at all, whatever list they are handed.
+ */
+export function canAccessEvent(
+  role: Role,
+  eventId: string,
+  reviewerEventIds: readonly string[],
+): boolean {
+  if (role === "admin") return true;
+  if (role !== "reviewer") return false;
+  return reviewerEventIds.includes(eventId);
+}
+
+/** The same rule over a list — the event switcher and the /admin index. */
+export function accessibleEvents<T extends { id: string }>(
+  role: Role,
+  events: readonly T[],
+  reviewerEventIds: readonly string[],
+): T[] {
+  return events.filter((event) => canAccessEvent(role, event.id, reviewerEventIds));
+}
+
+// ---------------------------------------------------------------------------
 // Presentation helpers (shared by the page and its client islands)
 // ---------------------------------------------------------------------------
 

@@ -14,7 +14,7 @@ import { getSessionUser } from "@/lib/session";
 import { SchemaForm } from "@/components/schema-form/schema-form";
 import { uploadFormFile } from "@/app/upload-actions";
 import { saveDraft, submitProposal } from "./actions";
-import { ClosedNotice, SubmitNotice, SubmitShell } from "./submit-shell";
+import { ClosedNotice, DraftResumeNotice, SubmitNotice, SubmitShell } from "./submit-shell";
 
 /**
  * Public call-for-speakers submission page (spec.md §2, §3).
@@ -54,6 +54,14 @@ export default async function SubmitFormPage({
   const viewer = state === "open" ? await getSessionUser() : null;
   const person = viewer ? await repos.users.getById(viewer.id) : null;
   const limit = person ? await speakerLimitState({ repos }, form, person.email) : null;
+  // A returning speaker who never finished a proposal here shouldn't be handed
+  // a second blank form with no mention of the first (D-038) — but this must
+  // never block starting a fresh one, so it's a notice, not a wall.
+  const drafts = person
+    ? (await repos.submissions.listByFormAndSpeaker(form.id, person.id)).filter(
+        (submission) => submission.status === "draft",
+      )
+    : [];
 
   const defaultValues = emptyValues(fields);
   if (person) {
@@ -85,6 +93,7 @@ export default async function SubmitFormPage({
         </SubmitNotice>
       ) : (
         <>
+          <DraftResumeNotice drafts={drafts} />
           {form.closesAt ? (
             <p className="mt-4 text-sm text-muted-foreground">
               Submissions close {formatDeadline(form.closesAt, event.timezone)}.

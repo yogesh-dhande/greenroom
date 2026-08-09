@@ -22,97 +22,116 @@ import { getRepos } from "@/lib/db";
  * (spec.md: "public attendee (view-only)").
  */
 
-export const getPublicEvent = cache(async (eventSlug: string): Promise<Event> => {
-  const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
-  return event;
-});
+export const getPublicEvent = cache(
+  async (eventSlug: string): Promise<Event> => {
+    const repos = await getRepos();
+    const event = await repos.events.getBySlug(eventSlug);
+    if (!event) notFound();
+    return event;
+  },
+);
 
 /** Every session for the event, with its speaker ids attached — the shape
  * src/domain/program.ts's grouping functions consume. */
-const getSessionsWithSpeakers = cache(async (eventId: string): Promise<SessionWithSpeakers[]> => {
-  const repos = await getRepos();
-  const sessions = await repos.sessions.listByEvent(eventId);
-  const links = await repos.sessions.listSpeakersBySessionIds(sessions.map((s) => s.id));
-  const speakerIdsBySession = new Map<string, string[]>();
-  for (const link of links) {
-    speakerIdsBySession.set(link.sessionId, [
-      ...(speakerIdsBySession.get(link.sessionId) ?? []),
-      link.userId,
+const getSessionsWithSpeakers = cache(
+  async (eventId: string): Promise<SessionWithSpeakers[]> => {
+    const repos = await getRepos();
+    const sessions = await repos.sessions.listByEvent(eventId);
+    const links = await repos.sessions.listSpeakersBySessionIds(
+      sessions.map((s) => s.id),
+    );
+    const speakerIdsBySession = new Map<string, string[]>();
+    for (const link of links) {
+      speakerIdsBySession.set(link.sessionId, [
+        ...(speakerIdsBySession.get(link.sessionId) ?? []),
+        link.userId,
+      ]);
+    }
+    return sessions.map((session) => ({
+      ...session,
+      speakerIds: speakerIdsBySession.get(session.id) ?? [],
+    }));
+  },
+);
+
+export const getGallery = cache(
+  async (eventSlug: string): Promise<GallerySpeaker[]> => {
+    const event = await getPublicEvent(eventSlug);
+    const repos = await getRepos();
+    const [sessions, tracks, rooms] = await Promise.all([
+      getSessionsWithSpeakers(event.id),
+      repos.tracks.listByEvent(event.id),
+      repos.rooms.listByEvent(event.id),
     ]);
-  }
-  return sessions.map((session) => ({
-    ...session,
-    speakerIds: speakerIdsBySession.get(session.id) ?? [],
-  }));
-});
 
-export const getGallery = cache(async (eventSlug: string): Promise<GallerySpeaker[]> => {
-  const event = await getPublicEvent(eventSlug);
-  const repos = await getRepos();
-  const [sessions, tracks, rooms] = await Promise.all([
-    getSessionsWithSpeakers(event.id),
-    repos.tracks.listByEvent(event.id),
-    repos.rooms.listByEvent(event.id),
-  ]);
+    const speakerIds = [...new Set(sessions.flatMap((s) => s.speakerIds))];
+    const speakers = await repos.users.listByIds(speakerIds);
+    const people = new Map(
+      speakers.map((speaker) => [
+        speaker.id,
+        {
+          id: speaker.id,
+          // Never fall back to the email address here — this is a public page.
+          name: speaker.name ?? "Speaker",
+          title: speaker.title,
+          company: speaker.company,
+          bio: speaker.bio,
+          headshotUrl: speaker.headshotUrl,
+          // Maintained by the speaker at /portal/profile (spec.md §6).
+          websiteUrl: speaker.websiteUrl,
+          linkedinUrl: speaker.linkedinUrl,
+          twitterUrl: speaker.twitterUrl,
+        },
+      ]),
+    );
 
-  const speakerIds = [...new Set(sessions.flatMap((s) => s.speakerIds))];
-  const speakers = await repos.users.listByIds(speakerIds);
-  const people = new Map(
-    speakers.map((speaker) => [
-      speaker.id,
-      {
-        id: speaker.id,
-        // Never fall back to the email address here — this is a public page.
-        name: speaker.name ?? "Speaker",
-        title: speaker.title,
-        company: speaker.company,
-        bio: speaker.bio,
-        headshotUrl: speaker.headshotUrl,
-        // Maintained by the speaker at /portal/profile (spec.md §6).
-        websiteUrl: speaker.websiteUrl,
-        linkedinUrl: speaker.linkedinUrl,
-        twitterUrl: speaker.twitterUrl,
-      },
-    ]),
-  );
+    // Track/room names let a speaker's detail view answer "when and where is
+    // their talk?" from the same payload the grid already ships (EMB-05/EMB-13
+    // in the evaluator rubric, decisions.md D-031).
+    return buildGallery(sessions, people, {
+      trackById: new Map(tracks.map((t) => [t.id, { name: t.name }])),
+      roomById: new Map(rooms.map((r) => [r.id, { name: r.name }])),
+    });
+  },
+);
 
-  // Track/room names let a speaker's detail view answer "when and where is
-  // their talk?" from the same payload the grid already ships (EMB-05/EMB-13
-  // in the evaluator rubric, decisions.md D-031).
-  return buildGallery(sessions, people, {
-    trackById: new Map(tracks.map((t) => [t.id, { name: t.name }])),
-    roomById: new Map(rooms.map((r) => [r.id, { name: r.name }])),
-  });
-});
+export const getSchedule = cache(
+  async (eventSlug: string): Promise<ScheduleDay[]> => {
+    const event = await getPublicEvent(eventSlug);
+    const repos = await getRepos();
+    const [sessions, tracks, rooms] = await Promise.all([
+      getSessionsWithSpeakers(event.id),
+      repos.tracks.listByEvent(event.id),
+      repos.rooms.listByEvent(event.id),
+    ]);
 
-export const getSchedule = cache(async (eventSlug: string): Promise<ScheduleDay[]> => {
-  const event = await getPublicEvent(eventSlug);
-  const repos = await getRepos();
-  const [sessions, tracks, rooms] = await Promise.all([
-    getSessionsWithSpeakers(event.id),
-    repos.tracks.listByEvent(event.id),
-    repos.rooms.listByEvent(event.id),
-  ]);
+    const speakerIds = [...new Set(sessions.flatMap((s) => s.speakerIds))];
+    const speakers = await repos.users.listByIds(speakerIds);
 
-  const speakerIds = [...new Set(sessions.flatMap((s) => s.speakerIds))];
-  const speakers = await repos.users.listByIds(speakerIds);
-
-  return buildSchedule(sessions, {
-    trackById: new Map(tracks.map((t) => [t.id, { name: t.name, color: t.color }])),
-    roomById: new Map(rooms.map((r) => [r.id, { name: r.name }])),
-    // Same public-page rule as the gallery: a missing name never exposes an
-    // email address.
-    speakerNameById: new Map(speakers.map((s) => [s.id, s.name ?? "Speaker"])),
-  });
-});
+    return buildSchedule(sessions, {
+      trackById: new Map(
+        tracks.map((t) => [t.id, { name: t.name, color: t.color }]),
+      ),
+      roomById: new Map(rooms.map((r) => [r.id, { name: r.name }])),
+      // Same public-page rule as the gallery: a missing name never exposes an
+      // email address.
+      speakerById: new Map(
+        speakers.map((s) => [
+          s.id,
+          { name: s.name ?? "Speaker", title: s.title, company: s.company },
+        ]),
+      ),
+    });
+  },
+);
 
 /** Forms a visitor could actually submit to right now — the event landing
  * page's "open calls for speakers" links. */
-export const getOpenForms = cache(async (eventSlug: string): Promise<Form[]> => {
-  const event = await getPublicEvent(eventSlug);
-  const repos = await getRepos();
-  const published = await repos.forms.listPublishedByEvent(event.id);
-  return published.filter((form) => formWindowState(form) === "open");
-});
+export const getOpenForms = cache(
+  async (eventSlug: string): Promise<Form[]> => {
+    const event = await getPublicEvent(eventSlug);
+    const repos = await getRepos();
+    const published = await repos.forms.listPublishedByEvent(event.id);
+    return published.filter((form) => formWindowState(form) === "open");
+  },
+);

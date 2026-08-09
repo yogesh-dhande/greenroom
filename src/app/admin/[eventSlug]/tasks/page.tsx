@@ -1,5 +1,5 @@
-import { notFound } from "next/navigation";
 import { getRepos } from "@/lib/db";
+import { requireEventAccess } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
 import { TasksManager } from "./tasks-manager";
 
@@ -11,10 +11,9 @@ export default async function TasksPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
+  const { event } = await requireEventAccess(eventSlug);
 
+  const repos = await getRepos();
   const [tasks, forms, assignments] = await Promise.all([
     repos.tasks.listByEvent(event.id),
     repos.forms.listByEvent(event.id),

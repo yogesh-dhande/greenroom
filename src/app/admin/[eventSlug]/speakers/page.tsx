@@ -1,6 +1,6 @@
-import { notFound } from "next/navigation";
 import type { TaskAssignment } from "@/db/entities";
 import { getRepos } from "@/lib/db";
+import { requireEventAccess } from "@/lib/session";
 import { buildSpeakerRollups, sortSpeakerRollups, TASK_STATE_LABEL, type TaskState } from "@/domain/onboarding";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -46,10 +46,9 @@ export default async function SpeakersPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
+  const { event } = await requireEventAccess(eventSlug);
 
+  const repos = await getRepos();
   const [sessions, tasks, assignments] = await Promise.all([
     repos.sessions.listByEvent(event.id),
     repos.tasks.listByEvent(event.id),

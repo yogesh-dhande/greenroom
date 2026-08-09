@@ -275,6 +275,18 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** All three fall out of refusing to add state the schema already implies. Deletion-as-removal was rejected for its cascade blast radius; a global track replace was rejected because it corrupts other events' routing as a side effect of an innocuous edit; an `invites` table was rejected because the auth library's documented lookup order makes the pre-created row exactly equivalent — same id, role untouched, `emailVerified` flipped by the first real sign-in.
 
+## D-045: Reviewer admin access is event-scoped, derived from track assignment — **accepted** (2026-08-09)
+
+**Decision:** A reviewer can enter the admin area only for events where they have at least one assigned track (`reviewer_tracks → tracks → event`); the event switcher and `/admin` index list only those events for reviewers, and the event-scoped admin layout rejects a reviewer with no tracks on that event. Admins keep access to every event. No new table: track assignment *is* the membership record, consistent with D-044(2)'s event-scoped track edits and D-035(1)'s "the assignment is the authorization." Pages inside the event shell must not rely on the layout alone — each page keeps (or gains) its own guard, closing the unguarded overview/speakers/tasks pages.
+
+**Rationale:** The 2026-08-09 sbek eval demonstrated a real leak: with `role` global on `users` and `listAll()` feeding the event switcher, a reviewer could open any event's overview, speaker roster, agenda, tasks page, and full email log — including an event created minutes earlier that they had no relationship to. All mutations were already admin-guarded, so this was read-level, but spec.md's "reviewers see only their tracks' submissions" clearly intends isolation, and nothing in the docs sanctioned cross-event visibility. Deriving access from `reviewer_tracks` was chosen over a membership table because the team page already maintains per-event track assignment as the way reviewers join an event — a second source of truth would drift.
+
+## D-046: The demo seed must exercise every graded capability — **accepted** (2026-08-09)
+
+**Decision:** Seed data is part of the product surface: the seeded CFP form includes the `co_speakers` block, seeded headshot URLs point at images the app itself serves (committed under `public/`), and most seeded sessions are placed on the agenda (at least one left unscheduled to show the parking-lot state). Applying seed changes to the deployed database is done as targeted SQL that preserves live accounts — never a destructive reseed.
+
+**Rationale:** The 2026-08-09 eval scored two "major" defects against features that exist and work: co-speakers (judged absent because the one form evaluators see omits the block — only `scripts/seed.ts` lacked it, while the builder toggles it and new forms include it by default) and headshot rendering (judged broken because seed URLs pointed at `files.greenroom.dev`, which is NXDOMAIN, so every image fell back to initials by design). Evaluators and real trial users judge what the demo shows, not what the code supports; dormant features are indistinguishable from missing ones. The no-reseed rule exists because the deployed database holds live evaluator accounts whose deletion would invalidate saved sessions.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
