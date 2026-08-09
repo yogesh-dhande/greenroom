@@ -1,15 +1,16 @@
 # Airtable sync — design note
 
-**Status: design-only, not implemented.** The competition brief lists an
-Airtable sync as a bonus ("app-created records land in Airtable so the
-customer's existing new-row automations run"), but no target base — tables,
-fields, or which side owns which record — was ever specified
-([questions.md](../questions.md) Q5). Building a sync against a schema nobody
-defined risks shipping something that satisfies no one's actual automations
-and can't be meaningfully judged. So this document is the architecture we'd
-build, kept ready to implement quickly once a real base shows up, rather than
-a guess wearing the shape of a feature ([decisions.md](../decisions.md) D-006:
-optional features get designed, not built, under the competition deadline).
+**Status: to be implemented against a real base ([decisions.md](decisions.md)
+D-036, owner directive 2026-08-09).** The competition brief lists an Airtable
+sync as a bonus ("app-created records land in Airtable so the customer's
+existing new-row automations run") without specifying a target base, so this
+document was originally the design we'd build once a real base showed up. The
+owner has since chosen to build it for real: they provide a personal access
+token and a base ID (see [todo.md](todo.md)), and Greenroom creates the tables
+itself via Airtable's Metadata API — which resolves the "schema nobody
+defined" problem by making this document the schema definition. The
+architecture below is what gets built, after the CFP-depth wave (both touch
+the cron wiring in `custom-worker.ts`).
 
 ## Why the shape below, not a literal two-way mirror
 
@@ -27,7 +28,7 @@ question you're weighing.
 ## Where it plugs in
 
 The storage-agnostic repository layer already required by
-[spec.md](../spec.md) is what makes this cheap to slot in later. Every
+[spec.md](spec.md) is what makes this cheap to slot in later. Every
 persistence operation in the app goes through the typed interfaces in
 `src/db/repos/*.ts` (`EventsRepo`, `SubmissionsRepo`, `SessionsRepo`,
 `TasksRepo`, etc., bundled as `Repos` in `src/db/repos/index.ts`), and the
@@ -35,7 +36,7 @@ only concrete implementation today is the Drizzle/D1-backed one in
 `src/db/repos/d1/`. An Airtable adapter would be a **sibling** package —
 `src/db/repos/airtable/` — implementing the same interfaces against Airtable's
 REST API instead of D1. That's the abstraction paying for itself exactly as
-[decisions.md](../decisions.md) D-002 describes: "switching D1 ↔ Postgres ↔
+[decisions.md](decisions.md) D-002 describes: "switching D1 ↔ Postgres ↔
 Airtable means implementing a new adapter only."
 
 But a full `Repos` implementation against Airtable is the wrong shape for
@@ -129,5 +130,5 @@ off Airtable rows created by the sync, same as they would off rows a human
 typed in. Two-way sync would only earn its complexity if organizers needed to
 *author* data in Airtable that flows back into the app's own workflows —
 nothing in the brief or the organizer's clarifications asks for that, and
-[decisions.md](../decisions.md) D-002 already established D1, not Airtable,
+[decisions.md](decisions.md) D-002 already established D1, not Airtable,
 as the source of truth for everything the app itself acts on.

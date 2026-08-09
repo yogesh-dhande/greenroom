@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 import { E2E_PORT } from "./playwright.config";
 
 /**
- * Records the demo walkthrough (walkthrough.md) as video — not a test run.
+ * Records the demo walkthrough (walkthrough/walkthrough.md) as video — not a test run.
  * Reuses the e2e harness (seeded local D1, port 3010, .dev.vars swap +
  * teardown restore), so everything in playwright.config.ts's warning applies:
  * destructive to local dev data, never run alongside a dev server.
@@ -10,8 +10,8 @@ import { E2E_PORT } from "./playwright.config";
  *   npx playwright test --config playwright.demo.config.ts
  *
  * Each act in e2e/demo-walkthrough.record.ts produces one clip under
- * demo-recording/; scripts/assemble-walkthrough.sh concatenates them into
- * walkthrough.mp4 with the script's narration as subtitles.
+ * demo-recording/; scripts/assemble-walkthrough.mjs concatenates them into
+ * walkthrough/walkthrough.mp4 with the script's narration as subtitles.
  */
 export default defineConfig({
   testDir: "e2e",

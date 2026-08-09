@@ -16,9 +16,8 @@
 /playwright-report/
 # demo walkthrough recording output (playwright.demo.config.ts)
 /demo-recording/
-/walkthrough.mp4
-/walkthrough.srt
-/walkthrough-subtitled.mp4
+/walkthrough/*.mp4
+/walkthrough/*.srt
 
 # next.js
 /.next/

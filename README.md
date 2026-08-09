@@ -3,8 +3,8 @@
 Open-source speaker & event content management platform — an alternative to
 [Sessionboard](https://www.sessionboard.com/). Call-for-proposals → evaluation
 → acceptance → onboarding → agenda → publishing, in one deployment. See
-[spec.md](spec.md) for the full product requirements and
-[decisions.md](decisions.md) for the key technical decisions and their
+[spec.md](docs/spec.md) for the full product requirements and
+[decisions.md](docs/decisions.md) for the key technical decisions and their
 rationale.
 
 ## What it does
@@ -113,7 +113,7 @@ D1 adapter. To apply migrations without wiping data, use
 ### Signing in
 
 There are no passwords — every role signs in with a magic link
-(see [decisions.md](decisions.md) D-007). In development there is no mail
+(see [decisions.md](docs/decisions.md) D-007). In development there is no mail
 provider, so each requested link is printed to the dev-server console **and**
 appended to `.dev-magic-links.log` (gitignored):
 
@@ -197,7 +197,7 @@ reminder job (`src/domain/comms.ts`) via the `scheduled` handler in
 
 ## Demo walkthrough
 
-[walkthrough.md](walkthrough.md) is a guided demo script that follows the
+[walkthrough.md](walkthrough/walkthrough.md) is a guided demo script that follows the
 acceptance path end to end — create/open the seeded event, submit via the
 public CFP, review and accept, inspect the resulting speaker/session/tasks,
 complete portal work, send a real email and calendar invite, place the
@@ -208,7 +208,7 @@ The script can also record itself: `npx playwright test --config
 playwright.demo.config.ts` drives the whole demo against the seeded test
 harness (destructive to local dev data, like the e2e suite), and
 `node scripts/assemble-walkthrough.mjs` stitches the per-act clips into
-`walkthrough.mp4` with the narration as `walkthrough.srt` subtitles.
+`walkthrough/walkthrough.mp4` with the narration as `walkthrough/walkthrough.srt` subtitles.
 
 ## Design notes
 

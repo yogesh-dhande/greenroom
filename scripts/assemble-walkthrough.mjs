@@ -7,7 +7,7 @@
  *
  * Reads demo-recording/manifest.json (written by e2e/demo-walkthrough.record.ts),
  * normalises each act's .webm clip to an h264 segment, concatenates them in act
- * order into walkthrough.mp4, and writes walkthrough.srt from the narration
+ * order into walkthrough/walkthrough.mp4, and writes walkthrough/walkthrough.srt from the narration
  * beats the recording captured.
  *
  * The two-pass shape (normalise -> ffprobe -> concat) is what makes the
@@ -35,8 +35,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RECORDING_DIR = path.join(ROOT, "demo-recording");
 const MANIFEST = path.join(RECORDING_DIR, "manifest.json");
 const SEGMENT_DIR = path.join(RECORDING_DIR, "segments");
-const OUT_MP4 = path.join(ROOT, "walkthrough.mp4");
-const OUT_SRT = path.join(ROOT, "walkthrough.srt");
+const OUT_MP4 = path.join(ROOT, "walkthrough", "walkthrough.mp4");
+const OUT_SRT = path.join(ROOT, "walkthrough", "walkthrough.srt");
 
 /** A cue never lingers longer than this, even with dead air after it. */
 const MAX_CUE_MS = 5_000;

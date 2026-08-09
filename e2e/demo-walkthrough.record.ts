@@ -11,15 +11,15 @@ import path from "node:path";
 import { signIn } from "./helpers";
 
 /**
- * The recorded product demo (walkthrough.md) — a *recording*, not a test.
+ * The recorded product demo (walkthrough/walkthrough.md) — a *recording*, not a test.
  *
  *   npx playwright test --config playwright.demo.config.ts
  *   node scripts/assemble-walkthrough.mjs
  *
  * One test per act, so Playwright produces one video clip per act; the clips
  * plus the narration manifest written here are what
- * scripts/assemble-walkthrough.mjs turns into walkthrough.mp4 +
- * walkthrough.srt.
+ * scripts/assemble-walkthrough.mjs turns into walkthrough/walkthrough.mp4 +
+ * walkthrough/walkthrough.srt.
  *
  * Pacing, not assertions, is the point: slowMo is on in the config and every
  * beat holds long enough for a viewer to read the thing being pointed at.
