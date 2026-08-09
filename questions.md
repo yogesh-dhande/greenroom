@@ -16,6 +16,10 @@ Email provider is settled (SendGrid, D-030 — owner has the API key). Still nee
 Task/deadline reminder emails run from a cron (W5b). How often should a speaker be nudged about the same overdue task — daily, every 3 days, weekly? At what point do reminders stop?
 **Working assumption:** one reminder per task at most every 3 days, stopping after the task is done or the event starts; admins can always send a manual nudge.
 
+### Q8. Form-level "abstracts vs sessions" type switch — worth building?
+The walkthrough ([04:35]) shows a Sessionboard form setting choosing whether a form collects abstracts (proposals to review) or sessions (confirmed talks, e.g. sponsor slots). Greenroom covers the second job via admin direct session entry (spec §5), not as a public form type. Is a public form that creates confirmed sessions actually needed, or is admin entry enough for the job?
+**Working assumption:** admin direct entry covers it; no form-type switch. Revisit only if judging shows a public "session intake" form being exercised.
+
 ## For the organizer
 
 ### Q5. Airtable sync — worth building, and against what base?
@@ -38,3 +42,4 @@ Lower stakes — silently defaulted, listed so they can be challenged cheaply.
 - **Public schedule times** display in the event's timezone only — no viewer-local conversion.
 - **Co-speakers** get full portal access to the shared submission and their own copies of onboarding tasks.
 - **Declined submissions** remain visible to the submitter in the portal (with the decision), not hidden.
+- **Per-form admin/notification recipients** (walkthrough [05:37]) skipped — the producer himself labels it "optional"; all event admins see all forms.

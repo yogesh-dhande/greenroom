@@ -209,6 +209,12 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** Owner directive (2026-08-09): the product will be evaluated and used in CA, and speed is an explicit judging differentiator (spec.md, Performance). For a chatty SSR app, per-query latency to D1 dominates; colocating compute with the database in WNAM minimizes it for CA users specifically.
 
+## D-034: Walkthrough-audit corrections to the spec — **accepted** (2026-08-09)
+
+**Decision:** A full-captions audit of the organizer's walkthrough video (D-032 precedence) produced these corrections, now in spec.md: (1) the review-routing sentence no longer claims "no routing engine" — the video shows evaluation plans assigning explicit submission sets to committees ([08:41]), which the evaluation-rounds work (D-031) covers; (2) CFP form depth is spec'd: field length limits, a per-form submission limit, abstracts-**or-videos** framing ([03:23]), a form-close reminder email, and a hard rule that co-speakers never have a minimum count — the producer's "minimum of two speakers… that was stupid" ([06:46]) is the loudest single complaint in the video; (3) AI stays out of scope ("I don't care about the AI workflow thing", [09:23]) — the rubric's "AI Agenda" area is ~all agenda-builder mechanics we already have, and its only AI item (AIA-08, weight 1, "judged generously") is a one-action auto-place assist we may add as polish, so there is no D-031/D-032 conflict; (4) the form-type switch (abstracts vs sessions, [04:35]) and per-form admins ([05:37]) went to questions.md/product-defaults rather than the spec. Spec line "decidable by reviewer or admin" also corrected to match D-025/D-029 (reviewers recommend, admins decide) — a pre-existing drift, not a video finding.
+
+**Rationale:** The transcript (scratchpad, via `uvx yt-dlp`) is the producer's own emphasis ranking: speed (three unprompted complaints), "a very fancy form builder — that's all it is", program-side only, speakers seeing acceptance state, and speakers editing their own bio. The context doc had attributed several brief/Discord items to the walkthrough; the audit separated the sources.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

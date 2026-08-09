@@ -20,7 +20,11 @@ Open-source speaker & event content management platform: an alternative to [Sess
 ### 2. Call-for-speakers forms
 - Multiple configurable public submission forms per event: welcome/explanatory copy, abstract fields (title, description, custom fields), one-or-more track selection, speaker **and co-speaker** info (multi-speaker supported, never required), bio/headshot/supporting-file fields, required-field validation.
 - **Basic conditional logic** — no arbitrary rules engine.
-- Submission open/close behavior.
+- Field-level validation beyond required-flags: length limits on text fields (walkthrough calls out Sessionboard failing its own "standard validation rules", D-034).
+- Proposals may be **abstracts or videos** — a video is just a URL/file field, but the form builder should name the option so it's discoverable (D-034).
+- Optional per-form **submission limit** per submitter (D-034).
+- Co-speakers can never be required and never have a minimum count — the producer's own "minimum of two speakers" misconfiguration is the walkthrough's loudest complaint (D-034).
+- Submission open/close behavior, with a close-reminder email to submitters with unfinished work (D-034; also Important tier).
 - **Working confirmation page and working confirmation email** after submission (explicit must-haves).
 - English-only; no payments/fees.
 
@@ -28,8 +32,8 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Speakers submit via a public CFP page with no admin access; submissions remain **editable by the submitter** afterward (admin edit-lock deadlines: enhancement).
 
 ### 4. Review & decisions
-- Routing = track-based responsibility: submissions pick tracks, reviewers own tracks. No routing engine.
-- Minimum flow: `unreviewed → approve / maybe / deny`, decidable by reviewer or admin. (Scored reviews, multiple rounds: enhancements. AI-assisted evaluation: out of scope.)
+- Routing: submissions pick tracks and reviewers own tracks — the default scoping for the review queue. The walkthrough additionally shows evaluation plans that assign explicit submission sets to a reviewing committee (D-032, D-034), and the evaluator rubric tests exact per-reviewer assigned queues — covered by the evaluation-rounds work (D-031).
+- Minimum flow: `unreviewed → approve / maybe / deny`; reviewers record recommendations, admins record the binding decision (D-025, D-029). Multi-round scored evaluations: Important tier (D-031). AI-assisted evaluation: out of scope — the producer: "I don't care about the AI workflow thing" (D-034).
 - A "maybe" is internal to the team: speakers keep seeing the proposal as in review until it's accepted or declined, and no waitlist email goes out unless the admin explicitly opts in (D-028).
 - Organizer-called-out bonus (2026-08-08): email the speaker from inside the app to request changes, and attach feedback when sending the approve/deny decision.
 - Admin submission list with clear statuses (rich filters/sorting/columns: important tier).
