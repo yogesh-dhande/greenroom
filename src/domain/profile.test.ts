@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nextHeadshotUrl,
+  normalizeTwitterHandle,
   parseProfileInput,
   profileFormValues,
   profileLinks,
@@ -94,6 +95,20 @@ describe("parseProfileInput", () => {
     expect(errorsOf(submitted({ website_url: "ftp://files.example.com" })).website_url).toBeTruthy();
   });
 
+  it("accepts an @handle or a bare handle for X, normalized to a link", () => {
+    expect(patchOf(submitted({ twitter_url: "@priya" })).twitterUrl).toBe("https://x.com/priya");
+    expect(patchOf(submitted({ twitter_url: "priya" })).twitterUrl).toBe("https://x.com/priya");
+    // A pasted link is left exactly as given, including the legacy domain.
+    expect(patchOf(submitted({ twitter_url: "https://twitter.com/priya" })).twitterUrl).toBe(
+      "https://twitter.com/priya",
+    );
+  });
+
+  it("rejects an X handle that isn't a link and isn't handle-shaped", () => {
+    expect(errorsOf(submitted({ twitter_url: "@priya raman" })).twitter_url).toBeTruthy();
+    expect(errorsOf(submitted({ twitter_url: "priya.dev" })).twitter_url).toBeTruthy();
+  });
+
   it("caps each field's length", () => {
     expect(errorsOf(submitted({ name: "a".repeat(PROFILE_LIMITS.name + 1) })).name).toBeTruthy();
     expect(errorsOf(submitted({ title: "a".repeat(PROFILE_LIMITS.title + 1) })).title).toBeTruthy();
@@ -120,6 +135,33 @@ describe("parseProfileInput", () => {
   it("stores a picked headshot as the URL that serves it back", () => {
     const patch = patchOf(submitted({ headshot: "uploads/profile/abc12345-headshot.png" }));
     expect(patch.headshotUrl).toBe("/files/uploads/profile/abc12345-headshot.png");
+  });
+});
+
+describe("normalizeTwitterHandle", () => {
+  it("passes a full http(s) link through unchanged", () => {
+    expect(normalizeTwitterHandle("https://x.com/priya")).toBe("https://x.com/priya");
+    expect(normalizeTwitterHandle("  https://twitter.com/priya  ")).toBe(
+      "https://twitter.com/priya",
+    );
+  });
+
+  it("turns an @handle or a bare handle into an x.com link", () => {
+    expect(normalizeTwitterHandle("@priya")).toBe("https://x.com/priya");
+    expect(normalizeTwitterHandle("priya")).toBe("https://x.com/priya");
+    expect(normalizeTwitterHandle("  @priya_dev  ")).toBe("https://x.com/priya_dev");
+  });
+
+  it("rejects handles that aren't shaped like a handle", () => {
+    expect(normalizeTwitterHandle("@priya raman")).toBeNull();
+    expect(normalizeTwitterHandle("priya.dev")).toBeNull();
+    expect(normalizeTwitterHandle("a".repeat(16))).toBeNull(); // over X's 15-char cap
+    expect(normalizeTwitterHandle("javascript:alert(1)")).toBeNull();
+  });
+
+  it("is null for a blank input", () => {
+    expect(normalizeTwitterHandle("")).toBeNull();
+    expect(normalizeTwitterHandle("   ")).toBeNull();
   });
 });
 

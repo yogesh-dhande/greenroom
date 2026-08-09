@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { PencilIcon, PlusIcon, Trash2Icon, UserPlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Form, Task } from "@/db/entities";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { formatDate } from "@/components/date-format";
-import { deleteTask } from "./actions";
+import { assignTaskToConfirmedSpeakers, deleteTask } from "./actions";
 import { TaskFormDialog } from "./task-form-dialog";
 
 const TASK_TYPE_LABEL: Record<string, string> = {
@@ -41,6 +41,7 @@ export function TasksManager({
   tasks,
   forms,
   assignmentCounts,
+  confirmedSpeakerCount,
 }: {
   eventSlug: string;
   eventTimezone: string;
@@ -49,8 +50,12 @@ export function TasksManager({
   /** Number of speakers currently assigned each task, keyed by task id — just
    * for the delete confirmation copy. */
   assignmentCounts: Record<string, number>;
+  /** Every speaker confirmed for this event (decisions.md D-017) — the
+   * "Assign to confirmed speakers" (D-052) target and its zero-state. */
+  confirmedSpeakerCount: number;
 }) {
   const [pendingDelete, setPendingDelete] = useState<Task | null>(null);
+  const [pendingAssign, setPendingAssign] = useState<Task | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function confirmDelete() {
@@ -64,6 +69,32 @@ export function TasksManager({
         toast.success("Task deleted");
         setPendingDelete(null);
       }
+    });
+  }
+
+  /** How many confirmed speakers don't already hold this task — the count the
+   * confirmation dialog promises and the button's disabled/zero-state. Reads
+   * off the page's `assignmentCounts` snapshot, same as the delete dialog. */
+  function missingCount(task: Task) {
+    return Math.max(confirmedSpeakerCount - (assignmentCounts[task.id] ?? 0), 0);
+  }
+
+  function confirmAssign() {
+    if (!pendingAssign) return;
+    const task = pendingAssign;
+    startTransition(async () => {
+      const result = await assignTaskToConfirmedSpeakers(eventSlug, task.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setPendingAssign(null);
+      const { assignedCount } = result.data;
+      toast.success(
+        assignedCount > 0
+          ? `Assigned to ${assignedCount} speaker${assignedCount === 1 ? "" : "s"}`
+          : "Everyone confirmed already has this task",
+      );
     });
   }
 
@@ -117,6 +148,22 @@ export function TasksManager({
                 </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Assign "${task.title}" to confirmed speakers`}
+                      title={
+                        confirmedSpeakerCount === 0
+                          ? "No speakers confirmed for this event yet"
+                          : missingCount(task) === 0
+                            ? "Every confirmed speaker already has this task"
+                            : "Assign to confirmed speakers"
+                      }
+                      disabled={confirmedSpeakerCount === 0 || missingCount(task) === 0}
+                      onClick={() => setPendingAssign(task)}
+                    >
+                      <UserPlusIcon />
+                    </Button>
                     <TaskFormDialog
                       eventSlug={eventSlug}
                       eventTimezone={eventTimezone}
@@ -160,6 +207,27 @@ export function TasksManager({
             <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction variant="destructive" disabled={isPending} onClick={confirmDelete}>
               {isPending ? "Deleting…" : "Delete task"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={pendingAssign !== null} onOpenChange={(open) => !open && setPendingAssign(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Assign &quot;{pendingAssign?.title}&quot; to confirmed speakers?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingAssign
+                ? `This adds the task to ${missingCount(pendingAssign)} speaker${
+                    missingCount(pendingAssign) === 1 ? "" : "s"
+                  } confirmed for this event who don't already have it. Speakers who already have this task — including any who've finished it — are left untouched.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={isPending} onClick={confirmAssign}>
+              {isPending ? "Assigning…" : "Assign task"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

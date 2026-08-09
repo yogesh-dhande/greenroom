@@ -1,5 +1,6 @@
 import type { EmailLogRepo } from "./email-log";
 import type { EmailTemplatesRepo } from "./email-templates";
+import type { EventSpeakersRepo } from "./event-speakers";
 import type { EventsRepo } from "./events";
 import type { FormsRepo } from "./forms";
 import type { ReviewRoundsRepo } from "./review-rounds";
@@ -13,6 +14,7 @@ import type { TracksRepo } from "./tracks";
 import type { UsersRepo } from "./users";
 
 export type { EventsRepo } from "./events";
+export type { EventSpeakersRepo } from "./event-speakers";
 export type { UsersRepo } from "./users";
 export type { FormsRepo } from "./forms";
 export type { SubmissionsRepo } from "./submissions";
@@ -35,6 +37,8 @@ export type { EmailLogRepo } from "./email-log";
 export interface Repos {
   events: EventsRepo;
   users: UsersRepo;
+  /** Per-event speaker records: organizer notes + roster membership (D-051). */
+  eventSpeakers: EventSpeakersRepo;
   forms: FormsRepo;
   submissions: SubmissionsRepo;
   reviews: ReviewsRepo;

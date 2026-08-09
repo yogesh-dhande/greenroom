@@ -476,6 +476,21 @@ export const sessionSpeakerSchema = z.object({
 export type SessionSpeaker = z.infer<typeof sessionSpeakerSchema>;
 
 // ---------------------------------------------------------------------------
+// EventSpeaker (spec.md §5, decisions.md D-051) — a speaker's record at one
+// event: the organizer's private notes about them, and the membership row
+// that puts a hand-added speaker on the roster.
+// ---------------------------------------------------------------------------
+
+export const eventSpeakerSchema = z.object({
+  eventId: z.string(),
+  userId: z.string(),
+  /** Organizer-only logistics prose; never rendered to the speaker. */
+  notes: z.string().nullable(),
+  ...timestamps,
+});
+export type EventSpeaker = z.infer<typeof eventSpeakerSchema>;
+
+// ---------------------------------------------------------------------------
 // Task / TaskAssignment (speaker onboarding — spec.md §6, §8)
 // ---------------------------------------------------------------------------
 

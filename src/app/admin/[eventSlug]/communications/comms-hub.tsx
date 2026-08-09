@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BellRingIcon } from "lucide-react";
 import { toast } from "sonner";
+import type { MergeData } from "@/domain/comms-templates";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { sendRemindersNow } from "./actions";
@@ -24,14 +25,16 @@ import type { InviteRow, LogRow, SpeakerOption, TemplateRow } from "./types";
  */
 export function CommsHub({
   eventSlug,
-  eventName,
+  eventMergeData,
   logRows,
   speakers,
   templates,
   invites,
 }: {
   eventSlug: string;
-  eventName: string;
+  /** This event's real merge data (dates, URLs, organizer name) — see
+   * ComposeForm for how it overlays `templatePreviewData`. */
+  eventMergeData: MergeData;
   logRows: LogRow[];
   speakers: SpeakerOption[];
   templates: TemplateRow[];
@@ -95,7 +98,7 @@ export function CommsHub({
       <TabsContent value="compose">
         <ComposeForm
           eventSlug={eventSlug}
-          eventName={eventName}
+          eventMergeData={eventMergeData}
           speakers={speakers}
           onSent={() => {
             setTab("log");

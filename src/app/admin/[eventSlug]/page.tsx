@@ -16,16 +16,30 @@ export default async function EventOverviewPage({
   const { user, event } = await requireEventAccess(eventSlug);
 
   const repos = await getRepos();
-  const [submissions, sessions, speakers, tasks] = await Promise.all([
+  const [submissions, sessions, tasks, taskAssignments] = await Promise.all([
     repos.submissions.listByEvent(event.id),
     repos.sessions.listByEvent(event.id),
-    repos.users.listByRole("speaker"),
     repos.tasks.listByEvent(event.id),
+    repos.taskAssignments.listByEvent(event.id),
   ]);
 
   const unreviewed = submissions.filter((s) => s.status === "submitted").length;
   const accepted = submissions.filter((s) => s.status === "approved").length;
   const scheduled = sessions.filter((s) => s.day && s.startTime).length;
+
+  // Same "speaker with a stake in this event" definition as the Speakers
+  // roster (src/domain/onboarding.ts buildSpeakerRollups via
+  // src/app/admin/[eventSlug]/speakers/page.tsx): confirmed to speak (has a
+  // session-speaker link) or holding at least one task assignment. Composed
+  // from the same repo reads here so the two counts can never disagree
+  // (decisions.md D-053).
+  const sessionSpeakerRows = await repos.sessions.listSpeakersBySessionIds(
+    sessions.map((session) => session.id),
+  );
+  const speakerCount = new Set<string>([
+    ...sessionSpeakerRows.map((row) => row.userId),
+    ...taskAssignments.map((assignment) => assignment.speakerId),
+  ]).size;
 
   return (
     <div>
@@ -37,7 +51,7 @@ export default async function EventOverviewPage({
         <StatCard label="Accepted" value={accepted} />
         <StatCard label="Sessions" value={sessions.length} />
         <StatCard label="Scheduled sessions" value={scheduled} sublabel="On the agenda" />
-        <StatCard label="Speakers" value={speakers.length} />
+        <StatCard label="Speakers" value={speakerCount} />
         <StatCard label="Tasks" value={tasks.length} sublabel="Onboarding task types" />
       </div>
 

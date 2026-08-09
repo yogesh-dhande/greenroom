@@ -95,8 +95,14 @@ export const PROFILE_FORM_FIELDS: FormField[] = [
   },
   {
     id: PROFILE_FIELD_IDS.twitterUrl,
-    type: "url",
+    // Plain text, not `type: "url"` (decisions.md D-053): a native HTML url
+    // input rejects "@handle" and bare handles outright, and that's the form
+    // most speakers actually type. `normalizeTwitterHandle` accepts a full
+    // link, "@handle", or a bare handle and turns the latter two into a link
+    // on save.
+    type: "text",
     label: "X (Twitter)",
+    helpText: "A link, @handle, or just your handle — we'll turn it into a link.",
   },
 ];
 
@@ -165,6 +171,33 @@ function isHttpUrl(value: string): boolean {
 }
 
 /**
+ * A bare X/Twitter handle: letters, digits, underscores, 1–15 characters —
+ * the platform's own rule. Anything else typed without a scheme (a stray
+ * domain, a URL that failed to parse) is rejected rather than guessed at.
+ */
+const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
+
+/**
+ * Accepts what a speaker actually types for X (decisions.md D-053) — a full
+ * link, "@handle", or a bare handle — and returns the link the profile
+ * should store, or `null` if it's none of those.
+ *
+ * A full http(s) URL passes through unchanged (a speaker who pasted their
+ * profile link, on x.com or the legacy twitter.com domain, gets exactly what
+ * they pasted). "@handle" and a bare handle are both normalized to
+ * `https://x.com/<handle>` so the stored value is always something the
+ * gallery card can link to directly.
+ */
+export function normalizeTwitterHandle(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (isHttpUrl(trimmed)) return trimmed;
+  const handle = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  if (!HANDLE_RE.test(handle)) return null;
+  return `https://x.com/${handle}`;
+}
+
+/**
  * Default values for the editor's form. The headshot comes back as the upload
  * key so the file control can render and clear it; a headshot stored as an
  * external URL (seed/demo data) has no key, so the box starts empty and
@@ -222,11 +255,7 @@ export function parseProfileInput(
   }
 
   const links: Record<string, string | null> = {};
-  for (const fieldId of [
-    PROFILE_FIELD_IDS.websiteUrl,
-    PROFILE_FIELD_IDS.linkedinUrl,
-    PROFILE_FIELD_IDS.twitterUrl,
-  ]) {
+  for (const fieldId of [PROFILE_FIELD_IDS.websiteUrl, PROFILE_FIELD_IDS.linkedinUrl]) {
     const link = orNull(values[fieldId]);
     links[fieldId] = link;
     if (!link) continue;
@@ -234,6 +263,24 @@ export function parseProfileInput(
       errors[fieldId] = `Keep this under ${PROFILE_LIMITS.url} characters`;
     } else if (!isHttpUrl(link)) {
       errors[fieldId] = "Enter a full link, starting with https://";
+    }
+  }
+
+  // X/Twitter alone accepts a handle too (decisions.md D-053) — see
+  // `normalizeTwitterHandle`.
+  const twitterRaw = orNull(values[PROFILE_FIELD_IDS.twitterUrl]);
+  links[PROFILE_FIELD_IDS.twitterUrl] = null;
+  if (twitterRaw) {
+    if (twitterRaw.length > PROFILE_LIMITS.url) {
+      errors[PROFILE_FIELD_IDS.twitterUrl] = `Keep this under ${PROFILE_LIMITS.url} characters`;
+    } else {
+      const normalized = normalizeTwitterHandle(twitterRaw);
+      if (!normalized) {
+        errors[PROFILE_FIELD_IDS.twitterUrl] =
+          "Enter a link, @handle, or handle (letters, numbers, underscores).";
+      } else {
+        links[PROFILE_FIELD_IDS.twitterUrl] = normalized;
+      }
     }
   }
 

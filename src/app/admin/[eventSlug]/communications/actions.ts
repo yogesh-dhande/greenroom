@@ -37,6 +37,17 @@ function fail(error: string) {
   return { ok: false as const, error };
 }
 
+/**
+ * The signature line for mail this admin triggers by hand — the sending
+ * admin's own display name, not the `DEFAULT_ORGANIZER_NAME` fallback
+ * (decisions.md D-053: "{{organizerName}}" must not read "The program team"
+ * for a real, admin-initiated send). Automated/cron sends have no acting
+ * user and keep the fallback (see `runReminderJob`'s scheduled call sites).
+ */
+function organizerNameFor(viewer: { name: string | null; email: string }): string {
+  return viewer.name?.trim() || viewer.email;
+}
+
 async function authorize(eventSlug: string) {
   const viewer = await requireAdmin(`/admin/${eventSlug}/communications`);
   const repos = await getRepos();
@@ -81,7 +92,10 @@ export async function sendComposedEmail(eventSlug: string, input: ManualEmailInp
   const recipients = await auth.repos.users.listByIds(parsed.data.recipientIds);
   if (recipients.length === 0) return fail("Couldn't find those recipients");
 
-  const comms = await getCommsContext({ repos: auth.repos });
+  const comms = await getCommsContext({
+    repos: auth.repos,
+    organizerName: organizerNameFor(auth.viewer),
+  });
 
   let sent = 0;
   const failures: string[] = [];
@@ -219,7 +233,10 @@ export async function sendSessionInvite(eventSlug: string, sessionId: string) {
   const session = await auth.repos.sessions.getById(sessionId);
   if (!session || session.eventId !== auth.event.id) return fail("Session not found");
 
-  const comms = await getCommsContext({ repos: auth.repos });
+  const comms = await getCommsContext({
+    repos: auth.repos,
+    organizerName: organizerNameFor(auth.viewer),
+  });
 
   let deliveries;
   try {
@@ -261,7 +278,10 @@ export async function sendRemindersNow(eventSlug: string) {
   const auth = await authorize(eventSlug);
   if (!auth.ok) return fail(auth.error);
 
-  const comms = await getCommsContext({ repos: auth.repos });
+  const comms = await getCommsContext({
+    repos: auth.repos,
+    organizerName: organizerNameFor(auth.viewer),
+  });
 
   let result;
   try {

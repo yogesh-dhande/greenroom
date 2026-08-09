@@ -203,8 +203,14 @@ function displayName(user: User): string {
   return user.name?.trim() || user.email;
 }
 
-/** Event-level fields, present on every message. */
-function eventFields(ctx: CommsContext, event: Event): MergeData {
+/**
+ * Event-level fields, present on every message. Exported so the composer's
+ * on-screen preview (src/app/admin/[eventSlug]/communications/page.tsx) can
+ * compute the same real dates/URLs/organizer name the send path uses,
+ * instead of `templatePreviewData`'s generic placeholders (decisions.md
+ * D-053).
+ */
+export function eventFields(ctx: CommsContext, event: Event): MergeData {
   const reference = event.startDate
     ? zonedWallClockToInstant(event.startDate, "12:00", event.timezone)
     : nowOf(ctx);

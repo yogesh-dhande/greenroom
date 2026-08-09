@@ -4,8 +4,13 @@ import {
   buildSpeakerRollups,
   deriveTaskState,
   sortAssignmentViews,
+  filterSpeakerRollups,
+  matchesSpeakerSearch,
+  rosterSpeakerIds,
   sortSpeakerRollups,
+  speakerRosterStatus,
   type AssignmentView,
+  type SpeakerRollup,
 } from "@/domain/onboarding";
 import type { Task, TaskAssignment, User } from "@/db/entities";
 
@@ -260,5 +265,90 @@ describe("sortSpeakerRollups", () => {
     const sorted = sortSpeakerRollups(rollups);
     // Alice: 0% complete sorts before Zoe's 100%, no overdue tasks in play.
     expect(sorted.map((r) => r.speaker.id)).toEqual(["a", "z"]);
+  });
+});
+
+describe("rosterSpeakerIds", () => {
+  it("unions the three membership sources without duplicates", () => {
+    expect(
+      rosterSpeakerIds({
+        confirmedSpeakerIds: ["a", "b"],
+        assignedSpeakerIds: ["b", "c"],
+        memberSpeakerIds: ["c", "d"],
+      }),
+    ).toEqual(new Set(["a", "b", "c", "d"]));
+  });
+
+  it("keeps a hand-added speaker with no session and no task", () => {
+    expect(
+      rosterSpeakerIds({
+        confirmedSpeakerIds: [],
+        assignedSpeakerIds: [],
+        memberSpeakerIds: ["added-by-hand"],
+      }),
+    ).toEqual(new Set(["added-by-hand"]));
+  });
+});
+
+describe("roster filtering", () => {
+  /** A rollup with only the fields the filters read. */
+  function rollup(
+    speakerOverrides: Partial<User> & { id: string },
+    counts: { outstanding?: number; overdue?: number } = {},
+  ): SpeakerRollup {
+    const outstandingTasks = counts.outstanding ?? 0;
+    return {
+      speaker: user(speakerOverrides),
+      confirmed: true,
+      totalTasks: outstandingTasks,
+      completedTasks: 0,
+      outstandingTasks,
+      overdueTasks: counts.overdue ?? 0,
+      completionPercent: outstandingTasks === 0 ? 100 : 0,
+      views: [],
+    };
+  }
+
+  const ada = rollup({ id: "ada", name: "Ada Lovelace", company: "Analytical Engines" });
+  const grace = rollup({ id: "grace", name: "Grace Hopper", company: "US Navy" }, { outstanding: 2 });
+  const alan = rollup({ id: "alan", name: "Alan Turing", company: null }, { outstanding: 1, overdue: 1 });
+  const all = [ada, grace, alan];
+
+  it("derives one status per speaker, overdue taking precedence", () => {
+    expect(speakerRosterStatus(ada)).toBe("complete");
+    expect(speakerRosterStatus(grace)).toBe("incomplete");
+    expect(speakerRosterStatus(alan)).toBe("overdue");
+  });
+
+  it("counts overdue speakers as outstanding too", () => {
+    expect(filterSpeakerRollups(all, { q: "", status: "incomplete" }).map((r) => r.speaker.id)).toEqual([
+      "grace",
+      "alan",
+    ]);
+    expect(filterSpeakerRollups(all, { q: "", status: "overdue" }).map((r) => r.speaker.id)).toEqual([
+      "alan",
+    ]);
+    expect(filterSpeakerRollups(all, { q: "", status: "complete" }).map((r) => r.speaker.id)).toEqual([
+      "ada",
+    ]);
+  });
+
+  it("searches name, email and company, case-insensitively", () => {
+    expect(matchesSpeakerSearch(ada, "lovelace")).toBe(true);
+    expect(matchesSpeakerSearch(ada, "ADA@")).toBe(true);
+    expect(matchesSpeakerSearch(ada, "analytical")).toBe(true);
+    expect(matchesSpeakerSearch(ada, "hopper")).toBe(false);
+    // No company at all is a miss, never a crash.
+    expect(matchesSpeakerSearch(alan, "navy")).toBe(false);
+  });
+
+  it("treats an empty or whitespace query as no filter", () => {
+    expect(filterSpeakerRollups(all, { q: "  ", status: "all" })).toHaveLength(3);
+  });
+
+  it("combines search and status", () => {
+    expect(
+      filterSpeakerRollups(all, { q: "a", status: "incomplete" }).map((r) => r.speaker.id),
+    ).toEqual(["grace", "alan"]);
   });
 });

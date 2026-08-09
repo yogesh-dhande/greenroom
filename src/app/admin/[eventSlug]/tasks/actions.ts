@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { taskTypeSchema } from "@/db/entities";
 import { fromZonedInputValue } from "@/domain/forms";
+import { planAssignToConfirmedSpeakers } from "@/domain/task-assign";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 
@@ -96,6 +97,69 @@ export async function updateTask(eventSlug: string, taskId: string, input: TaskI
     return { ok: true } as const;
   } catch {
     return fail("Couldn't save the task — try again");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Catch a task up to speakers already confirmed (spec.md §5, D-052)
+// ---------------------------------------------------------------------------
+
+/**
+ * Attaches a task to every speaker already confirmed for the event, in one
+ * action from the task list — the fix for the baseline defect where a task
+ * created after acceptance never reached anyone because it only attached via
+ * "auto-assign on acceptance".
+ *
+ * "Confirmed" is read the same way the speakers roster computes it
+ * (src/app/admin/[eventSlug]/speakers/page.tsx, decisions.md D-017): every
+ * speaker who appears on any session for this event, via the session-speaker
+ * links acceptance conversion (or direct entry) already writes. No new repo
+ * method needed — this composes `sessions.listByEvent` +
+ * `sessions.listSpeakersBySessionIds`, the same reads the roster uses.
+ *
+ * Idempotent by construction: `planAssignToConfirmedSpeakers`
+ * (src/domain/task-assign.ts) only ever plans the speakers who don't already
+ * hold the task, so a repeat click can't duplicate a row or reset one that's
+ * already complete.
+ */
+export async function assignTaskToConfirmedSpeakers(eventSlug: string, taskId: string) {
+  await requireAdmin(`/admin/${eventSlug}/tasks`);
+  const repos = await getRepos();
+
+  const [event, task] = await Promise.all([repos.events.getBySlug(eventSlug), repos.tasks.getById(taskId)]);
+  if (!event || !task || task.eventId !== event.id) return fail("That task no longer exists");
+
+  try {
+    const sessions = await repos.sessions.listByEvent(event.id);
+    const sessionSpeakerRows = await repos.sessions.listSpeakersBySessionIds(
+      sessions.map((session) => session.id),
+    );
+    const confirmedSpeakerIds = [...new Set(sessionSpeakerRows.map((row) => row.userId))];
+
+    const existingAssignments = await repos.taskAssignments.listByTask(taskId);
+
+    const plan = planAssignToConfirmedSpeakers({
+      taskId,
+      confirmedSpeakerIds,
+      existingAssignments,
+    });
+
+    for (const assignment of plan.newAssignments) {
+      await repos.taskAssignments.create(assignment);
+    }
+
+    revalidatePath(`/admin/${eventSlug}/tasks`);
+    revalidatePath(`/admin/${eventSlug}/speakers`);
+    revalidatePath("/portal");
+    return {
+      ok: true as const,
+      data: {
+        assignedCount: plan.newAssignments.length,
+        confirmedCount: confirmedSpeakerIds.length,
+      },
+    };
+  } catch {
+    return fail("Couldn't assign the task — try again");
   }
 }
 

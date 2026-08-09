@@ -455,6 +455,39 @@ export const sessionSpeakers = sqliteTable(
   ],
 );
 
+/**
+ * A speaker's record *at one event* (spec.md §5, decisions.md D-051).
+ *
+ * Two jobs, deliberately in one table. It carries the organizer-only
+ * logistics notes ("arrival May 11, aisle seat; dietary: vegetarian"), which
+ * are per-event rather than a column on `users` — the same person speaking at
+ * two events has two sets of arrangements. And its existence *is* the roster
+ * membership for a speaker an organizer entered by hand or imported: before
+ * D-051 the roster was derived from session links and task assignments only,
+ * so a manually added speaker had nowhere to belong until their first session
+ * or task. Roster derivation now unions all three sources
+ * (`rosterSpeakerIds` in src/domain/onboarding.ts).
+ */
+export const eventSpeakers = sqliteTable(
+  "event_speakers",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Free text, organizer-only — never shown to the speaker or the public.
+     * One field rather than a custom-field builder, per D-051. */
+    notes: text("notes"),
+    ...timestamps,
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.userId] }),
+    index("event_speakers_user_idx").on(t.userId),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Tasks / Task assignments (speaker onboarding — spec.md §6, §8)
 // ---------------------------------------------------------------------------

@@ -43,6 +43,13 @@
       "when": 1786300602215,
       "tag": "0005_blind_review",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786301772794,
+      "tag": "0006_event_speakers",
+      "breakpoints": true
     }
   ]
 }

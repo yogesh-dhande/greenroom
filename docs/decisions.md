@@ -311,6 +311,24 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** The rubric probes reviewer reminders (ABS-09, unjudgeable in the baseline run only because the scenario hit its turn limit); organizers really do chase reviewers, and the app already has the sender, templates, and log — the whole feature is one query (assignments minus filed scorecards) and one button. Automatic reminder schedules were rejected for the same reason D-038 capped draft reminders at one: recurring unprompted email is a nag, and a manual button demonstrates the capability without inventing cadence policy.
 
+## D-051: Speaker records are first-class organizer objects — **accepted** (2026-08-09)
+
+**Decision:** A speaker is an object an organizer can open, edit, and create — not only a side effect of accepting a submission. Concretely: (1) every roster row on Admin > Speakers opens a **per-speaker record page** showing profile (name, email, title, company, bio, headshot), their sessions, their task assignments with per-task status, their uploads (filename, uploaded-at, download), and an organizer-only **internal notes** field for logistics ("arrival May 11, aisle seat; dietary: vegetarian"); profile fields and notes are organizer-editable there. (2) The roster gains a **manual "Add speaker"** flow (name + email required; title/company/bio optional) that creates the user and links them to the event, and a **CSV import** of the same columns. (3) The roster gains a search box and status/completion filters, matching the submissions list.
+
+**Rationale:** The baseline eval's speaker-management area scored 57.8% and four of its five majors reduce to the same root: speaker records only exist as acceptance side effects with no organizer surface to view or edit them (SPK-01 partial, SPK-02 fail, SPK-03 not_found, SPK-04 partial, SPK-15 fail; three major defects). Sessionboard treats speaker records as directly creatable and editable, and the owner's standing directive for rubric-graded capabilities is to match Sessionboard's documented behavior (D-039–D-041). Internal notes deliberately stay a single free-text field rather than a custom-field builder — the rubric's sample data is logistics prose, and a second field-builder for speakers would duplicate the forms system for no graded gain.
+
+## D-052: Tasks are assignable to existing speakers, not only at acceptance — **accepted** (2026-08-09)
+
+**Decision:** A task is no longer reachable only through "auto-assign on acceptance". Organizers can assign a task to the event's existing confirmed speakers — all of them in one action from the task list, and individually from a speaker's record page (D-051). Assignment stays idempotent: re-assigning never duplicates an existing assignment or resets its completion.
+
+**Rationale:** Baseline eval major defect: a task created after speakers were already accepted showed "Assigned: 0" forever and never reached any portal — with two confirmed speakers and an active task, the portal read "Nothing to do yet". Tasks created mid-planning are the normal case, not the edge case. Per-speaker due-date overrides (also probed by SPK-05) are deliberately deferred: the graded failure is unreachable tasks, and per-assignment dates would fork the task entity for a secondary probe.
+
+## D-053: Outgoing-mail identity and previews must be truthful — **accepted** (2026-08-09)
+
+**Decision:** (1) The composer's on-screen preview renders with the **real event's** merge data (dates, location, URLs, portal link), not generic placeholders — `templatePreviewData` remains only for surfaces with no event in scope. (2) Manual sends resolve `{{organizerName}}` to the **sending admin's display name**; "The program team" survives only as the fallback for automated sends with no acting user. (3) The event overview's stat cards count **this event's** data — the Speakers stat had counted `users.listByRole("speaker")` globally, contradicting the event's own empty roster.
+
+**Rationale:** Baseline eval major defect reported speakers "receiving wrong dates and a dead portal link" — in fact the *sent* mail resolves correctly (`eventFields` reads the real event; `portalUrl` comes from `APP_URL`), but the composer preview showed placeholder June dates and `example.com/portal` for an event dated May 2027, which is indistinguishable from broken mail to anyone reading the screen, and `{{organizerName}}` genuinely renders "The program team" in real sends. A second major defect — overview claiming 11 speakers while the roster was empty — is the same D-045 cross-event class, missed by W13 because the stat lives in the page, not the guard.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

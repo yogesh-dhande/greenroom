@@ -154,3 +154,97 @@ export function sortSpeakerRollups(rollups: SpeakerRollup[]): SpeakerRollup[] {
     return (a.speaker.name ?? a.speaker.email).localeCompare(b.speaker.name ?? b.speaker.email);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Roster membership and filtering (decisions.md D-051)
+// ---------------------------------------------------------------------------
+
+export interface RosterSourcesInput {
+  /** Speakers on one of this event's sessions — "confirmed" per D-017. */
+  confirmedSpeakerIds: Iterable<string>;
+  /** Speakers holding an assignment on one of this event's tasks; they belong
+   * on the roster before their session is scheduled. */
+  assignedSpeakerIds: Iterable<string>;
+  /** `event_speakers` rows — added by hand or imported (D-051), which is the
+   * only membership a speaker has until they get a session or a task. */
+  memberSpeakerIds: Iterable<string>;
+}
+
+/**
+ * Everyone with a stake in this event, from all three membership sources.
+ *
+ * Keeping the union here rather than in the page means the record page and
+ * the roster agree on who exists — a record page that 404s for someone the
+ * roster lists (or the reverse) is the failure mode this prevents.
+ */
+export function rosterSpeakerIds(input: RosterSourcesInput): Set<string> {
+  return new Set<string>([
+    ...input.confirmedSpeakerIds,
+    ...input.assignedSpeakerIds,
+    ...input.memberSpeakerIds,
+  ]);
+}
+
+/**
+ * A speaker's onboarding state in one word, for the roster's filter and badge.
+ * `overdue` is a sharper case of `incomplete`, not a separate bucket — see
+ * `matchesRosterStatus`.
+ */
+export type RosterStatus = "complete" | "incomplete" | "overdue";
+
+/** The roster filter's vocabulary; `all` is the unfiltered default. */
+export type RosterStatusFilter = "all" | RosterStatus;
+
+export const ROSTER_STATUS_FILTERS: Array<{ value: RosterStatus; label: string }> = [
+  { value: "complete", label: "All tasks done" },
+  { value: "incomplete", label: "Tasks outstanding" },
+  { value: "overdue", label: "Overdue" },
+];
+
+export function speakerRosterStatus(rollup: SpeakerRollup): RosterStatus {
+  if (rollup.overdueTasks > 0) return "overdue";
+  return rollup.outstandingTasks > 0 ? "incomplete" : "complete";
+}
+
+/**
+ * Filtering on `incomplete` includes overdue speakers: an organizer asking
+ * "who still owes me something" means everyone outstanding, and hiding the
+ * worst offenders behind a second filter would be a trap.
+ */
+export function matchesRosterStatus(rollup: SpeakerRollup, filter: string): boolean {
+  const status = speakerRosterStatus(rollup);
+  switch (filter) {
+    case "complete":
+      return status === "complete";
+    case "incomplete":
+      return status !== "complete";
+    case "overdue":
+      return status === "overdue";
+    default:
+      return true;
+  }
+}
+
+/** Name, email, or company — the three things an organizer knows about
+ * someone they're hunting for. Case- and whitespace-insensitive. */
+export function matchesSpeakerSearch(rollup: SpeakerRollup, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [rollup.speaker.name, rollup.speaker.email, rollup.speaker.company].some((field) =>
+    field?.toLowerCase().includes(needle),
+  );
+}
+
+export interface RosterFilter {
+  q: string;
+  status: string;
+}
+
+export function filterSpeakerRollups(
+  rollups: SpeakerRollup[],
+  filter: RosterFilter,
+): SpeakerRollup[] {
+  return rollups.filter(
+    (rollup) => matchesSpeakerSearch(rollup, filter.q) && matchesRosterStatus(rollup, filter.status),
+  );
+}

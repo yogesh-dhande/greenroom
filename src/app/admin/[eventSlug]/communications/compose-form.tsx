@@ -7,6 +7,7 @@ import {
   MANUAL_MERGE_FIELDS,
   checkTemplateDraft,
   templatePreviewData,
+  type MergeData,
   type MergeField,
 } from "@/domain/comms-templates";
 import { Badge } from "@/components/ui/badge";
@@ -35,12 +36,14 @@ import type { SpeakerOption } from "./types";
  */
 export function ComposeForm({
   eventSlug,
-  eventName,
+  eventMergeData,
   speakers,
   onSent,
 }: {
   eventSlug: string;
-  eventName: string;
+  /** This event's real dates/URLs/organizer name (decisions.md D-053) — see
+   * `previewData` below for how it overlays the generic placeholders. */
+  eventMergeData: MergeData;
   speakers: SpeakerOption[];
   onSent: () => void;
 }) {
@@ -51,8 +54,8 @@ export function ComposeForm({
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   const check = useMemo(
-    () => checkTemplateDraft(subject, body, MANUAL_MERGE_FIELDS, previewData(eventName)),
-    [subject, body, eventName],
+    () => checkTemplateDraft(subject, body, MANUAL_MERGE_FIELDS, previewData(eventMergeData)),
+    [subject, body, eventMergeData],
   );
 
   const ready = selected.length > 0 && check.errors.length === 0;
@@ -206,7 +209,14 @@ export function ComposeForm({
   );
 }
 
-/** Preview with this event's real name, so the sample reads like the real thing. */
-function previewData(eventName: string) {
-  return templatePreviewData({ eventName });
+/**
+ * Preview data with this event's real dates, URLs and organizer name laid
+ * over `templatePreviewData`'s generic defaults, so the on-screen preview
+ * reads like the real thing (decisions.md D-053) rather than "June 16–18,
+ * 2026" and "hello@example.com" for an event with different dates. Fields
+ * this composer doesn't know yet — who the recipient is — stay placeholders
+ * ("Priya Raman").
+ */
+function previewData(eventMergeData: MergeData) {
+  return templatePreviewData(eventMergeData);
 }

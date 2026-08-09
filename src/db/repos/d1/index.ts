@@ -2,6 +2,7 @@ import type { Repos } from "@/db/repos";
 import { createDb } from "./client";
 import { createEmailLogRepo } from "./email-log";
 import { createEmailTemplatesRepo } from "./email-templates";
+import { createEventSpeakersRepo } from "./event-speakers";
 import { createEventsRepo } from "./events";
 import { createFormsRepo } from "./forms";
 import { createReviewRoundsRepo } from "./review-rounds";
@@ -25,6 +26,7 @@ export function createD1Repos(d1: D1Database): Repos {
   return {
     events: createEventsRepo(db),
     users: createUsersRepo(db),
+    eventSpeakers: createEventSpeakersRepo(db),
     forms: createFormsRepo(db),
     submissions: createSubmissionsRepo(db),
     reviews: createReviewsRepo(db),

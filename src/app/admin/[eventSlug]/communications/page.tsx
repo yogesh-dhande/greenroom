@@ -3,6 +3,7 @@ import {
   buildCommunicationLog,
   COMMS_TEMPLATES,
   COMMS_TEMPLATE_IDS,
+  eventFields,
   INVITE_BLOCKER_LABELS,
   inviteBlocker,
   resolveCommsTemplate,
@@ -10,6 +11,7 @@ import {
   TEMPLATE_MERGE_FIELDS,
 } from "@/domain/comms";
 import { formatEventTimeRange } from "@/lib/event-time";
+import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import { formatDay } from "@/components/date-format";
@@ -37,7 +39,7 @@ export default async function CommunicationsPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const { event } = await requireEventAdmin(eventSlug);
+  const { user, event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
   const [sessions, rooms, submissions, assignments, overrides, rounds] = await Promise.all([
@@ -171,6 +173,19 @@ export default async function CommunicationsPage({
     // each group keeps the agenda order established above.
     .sort((a, b) => Number(Boolean(a.blockedReason)) - Number(Boolean(b.blockedReason)));
 
+  // --- composer preview data -----------------------------------------------
+  // The same event fields (real dates, URLs, and the sending admin's name)
+  // the actual send path renders with — `eventFields` in src/domain/comms.ts
+  // — so the composer's on-screen preview stops showing placeholder June
+  // dates and example.com links for a real event (decisions.md D-053).
+  // Per-recipient fields (speakerName, etc.) aren't known yet at this point,
+  // so those stay `templatePreviewData`'s placeholders in the client.
+  const comms = await getCommsContext({
+    repos,
+    organizerName: user.name?.trim() || user.email,
+  });
+  const eventMergeData = eventFields(comms, event);
+
   return (
     <div>
       <PageHeader
@@ -179,7 +194,7 @@ export default async function CommunicationsPage({
       />
       <CommsHub
         eventSlug={eventSlug}
-        eventName={event.name}
+        eventMergeData={eventMergeData}
         logRows={logRows}
         speakers={speakers}
         templates={templates}

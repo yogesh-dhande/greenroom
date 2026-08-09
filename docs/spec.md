@@ -42,9 +42,11 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Organizer-called-out bonus (2026-08-08): email the speaker from inside the app to request changes, and attach feedback when sending the approve/deny decision.
 - Admin submission list with clear statuses (rich filters/sorting/columns: important tier).
 
-### 5. Acceptance conversion
+### 5. Acceptance conversion & speaker records
 - Accepting a submission **automatically creates/confirms the speaker record(s), the session record, and the onboarding tasks** — no manual re-entry.
 - Direct session entry for guaranteed speakers (e.g. sponsors) without a submission — also reachable through a session-type form, whose submissions run the same conversion automatically on arrival (D-041).
+- But acceptance is not the *only* way in: speakers are **first-class organizer objects** (D-051). Every roster row opens a per-speaker record page — profile, sessions, task assignments with per-task status, uploads (filename, date, download), and an organizer-only internal logistics notes field — with profile and notes editable there. The roster supports **manual "Add speaker"** and **CSV import** (name + email required; title/company/bio optional), plus search and status/completion filters.
+- Tasks must reach speakers who already exist: a task created after acceptance is assignable to the event's confirmed speakers — all at once from the task list, individually from a speaker record — idempotently, never duplicating or resetting an existing assignment (D-052).
 
 ### 6. Speaker portal & onboarding
 - Speaker sees their submissions/sessions, acceptance state, and incomplete tasks; edits their own profile (name, title, company, bio, social/web links) and headshot, which feed the admin roster and public gallery. The profile editor must be **reachable from the portal navigation** — a page that exists only by URL doesn't count.
@@ -56,6 +58,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Task reminders are a **weekly per-speaker digest** of everything still outstanding (sent Mondays 07:00 UTC), not a per-task cadence; it stops when the checklist is clear or the event starts, and admins can send it on demand (D-039).
 - **Working calendar invitations** compatible with Gmail, Outlook, iCal (`.ics`, D-003). No video-meeting links; include room when known; support sending initially without a room and updating the invite after room assignment.
 - Templated messages with merge fields (important tier); communication log per speaker.
+- The composer's preview shows the **real event's** merge values, and manual sends sign with the **sending admin's name** — a preview with placeholder dates or an `example.com` link is indistinguishable from broken mail (D-053). Admin stat cards (overview) count only their own event's data (D-045, D-053).
 
 ### 8. Onboarding visibility for admins
 - Clear view of which accepted speakers still have missing bios, headshots, forms, files, or other incomplete onboarding work.
