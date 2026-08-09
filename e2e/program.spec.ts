@@ -208,11 +208,9 @@ test("the public program works on a mobile viewport", async ({ page }) => {
  * index. */
 const AISHA_SURNAME = "Nwosu";
 
-/** Picks an option in the shadcn/Radix facet selects by their accessible name. */
+/** Picks an option in the native facet selects by their accessible name. */
 async function chooseFacet(page: Page, label: string, option: string): Promise<void> {
-  await page.getByLabel(label).click();
-  await page.getByRole("option", { name: option, exact: true }).click();
-  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await page.getByLabel(label).selectOption({ label: option });
 }
 
 test("schedule search matches speaker names, not just session titles", async ({ page }) => {

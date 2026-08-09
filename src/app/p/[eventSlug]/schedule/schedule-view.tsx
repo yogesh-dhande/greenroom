@@ -19,13 +19,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SessionDialog } from "./session-dialog";
 import { StarToggle } from "./star-toggle";
@@ -342,19 +336,24 @@ function Facet({
   // A facet with nothing to choose between (one room, one format) is noise.
   if (options.length < 2) return null;
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger size="sm" className="w-44" aria-label={label}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ANY_FACET}>{allLabel}</SelectItem>
-        {options.map((option) => (
-          <SelectItem key={option} value={option}>
-            {option}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    // Native <select>, not shadcn's Radix-backed one: on this public,
+    // embeddable surface a listbox with a focus trap and a portal is a
+    // pointer trap for assistive tech (eval finding — clicks on options
+    // timed out with the trigger aria-hidden while open). A native control
+    // has no such state and is lighter in the embed besides.
+    <NativeSelect
+      aria-label={label}
+      className="w-44"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      <option value={ANY_FACET}>{allLabel}</option>
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </NativeSelect>
   );
 }
 
@@ -400,6 +399,11 @@ function SessionCard({
             {session.roomName}
           </Badge>
         )}
+        {/* Surfaces what "Filter by format" is filtering on — previously
+            only visible inside the session detail dialog (eval finding). */}
+        <Badge variant="outline" className="text-muted-foreground">
+          {session.formatLabel}
+        </Badge>
       </div>
 
       {showDay && timezone && (
