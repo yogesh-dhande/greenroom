@@ -3,7 +3,8 @@
  * communications "must actually work, no stubs", decisions.md D-017).
  *
  * Two transports implement `EmailSender`:
- *  - `createResendEmailSender` — production delivery via Resend (D-001).
+ *  - `createSendGridEmailSender` — production delivery via SendGrid's v3
+ *    `mail/send` API (D-030; replaces the earlier Resend transport, D-001).
  *  - `createDevEmailSender` — development/verification: prints the complete
  *    message (headers, both bodies, attachment names) to the console and
  *    writes it to a gitignored folder so it can be opened and inspected.
@@ -13,7 +14,6 @@
  * what backs the per-speaker communication log. It only ever sees the
  * `EmailLogRepo` *interface*, never a D1/Drizzle type.
  */
-import { Resend } from "resend";
 import type { EmailKind, EmailRelatedType } from "@/db/entities";
 import type { EmailLogRepo } from "@/db/repos/email-log";
 
@@ -69,9 +69,12 @@ export interface EmailMessage {
   html: string;
   replyTo?: string;
   /**
-   * Extra headers. Never set `Content-Type` here: Resend builds the MIME
-   * structure itself and rejects a duplicate Content-Type header
-   * (resend-node#278); per-part types belong on `attachments`/`calendar`.
+   * Extra headers. Never set `Content-Type` here: SendGrid's `mail/send`
+   * builds the MIME structure itself and its `headers` field explicitly
+   * forbids overwriting `Content-Type` (also `To`/`From`/`Subject`/
+   * `Reply-To`/`Cc`/`Bcc` — use the dedicated fields instead) — SendGrid Mail
+   * Send API reference, `headers`; per-part types belong on
+   * `attachments`/`calendar`.
    */
   headers?: Record<string, string>;
   attachments?: EmailAttachment[];
@@ -118,60 +121,102 @@ function allAttachments(message: EmailMessage): EmailAttachment[] {
 }
 
 // ---------------------------------------------------------------------------
-// Resend transport
+// SendGrid transport
 // ---------------------------------------------------------------------------
 
-export interface ResendSenderOptions {
+export interface SendGridSenderOptions {
   apiKey: string;
   from: EmailIdentity;
+  /** Injectable for tests; defaults to the global `fetch` (native in
+   * workerd and modern Node). */
+  fetchImpl?: typeof fetch;
+}
+
+interface SendGridErrorBody {
+  errors?: Array<{ message?: string }>;
 }
 
 /**
- * Production transport.
+ * Production transport (D-030 — replaces Resend, D-001).
  *
  * Calendar invites go out as a single attachment carrying
- * `text/calendar; charset=utf-8; method=REQUEST`. Resend's HTTP API builds
- * the MIME tree itself and exposes no way to add a `text/calendar` sibling
- * inside `multipart/alternative`, so this is the strongest structure the API
- * allows — and it is the one Outlook documents as sufficient: Outlook 2010+
- * scans every child of `multipart/mixed` for iMIP data and treats the first
- * one it finds as the invitation (MS-STANOICAL §RFC6047 2.4, V0343). The
- * part doubles as the attachment fallback for clients that only offer
- * "download .ics", because RFC 6047 §2.6 requires handling to key off
- * Content-Type rather than the filename.
+ * `text/calendar; charset=utf-8; method=REQUEST` (decisions.md D-020).
+ * SendGrid's v3 `mail/send` builds the MIME tree itself from `content`/
+ * `attachments` — there is no raw-MIME endpoint — and exposes no way to add
+ * a `text/calendar` sibling inside `multipart/alternative`, so this is the
+ * strongest structure the API allows, and it is the one Outlook documents as
+ * sufficient: Outlook 2010+ scans every child of `multipart/mixed` for iMIP
+ * data and treats the first one it finds as the invitation (MS-STANOICAL
+ * §RFC6047 2.4, V0343). The part doubles as the attachment fallback for
+ * clients that only offer "download .ics", because RFC 6047 §2.6 requires
+ * handling to key off Content-Type rather than the filename. `allAttachments`
+ * unshifts the calendar part so it stays first.
  *
- * Two field-name traps, both verified against `resend@6.18.1`:
- *  - the Node SDK reads `contentType` (camelCase) and maps it to the API's
- *    `content_type`; passing `content_type` is silently dropped, which is
- *    how ICS support broke in resend-node 4.0–4.7 (resend-node#435, #554).
- *  - `content` as a plain string is sent verbatim, so it must already be
- *    Base64 ("Content of an attached file, passed as a buffer or Base64
- *    string" — Resend send-email API reference).
+ * Two API-shape traps:
+ *  - `content[]` must list `text/plain` before `text/html` — SendGrid
+ *    rejects the request otherwise (Mail Send API reference, `content`).
+ *  - each attachment's `content` is Base64 text — there is no separate
+ *    encoding field, unlike a Buffer-accepting SDK.
+ *
+ * A 202 response has an empty body; the provider message id comes back in
+ * the `x-message-id` response header (falls back to `""` if absent). Any
+ * other status is an error: SendGrid's error body is
+ * `{ errors: [{ message, field, help }] }`, so the message(s) are pulled out
+ * of that shape when the body parses as JSON.
  */
-export function createResendEmailSender({ apiKey, from }: ResendSenderOptions): EmailSender {
-  const resend = new Resend(apiKey);
+export function createSendGridEmailSender({
+  apiKey,
+  from,
+  fetchImpl = globalThis.fetch,
+}: SendGridSenderOptions): EmailSender {
   return {
     from,
     async send(message) {
       const attachments = allAttachments(message);
-      const { data, error } = await resend.emails.send({
-        from: formatIdentity(from),
-        to: message.to,
+      const body = {
+        personalizations: [{ to: [{ email: message.to }] }],
+        from: from.name ? { email: from.email, name: from.name } : { email: from.email },
+        reply_to: message.replyTo ? { email: message.replyTo } : undefined,
         subject: message.subject,
-        text: message.text,
-        html: message.html,
-        replyTo: message.replyTo,
+        content: [
+          { type: "text/plain", value: message.text },
+          { type: "text/html", value: message.html },
+        ],
         headers: message.headers,
         attachments: attachments.length
           ? attachments.map((attachment) => ({
-              filename: attachment.filename,
               content: toBase64(attachment.content),
-              contentType: attachment.contentType,
+              type: attachment.contentType,
+              filename: attachment.filename,
+              disposition: "attachment",
             }))
           : undefined,
+      };
+
+      const response = await fetchImpl("https://api.sendgrid.com/v3/mail/send", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       });
-      if (error) throw new Error(`Resend send failed: ${error.message}`);
-      return { id: data?.id ?? "" };
+
+      if (!response.ok) {
+        const raw = await response.text();
+        let detail = raw;
+        try {
+          const parsed = JSON.parse(raw) as SendGridErrorBody;
+          const messages = (parsed.errors ?? []).map((e) => e.message).filter(Boolean);
+          if (messages.length) detail = messages.join("; ");
+        } catch {
+          // Body wasn't JSON (e.g. an HTML error page from a proxy) — the
+          // raw text set above is the best we can surface.
+        }
+        throw new Error(`SendGrid send failed (${response.status}): ${detail}`);
+      }
+
+      return { id: response.headers.get("x-message-id") ?? "" };
     },
   };
 }
@@ -331,15 +376,18 @@ export function createLoggingEmailSender(inner: EmailSender, emailLog: EmailLogR
 // ---------------------------------------------------------------------------
 
 export interface EmailEnv {
-  RESEND_API_KEY?: string;
+  SENDGRID_API_KEY?: string;
   EMAIL_FROM_NAME?: string;
   EMAIL_FROM_ADDRESS?: string;
 }
 
 const DEFAULT_FROM: EmailIdentity = {
   name: "Greenroom",
-  // Resend's shared sandbox sender; replace once a domain is verified (D-014).
-  email: "onboarding@resend.dev",
+  // Unlike Resend, SendGrid has no shared sandbox sender — every From
+  // address must be verified in the SendGrid account before it can send.
+  // This placeholder only ever ships with the dev transport; production
+  // must set EMAIL_FROM_ADDRESS to a SendGrid-verified sender (D-030).
+  email: "no-reply@greenroom.localhost",
 };
 
 export function resolveEmailIdentity(env: EmailEnv): EmailIdentity {
@@ -349,10 +397,10 @@ export function resolveEmailIdentity(env: EmailEnv): EmailIdentity {
   };
 }
 
-/** Resend when an API key is configured, otherwise the dev transport. */
+/** SendGrid when an API key is configured, otherwise the dev transport. */
 export function getEmailSender(env: EmailEnv): EmailSender {
   const from = resolveEmailIdentity(env);
-  return env.RESEND_API_KEY
-    ? createResendEmailSender({ apiKey: env.RESEND_API_KEY, from })
+  return env.SENDGRID_API_KEY
+    ? createSendGridEmailSender({ apiKey: env.SENDGRID_API_KEY, from })
     : createDevEmailSender({ from });
 }

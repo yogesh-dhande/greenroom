@@ -20,7 +20,7 @@ import { getEmailSender } from "./src/lib/email";
 export default {
   fetch: handler.fetch,
 
-  // Cron trigger from wrangler.jsonc ("*/15 * * * *"). Wiring the D1/Resend
+  // Cron trigger from wrangler.jsonc ("*/15 * * * *"). Wiring the D1/SendGrid
   // bindings to the storage-agnostic Repos + EmailSender interfaces here
   // (rather than inside src/domain/comms.ts) keeps the domain layer free of
   // datastore imports, per spec.md's abstraction requirement.

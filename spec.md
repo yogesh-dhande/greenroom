@@ -30,6 +30,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 ### 4. Review & decisions
 - Routing = track-based responsibility: submissions pick tracks, reviewers own tracks. No routing engine.
 - Minimum flow: `unreviewed → approve / maybe / deny`, decidable by reviewer or admin. (Scored reviews, multiple rounds: enhancements. AI-assisted evaluation: out of scope.)
+- A "maybe" is internal to the team: speakers keep seeing the proposal as in review until it's accepted or declined, and no waitlist email goes out unless the admin explicitly opts in (D-028).
 - Organizer-called-out bonus (2026-08-08): email the speaker from inside the app to request changes, and attach feedback when sending the approve/deny decision.
 - Admin submission list with clear statuses (rich filters/sorting/columns: important tier).
 
@@ -38,7 +39,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Direct session entry for guaranteed speakers (e.g. sponsors) without a submission.
 
 ### 6. Speaker portal & onboarding
-- Speaker sees their submissions/sessions, acceptance state, and incomplete tasks; edits their own profile, bio, headshot.
+- Speaker sees their submissions/sessions, acceptance state, and incomplete tasks; edits their own profile (name, title, company, bio, social/web links) and headshot, which feed the admin roster and public gallery.
 - Tasks cover the underlying jobs: complete a form, upload a file (slides, photos), confirm information. Organizer's canonical examples (2026-08-08) — must-have: **hotel stay requirement form**, **flight reimbursement form**; optional: finalize talk description, finalize bio/photos, announce participation, invite colleagues with speaker discount.
 - Auth: email magic links for **all roles**, no passwords ([decisions.md](decisions.md) D-007).
 
@@ -92,7 +93,7 @@ Create/open event → configure & publish CFP form → submit a realistic talk v
 - **Forms:** react-hook-form + Zod over a JSON-serializable form schema (D-009); Zod entity types shared across forms, services, and API.
 - **Database abstraction (requirement):** all persistence goes through a storage-agnostic data-access layer — typed repository interfaces per entity exposing CRUD and the query shapes the app needs. No datastore-specific types, ID semantics, or query strings (Drizzle/SQL, Airtable formulas) may leak outside the adapter. Business logic (aggregation, conflict detection, access control) must not depend on datastore-specific features, so switching D1 ↔ Postgres ↔ Airtable means implementing a new adapter only.
 - **Deployment:** Cloudflare Workers via OpenNext (`@opennextjs/cloudflare`) — competition bonus. Cron triggers (custom worker) for reminders and syncs (D-013).
-- **Email:** Resend for delivery + `.ics` calendar attachments (D-003).
+- **Email:** SendGrid for delivery (D-030) + `.ics` calendar attachments (D-003).
 - **File storage:** Cloudflare R2 for headshots, slides, documents.
 - **Libraries over hand-rolling** (D-008): established libraries for auth, forms, drag-and-drop, validation, email templating.
 

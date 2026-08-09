@@ -61,7 +61,7 @@ rationale.
   repository layer (see [Architecture](#architecture) below)
 - **Auth:** better-auth, magic-link plugin, Drizzle adapter — every role
   (organizer, reviewer, speaker) signs in with an email link, no passwords
-- **Email:** Resend, with a dev stub sender that logs instead of sending
+- **Email:** SendGrid, with a dev stub sender that logs instead of sending
 - **Forms/validation:** react-hook-form + Zod
 
 ## Architecture
@@ -179,7 +179,7 @@ Both are expected to pass before every commit, alongside `npm run typecheck`,
    `wrangler.jsonc`.
 2. `wrangler r2 bucket create greenroom-files`.
 3. `npm run db:migrate:remote`.
-4. `wrangler secret put BETTER_AUTH_SECRET` (and `RESEND_API_KEY` once you
+4. `wrangler secret put BETTER_AUTH_SECRET` (and `SENDGRID_API_KEY` once you
    have one).
 5. `npm run deploy`.
 
@@ -187,13 +187,13 @@ The cron trigger in `wrangler.jsonc` (every 15 minutes) runs the deadline
 reminder job (`src/domain/comms.ts`) via the `scheduled` handler in
 `custom-worker.ts`, which wraps the OpenNext-generated fetch handler.
 
-> In production, `EMAIL_FROM_ADDRESS` must be a real address on a
-> [Resend-verified sending domain](https://resend.com/docs/dashboard/domains/introduction)
+> In production, `EMAIL_FROM_ADDRESS` must be a
+> [SendGrid-verified sender](https://www.twilio.com/docs/sendgrid/ui/sending-email/sender-verification)
 > — it's also used as the calendar invite's `ORGANIZER` (see `.env.example`),
-> so RSVP replies and deliverability both depend on it. Without a verified
-> domain, Resend's shared sandbox sender (`onboarding@resend.dev`, the
-> default) works for testing but is rate-limited and not meant for real
-> speaker-facing mail.
+> so RSVP replies and deliverability both depend on it. Unlike Resend,
+> SendGrid has no shared sandbox sender: the default
+> (`no-reply@greenroom.localhost`) only works with the dev transport, and
+> production sends fail closed until a real sender is verified.
 
 ## Demo walkthrough
 

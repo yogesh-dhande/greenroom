@@ -66,6 +66,16 @@ export interface ProgramPerson {
   company: string | null;
   bio: string | null;
   headshotUrl: string | null;
+  /**
+   * Speaker-maintained profile links (spec.md §6), rendered on the card by
+   * `profileLinks` in src/domain/profile.ts. Optional because a person with no
+   * links is the common case and because the gallery grouping below is pure
+   * pass-through — a caller that doesn't collect them simply gets a card with
+   * no link row.
+   */
+  websiteUrl?: string | null;
+  linkedinUrl?: string | null;
+  twitterUrl?: string | null;
 }
 
 export interface GalleryTalk {

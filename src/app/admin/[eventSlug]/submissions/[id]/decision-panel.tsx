@@ -54,7 +54,7 @@ const OPTIONS: Option[] = [
     value: "maybe",
     label: "Waitlist",
     description:
-      "This keeps the talk in play without promising a slot. The speakers are told it's a maybe.",
+      "This keeps the talk in play without promising a slot. Internal only: speakers keep seeing the proposal as in review.",
     variant: "outline",
   },
   {
@@ -100,6 +100,18 @@ export function DecisionPanel({
   const [isPending, startTransition] = useTransition();
 
   const decided = DECIDED[status] ?? null;
+
+  /**
+   * Default the notify checkbox to the selected decision (D-028: waitlist
+   * defaults off, accept/decline stay on) whenever the admin picks an action —
+   * switching to Waitlist unticks it, switching to Accept/Decline re-ticks it.
+   * The checkbox is repeated (editable) inside the confirmation dialog, so the
+   * admin can still manually override this default before confirming.
+   */
+  function selectOption(option: Option) {
+    setNotify(option.value !== "maybe");
+    setPending(option);
+  }
 
   function confirm() {
     if (!pending) return;
@@ -208,7 +220,7 @@ export function DecisionPanel({
                   size="sm"
                   variant={option.variant}
                   disabled={isPending}
-                  onClick={() => setPending(option)}
+                  onClick={() => selectOption(option)}
                 >
                   {option.label}
                 </Button>
@@ -246,6 +258,19 @@ export function DecisionPanel({
               value={draftNote}
               onChange={(event) => setDraftNote(event.target.value)}
             />
+          </div>
+          {/* The panel's checkbox is behind the overlay once this dialog is
+              open, so the default it set (on/off per D-028) is repeated here,
+              editable, for a genuine last-second override before Confirm. */}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="decision-notify-confirm"
+              checked={notify}
+              onCheckedChange={(value) => setNotify(value === true)}
+            />
+            <Label htmlFor="decision-notify-confirm" className="font-normal">
+              Email the speakers
+            </Label>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>

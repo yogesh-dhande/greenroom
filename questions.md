@@ -8,13 +8,9 @@ Workflow: when a question is answered, record the answer as a first-class entry 
 
 ## For the owner
 
-### Q1. Deployment target + email sending credentials (blocks W6)
-Which Cloudflare account should the app deploy to, under what domain/subdomain, and can you create a Resend API key (with a verified sending domain)? Real email delivery is a judged requirement (spec §7), and deliverability needs the sending domain's DNS records.
-**Working assumption:** none — this is a hard blocker for the deploy wave (tracked as D-014). Everything else proceeds locally.
-
-### Q3. Is the admin-only-decisions narrowing acceptable? (D-025)
-Spec §4 says decisions are "decidable by reviewer or admin," but accepting now creates a session, onboarding tasks, and a speaker-facing email — so we made binding decisions admin-only, with reviewer votes as non-binding recommendations.
-**Working assumption:** the narrowing stands. Flag if reviewers must be able to accept/decline directly.
+### Q1. Cloudflare account access + SendGrid sender identity (blocks W6b deploy)
+Email provider is settled (SendGrid, D-030 — owner has the API key). Still needed: (a) Cloudflare account access — either run `wrangler login` in a session, or an API token (Workers Scripts:Edit + D1:Edit + R2:Edit) with the account ID; note R2 requires billing enabled on the account even at free-tier usage; (b) whether to use the free `*.workers.dev` subdomain or a custom domain (custom needs the zone on the account); (c) which email address is SendGrid-verified, for `EMAIL_FROM_ADDRESS`, plus the `SENDGRID_API_KEY` value at secret-set time.
+**Working assumption:** none — hard blocker for the deploy wave. Everything else proceeds locally.
 
 ### Q4. Reminder cadence and cooldown
 Task/deadline reminder emails run from a cron (W5b). How often should a speaker be nudged about the same overdue task — daily, every 3 days, weekly? At what point do reminders stop?

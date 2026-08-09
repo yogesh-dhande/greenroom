@@ -18,6 +18,7 @@ import { signIn } from "./helpers";
 const EVENT_SLUG = "ai-engineer-summit-2026";
 const TASKS_PAGE = `/admin/${EVENT_SLUG}/tasks`;
 const SPEAKERS_PAGE = `/admin/${EVENT_SLUG}/speakers`;
+const PUBLIC_SPEAKERS_PAGE = `/p/${EVENT_SLUG}/speakers`;
 
 /** Seeded speaker with an approved, scheduled talk — has a pending "form"
  * task (hotel) and a pending "file_request" task (bio & photos) to complete. */
@@ -206,4 +207,75 @@ test("an admin creates a task template using the canonical onboarding vocabulary
   await page.getByRole("button", { name: "Create task" }).click();
   await expect(page.getByText("Task created")).toBeVisible();
   await expect(page.getByRole("cell", { name: INVITE_TASK, exact: true })).toHaveCount(2);
+});
+
+test("a speaker edits their profile and it surfaces on the public gallery and admin roster", async ({
+  page,
+}) => {
+  // spec.md §6: a speaker "edits their own profile (name, title, company, bio,
+  // social/web links) and headshot, which feed the admin roster and public
+  // gallery" — so this walks the whole chain, not just the form.
+  const NEW_TITLE = "Principal Engineer, Retrieval";
+  const NEW_COMPANY = "Northwind Labs";
+  // Distinctive enough that finding it on the public page proves it came from
+  // this edit and not from the seeded bio.
+  const NEW_BIO = "Rebuilt ranking for a fleet of grumpy production indexes.";
+  const NEW_WEBSITE = "https://priya-raman.example.dev";
+
+  await signIn(page, PRIYA);
+  await page.goto("/portal/profile");
+  await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+
+  await page.getByLabel("Job title").fill(NEW_TITLE);
+  await page.getByLabel("Company or organization").fill(NEW_COMPANY);
+  await page.getByLabel("Speaker bio").fill(NEW_BIO);
+  await page.getByLabel("Website").fill(NEW_WEBSITE);
+
+  // The headshot goes straight to R2 on selection (same control as the CFP
+  // page and the file-request task above), so wait for the key before saving.
+  await page.getByLabel("Headshot").setInputFiles({
+    name: "headshot.png",
+    mimeType: "image/png",
+    buffer: HEADSHOT,
+  });
+  await expect(page.getByRole("link", { name: "headshot.png" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(page.getByText("Profile saved.")).toBeVisible();
+
+  // --- it really persisted, not just optimistic form state -----------------
+  await page.reload();
+  await expect(page.getByLabel("Job title")).toHaveValue(NEW_TITLE);
+  await expect(page.getByLabel("Company or organization")).toHaveValue(NEW_COMPANY);
+  await expect(page.getByLabel("Speaker bio")).toHaveValue(NEW_BIO);
+  await expect(page.getByLabel("Website")).toHaveValue(NEW_WEBSITE);
+  // The stored headshot is now the uploaded one, served back out of R2.
+  const preview = page.getByRole("img", { name: "Your current headshot" });
+  await expect(preview).toHaveAttribute("src", /^\/files\/uploads\/profile\//);
+  const served = await page.request.get((await preview.getAttribute("src"))!);
+  expect(served.status()).toBe(200);
+
+  // A link that isn't a real link is refused, with the message under its own
+  // input rather than a generic failure. (The same rule runs again in the
+  // server action — src/domain/profile.ts — so a client bypass can't store it.)
+  await page.getByLabel("LinkedIn").fill("linkedin.com/in/priya");
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(page.getByText("Enter a full link, starting with https://")).toBeVisible();
+
+  // --- the public speaker gallery shows the new bio and link ---------------
+  await page.goto(PUBLIC_SPEAKERS_PAGE);
+  const card = page.getByRole("article").filter({ hasText: "Priya Raman" });
+  await expect(card).toContainText(NEW_BIO);
+  await expect(card).toContainText(`${NEW_TITLE} · ${NEW_COMPANY}`);
+  await expect(card.getByRole("link", { name: "Priya Raman — Website" })).toHaveAttribute(
+    "href",
+    NEW_WEBSITE,
+  );
+
+  // --- and the admin roster reads the same source of truth -----------------
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(SPEAKERS_PAGE);
+  const row = page.getByRole("row", { name: /Priya Raman/ });
+  await expect(row).toContainText(`${NEW_TITLE} · ${NEW_COMPANY}`);
+  await expect(row).toContainText("Complete");
 });

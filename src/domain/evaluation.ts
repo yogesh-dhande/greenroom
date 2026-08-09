@@ -4,7 +4,7 @@
  * TypeScript: no datastore imports. Callers (route handlers/server actions)
  * fetch Review/Submission rows via src/db/repos/* and pass plain entities in.
  */
-import type { Review, Submission, SubmissionDecision } from "@/db/entities";
+import type { Review, Submission, SubmissionDecision, SubmissionStatus } from "@/db/entities";
 
 // ---------------------------------------------------------------------------
 // Decisions (required MVP flow)
@@ -48,6 +48,18 @@ export function decide(
     decidedAt: options.now ?? new Date(),
     decisionNote: options.note ?? submission.decisionNote,
   };
+}
+
+/**
+ * What a speaker is shown for their own submission's status (decisions.md
+ * D-028: a waitlist decision changes nothing the speaker sees — Sessionboard
+ * renders queue statuses to speakers as a generic pending icon and never
+ * auto-emails on status change). A "maybe" reads back to the speaker as
+ * still-submitted; every other status passes through unchanged. Admin/reviewer
+ * views must NOT use this — they use the real status.
+ */
+export function speakerFacingStatus(status: SubmissionStatus): SubmissionStatus {
+  return status === "maybe" ? "submitted" : status;
 }
 
 // ---------------------------------------------------------------------------

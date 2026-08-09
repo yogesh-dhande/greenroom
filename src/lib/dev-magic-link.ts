@@ -2,7 +2,7 @@
  * Development-only magic-link capture.
  *
  * Magic links are the only way into Greenroom (decisions.md D-007), so local
- * development needs somewhere to read them from when no Resend key is
+ * development needs somewhere to read them from when no SendGrid key is
  * configured. Every requested link is printed to the server console *and*
  * appended to `.dev-magic-links.log` (gitignored) so you can grab the newest
  * one with `tail -n 1 .dev-magic-links.log` — or curl it directly.

@@ -18,6 +18,19 @@ const STATE_BADGE_CLASS: Record<TaskState, string> = {
 };
 
 /**
+ * The profile pieces the program can't be published without (spec.md §6 — a
+ * speaker maintains these at /portal/profile, and they feed this roster and
+ * the public gallery). Read straight off the speaker's user record, which is
+ * the single source of truth for both surfaces.
+ */
+function missingProfileParts(speaker: { bio: string | null; headshotUrl: string | null }): string[] {
+  const missing: string[] = [];
+  if (!speaker.bio) missing.push("bio");
+  if (!speaker.headshotUrl) missing.push("headshot");
+  return missing;
+}
+
+/**
  * Per-event onboarding dashboard (spec.md §8): who's confirmed to speak, and
  * how their onboarding tasks are going — outstanding/overdue counts and a
  * completion percentage, at a glance, in one table.
@@ -83,6 +96,7 @@ export default async function SpeakersPage({
             <TableRow>
               <TableHead>Speaker</TableHead>
               <TableHead>Confirmed</TableHead>
+              <TableHead>Profile</TableHead>
               <TableHead>Completion</TableHead>
               <TableHead>Overdue</TableHead>
               <TableHead>Tasks</TableHead>
@@ -96,6 +110,13 @@ export default async function SpeakersPage({
                     <span className="font-medium text-foreground">
                       {rollup.speaker.name ?? rollup.speaker.email}
                     </span>
+                    {/* Whatever the speaker last saved on their own profile —
+                        the same line the public gallery card prints. */}
+                    {rollup.speaker.title || rollup.speaker.company ? (
+                      <span className="text-xs text-muted-foreground">
+                        {[rollup.speaker.title, rollup.speaker.company].filter(Boolean).join(" · ")}
+                      </span>
+                    ) : null}
                     <span className="text-xs text-muted-foreground">{rollup.speaker.email}</span>
                   </div>
                 </TableCell>
@@ -103,6 +124,22 @@ export default async function SpeakersPage({
                   <Badge variant={rollup.confirmed ? "default" : "outline"}>
                     {rollup.confirmed ? "Confirmed" : "Not yet"}
                   </Badge>
+                </TableCell>
+                <TableCell>
+                  {(() => {
+                    const missing = missingProfileParts(rollup.speaker);
+                    return missing.length === 0 ? (
+                      <span className="text-muted-foreground">Complete</span>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="border-warning bg-warning/10 text-warning"
+                        title="The speaker fills this in on their own profile."
+                      >
+                        No {missing.join(" or ")}
+                      </Badge>
+                    );
+                  })()}
                 </TableCell>
                 <TableCell className="tabular-nums text-muted-foreground">
                   {rollup.totalTasks === 0

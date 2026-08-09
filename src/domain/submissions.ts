@@ -87,6 +87,10 @@ async function findOrCreateSpeaker(
     company: person.company?.trim() || null,
     bio: null,
     headshotUrl: null,
+    // The speaker fills these in themselves at /portal/profile (spec.md §6).
+    websiteUrl: null,
+    linkedinUrl: null,
+    twitterUrl: null,
     socials: null,
     image: null,
   });

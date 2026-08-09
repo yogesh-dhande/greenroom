@@ -66,6 +66,10 @@ export const getGallery = cache(async (eventSlug: string): Promise<GallerySpeake
         company: speaker.company,
         bio: speaker.bio,
         headshotUrl: speaker.headshotUrl,
+        // Maintained by the speaker at /portal/profile (spec.md §6).
+        websiteUrl: speaker.websiteUrl,
+        linkedinUrl: speaker.linkedinUrl,
+        twitterUrl: speaker.twitterUrl,
       },
     ]),
   );

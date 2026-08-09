@@ -193,7 +193,8 @@ export const DECISION_OPTIONS: DecisionOption[] = [
   {
     value: "maybe",
     label: "Waitlist",
-    description: "Keeps the talk in play without promising a slot. The speakers are told it's a maybe.",
+    description:
+      "Keeps the talk in play without promising a slot. Internal only: speakers keep seeing the proposal as in review.",
   },
   {
     value: "denied",

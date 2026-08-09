@@ -65,6 +65,10 @@ export const users = sqliteTable("users", {
   company: text("company"),
   bio: text("bio"),
   headshotUrl: text("headshot_url"),
+  /** Speaker-editable profile links (spec.md §6); shown on the public gallery. */
+  websiteUrl: text("website_url"),
+  linkedinUrl: text("linkedin_url"),
+  twitterUrl: text("twitter_url"),
   /** JSON-serialized SpeakerSocials (src/db/entities.ts). */
   socials: text("socials", { mode: "json" }),
   /** better-auth's own avatar field; kept separate from headshotUrl (the

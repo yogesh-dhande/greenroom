@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { getRepos } from "@/lib/db";
 import { isScheduled, type Event, type Form, type Room } from "@/db/entities";
 import { buildAssignmentViews, sortAssignmentViews } from "@/domain/onboarding";
+import { speakerFacingStatus } from "@/domain/evaluation";
 import { formatEventWhen } from "@/lib/event-time";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -101,7 +102,7 @@ export default async function PortalHomePage() {
                               className="flex items-center justify-between gap-3 rounded-md border border-border p-3 hover:bg-muted/40"
                             >
                               <span className="text-sm font-medium text-foreground">{submission.title}</span>
-                              <SubmissionStatusBadge status={submission.status} />
+                              <SubmissionStatusBadge status={speakerFacingStatus(submission.status)} />
                             </Link>
                           </li>
                         ))}

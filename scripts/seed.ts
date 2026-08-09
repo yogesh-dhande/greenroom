@@ -61,6 +61,9 @@ function person(
     company: null,
     bio: null,
     headshotUrl: null,
+    websiteUrl: null,
+    linkedinUrl: null,
+    twitterUrl: null,
     socials: null,
     image: null,
     ...extra,
@@ -522,6 +525,14 @@ async function seed(repos: Repos): Promise<void> {
           company: s.company,
           bio: s.bio,
           headshotUrl: s.headshotUrl,
+          // The speakers who look "fully onboarded" in the demo also have the
+          // profile links the public gallery renders (spec.md §6); the rest
+          // are left blank so the roster shows real gaps.
+          websiteUrl: s.headshotUrl ? `https://${s.email.split("@")[1]}` : null,
+          linkedinUrl: s.headshotUrl
+            ? `https://www.linkedin.com/in/${s.name.toLowerCase().replace(/[^a-z]+/g, "-")}`
+            : null,
+          twitterUrl: null,
           socials: s.headshotUrl ? { website: `https://${s.email.split("@")[1]}` } : null,
         }),
       ),

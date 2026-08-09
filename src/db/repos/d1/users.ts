@@ -4,6 +4,14 @@ import { users } from "@/db/schema";
 import type { UsersRepo } from "@/db/repos/users";
 import type { DrizzleD1 } from "./client";
 
+/**
+ * The Drizzle column keys are the entity keys (see src/db/schema.ts), so a
+ * row round-trips through `userSchema` without a field map — including the
+ * speaker-editable profile columns (`title`, `company`, `bio`, `headshotUrl`,
+ * `websiteUrl`, `linkedinUrl`, `twitterUrl`) that `update()` receives as a
+ * `Partial<NewUser>` patch from app code. Nothing Drizzle-shaped escapes this
+ * file: every return value is parsed back into the entity type first.
+ */
 export function createUsersRepo(db: DrizzleD1): UsersRepo {
   return {
     async getById(id) {

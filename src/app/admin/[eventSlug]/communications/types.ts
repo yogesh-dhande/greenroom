@@ -4,10 +4,11 @@
  *
  * Deliberately dependency-free at runtime: every import here is `import
  * type`, which TypeScript erases, so nothing in this module can pull
- * src/domain/comms.ts — and with it the Resend transport and the repository
- * layer — into the browser bundle (see learnings.md, "A `use client` import
- * chain can pull the email transport into the browser bundle"). Anything the
- * client needs as a *value* is declared here rather than imported.
+ * src/domain/comms.ts — and with it the SendGrid transport and the
+ * repository layer — into the browser bundle (see learnings.md, "A `use
+ * client` import chain can pull the email transport into the browser
+ * bundle"). Anything the client needs as a *value* is declared here rather
+ * than imported.
  *
  * Dates cross as ISO strings and are formatted client-side, because a server
  * component can't hand a `Date` to a client component without serialization

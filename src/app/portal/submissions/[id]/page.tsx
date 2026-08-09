@@ -5,6 +5,7 @@ import { getRepos } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { formatDeadline } from "@/lib/event-time";
 import { acceptsSubmissions, prefillValues, publicFields } from "@/domain/forms";
+import { speakerFacingStatus } from "@/domain/evaluation";
 import { loadSubmissionDetail } from "@/domain/submissions";
 import { PageHeader } from "@/components/page-header";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
@@ -65,7 +66,7 @@ export default async function PortalSubmissionPage({
       <PageHeader
         title={submission.title}
         description={`${event.name} — ${form.name}`}
-        action={<SubmissionStatusBadge status={submission.status} />}
+        action={<SubmissionStatusBadge status={speakerFacingStatus(submission.status)} />}
       />
 
       {editable ? (

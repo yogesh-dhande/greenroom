@@ -11,7 +11,7 @@ interface CloudflareEnv {
   /** Origin used for portal/event links inside outgoing email; falls back to
    * BETTER_AUTH_URL. */
   APP_URL?: string;
-  RESEND_API_KEY?: string;
+  SENDGRID_API_KEY?: string;
   /** From identity on every outgoing email (src/lib/email.ts). The address
    * also becomes the calendar invite's ORGANIZER, so it must be a real,
    * verified sending address in production. */

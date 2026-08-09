@@ -178,6 +178,10 @@ export async function createDirectSession(eventSlug: string, input: DirectSessio
         company: null,
         bio: null,
         headshotUrl: null,
+        // Filled in by the speaker themselves at /portal/profile (spec.md §6).
+        websiteUrl: null,
+        linkedinUrl: null,
+        twitterUrl: null,
         socials: null,
         image: null,
       });

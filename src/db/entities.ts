@@ -72,6 +72,16 @@ export const userSchema = z.object({
   company: z.string().nullable(),
   bio: z.string().nullable(),
   headshotUrl: z.string().nullable(),
+  /**
+   * The links a speaker maintains on their own profile (spec.md §6 —
+   * "social/web links"), and what the public gallery renders. First-class
+   * nullable columns rather than keys inside `socials` because they're
+   * edited, validated, and displayed individually; `socials` stays as the
+   * loose bag for anything imported from elsewhere.
+   */
+  websiteUrl: z.string().nullable(),
+  linkedinUrl: z.string().nullable(),
+  twitterUrl: z.string().nullable(),
   socials: speakerSocialsSchema.nullable(),
   image: z.string().nullable(),
   ...timestamps,

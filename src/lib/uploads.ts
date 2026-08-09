@@ -35,6 +35,26 @@ export const ALLOWED_UPLOAD_TYPES = [
 /** `accept` attribute for the file input, derived from the same list. */
 export const UPLOAD_ACCEPT_ATTRIBUTE = ALLOWED_UPLOAD_TYPES.join(",");
 
+/**
+ * The subset a picture-only field accepts — a speaker's headshot (spec.md §6),
+ * which is rendered as an `<img>` on the public gallery, so a PDF or a .docx
+ * there is never a useful answer even though the general upload rules allow
+ * them elsewhere.
+ */
+export const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+] as const;
+
+export const IMAGE_ACCEPT_ATTRIBUTE = ALLOWED_IMAGE_TYPES.join(",");
+
+export function isImageUploadType(type: string): boolean {
+  return (ALLOWED_IMAGE_TYPES as readonly string[]).includes(type);
+}
+
 /** Every key the app writes lives under this prefix, so the public file route
  * can refuse to serve anything else in the bucket (e.g. the incremental
  * cache, which shares the binding). */
