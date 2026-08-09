@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { newRoomSchema, newTrackSchema, newEventSchema } from "@/db/entities";
+import { runAirtableSync } from "@/domain/airtable-sync";
+import { getAirtableSyncContext } from "@/lib/airtable-context";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { RESERVED_EVENT_SLUGS, SLUG_PATTERN } from "@/lib/slug";
@@ -231,4 +233,51 @@ export async function deleteRoom(eventSlug: string, roomId: string) {
   } catch {
     return fail("Couldn't delete the room — try again");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Airtable sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Pushes this event's current state to the Airtable base on demand — the same
+ * `runAirtableSync` the cron calls (decisions.md D-036), so the button can
+ * never project something the schedule wouldn't.
+ *
+ * Safe to press repeatedly: every write is an upsert keyed on `greenroom_id`,
+ * so a second run updates the same rows rather than duplicating them.
+ * Organizer-only, like the rest of this screen — the sync exposes the whole
+ * event's speaker data to an external base.
+ */
+export async function syncToAirtableNow(eventSlug: string) {
+  await requireAdmin(`/admin/${eventSlug}/settings`);
+
+  const repos = await getRepos();
+  const event = await repos.events.getBySlug(eventSlug);
+  if (!event) return fail("Event not found");
+
+  let summary;
+  try {
+    // Scoped to this event: the cron projects every event, but an organizer
+    // pressing a button on one event's screen means "publish *this*".
+    const ctx = await getAirtableSyncContext({ repos, eventId: event.id });
+    summary = await runAirtableSync(ctx);
+  } catch {
+    return fail("Couldn't run the Airtable sync — try again");
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      skipped: summary.skipped,
+      /** Names the missing variable, e.g. "AIRTABLE_API_KEY not set". */
+      skippedReason: summary.skippedReason,
+      created: summary.created,
+      updated: summary.updated,
+      failed: summary.failed,
+      tablesCreated: summary.tablesCreated,
+      /** First error only: the toast has no room for a stack of them. */
+      error: summary.errors[0] ?? null,
+    },
+  };
 }

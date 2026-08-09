@@ -14,6 +14,7 @@
 // `opennextjs-cloudflare build` and does not exist until then.
 import { default as handler } from "./.open-next/worker.js";
 import { createD1Repos } from "./src/db/repos/d1";
+import { formatAirtableSummary, runAirtableSync } from "./src/domain/airtable-sync";
 import { runReminderJob } from "./src/domain/comms";
 import { getEmailSender } from "./src/lib/email";
 
@@ -50,6 +51,27 @@ export default {
         })
         .catch((error: unknown) => {
           console.error("reminder job failed:", error);
+        }),
+    );
+
+    // One-way Airtable projection (decisions.md D-036, docs/airtable-sync.md).
+    // A second, independent job on the same tick: it reads the same repos but
+    // shares no state with the reminders, and its own catch means an Airtable
+    // outage can never take deadline reminders down with it.
+    //
+    // The credentials are passed raw — `runAirtableSync` decides whether it is
+    // configured and reports an unconfigured run as a skip, so a base that was
+    // never set up costs one log line rather than a failing cron.
+    ctx.waitUntil(
+      runAirtableSync({
+        repos,
+        airtable: { apiKey: env.AIRTABLE_API_KEY, baseId: env.AIRTABLE_BASE_ID },
+      })
+        .then((summary) => {
+          console.log(formatAirtableSummary(summary));
+        })
+        .catch((error: unknown) => {
+          console.error("airtable sync failed:", error);
         }),
     );
   },

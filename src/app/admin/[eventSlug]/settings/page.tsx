@@ -3,6 +3,7 @@ import { getRepos } from "@/lib/db";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/session";
+import { AirtableSyncCard } from "./airtable-sync-card";
 import { EventDetailsForm } from "./event-details-form";
 import { TracksManager } from "./tracks-manager";
 import { RoomsManager } from "./rooms-manager";
@@ -29,7 +30,7 @@ export default async function SettingsPage({
     <div className="flex max-w-3xl flex-col gap-6">
       <PageHeader
         title="Settings"
-        description="Event identity, dates, tracks, and rooms."
+        description="Event identity, dates, tracks, rooms, and integrations."
       />
 
       <Card>
@@ -61,6 +62,18 @@ export default async function SettingsPage({
         </CardHeader>
         <CardContent>
           <RoomsManager eventSlug={eventSlug} eventId={event.id} rooms={rooms} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Airtable sync</CardTitle>
+          <CardDescription>
+            A one-way copy of this event in Airtable, for reporting and row-triggered automations.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AirtableSyncCard eventSlug={eventSlug} />
         </CardContent>
       </Card>
     </div>
