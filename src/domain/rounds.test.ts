@@ -29,6 +29,7 @@ import {
   rollupRoundsBySubmission,
   roundResultsCsv,
   roundState,
+  scorecardAnswers,
   scorecardScore,
   sortResultRows,
   speakerLine,
@@ -398,6 +399,14 @@ describe("summarizeRound", () => {
     expect(first.criterionAverages).toEqual({ originality: 4, relevance: 3 });
   });
 
+  it("keeps every dropdown and free-text answer verbatim, unaveraged", () => {
+    const [first] = summarizeRound(INITIAL_REVIEW, assignments, scores);
+    expect(first.criterionAnswers).toEqual({
+      recommendation: ["Accept", "Maybe"],
+      comments: [],
+    });
+  });
+
   it("leaves an unscored submission without a score rather than a zero", () => {
     const summaries = summarizeRound(INITIAL_REVIEW, assignments, scores);
     const second = summaries.find((s) => s.submissionId === "sub-2")!;
@@ -493,6 +502,46 @@ describe("rollupRoundsBySubmission", () => {
   });
 });
 
+describe("scorecardAnswers", () => {
+  it("reads a rating back raw, on its own scale — never the normalized share", () => {
+    const answers = scorecardAnswers(INITIAL_REVIEW, { originality: 4, relevance: "2" });
+    expect(answers).toEqual([
+      { label: "Originality", value: "4 / 5" },
+      { label: "Relevance", value: "2 / 5" },
+    ]);
+  });
+
+  it("shows a dropdown choice and a free-text note as the reviewer left them", () => {
+    expect(
+      scorecardAnswers(INITIAL_REVIEW, {
+        recommendation: "Maybe",
+        comments: "  Strong idea, thin on evidence.  ",
+      }),
+    ).toEqual([
+      { label: "Recommendation", value: "Maybe" },
+      { label: "Comments", value: "Strong idea, thin on evidence." },
+    ]);
+  });
+
+  it("skips criteria nobody answered rather than showing an empty line", () => {
+    expect(
+      scorecardAnswers(INITIAL_REVIEW, {
+        originality: null,
+        relevance: undefined,
+        recommendation: "",
+        comments: "   ",
+      }),
+    ).toEqual([]);
+    expect(scorecardAnswers(INITIAL_REVIEW, {})).toEqual([]);
+  });
+
+  it("ignores a value stored under a key the scorecard no longer asks about", () => {
+    expect(scorecardAnswers(INITIAL_REVIEW, { removed_criterion: "7", originality: 1 })).toEqual([
+      { label: "Originality", value: "1 / 5" },
+    ]);
+  });
+});
+
 describe("results table", () => {
   function row(title: string, score: number | null, scored = 1): ResultRow {
     return {
@@ -509,6 +558,7 @@ describe("results table", () => {
         recused: 0,
         score,
         criterionAverages: { originality: score === null ? null : 4 },
+        criterionAnswers: {},
       },
     };
   }
@@ -544,7 +594,7 @@ describe("results table", () => {
 });
 
 describe("CSV export", () => {
-  it("heads the file with a column per numeric criterion", () => {
+  it("heads the file with a column per criterion — averages, then the qualitative ones", () => {
     expect(csvHeader(INITIAL_REVIEW)).toEqual([
       "Submission",
       "Speakers",
@@ -555,6 +605,8 @@ describe("CSV export", () => {
       "Aggregate score",
       "Originality (avg)",
       "Relevance (avg)",
+      "Recommendation",
+      "Comments",
     ]);
   });
 
@@ -580,6 +632,10 @@ describe("CSV export", () => {
           recused: 0,
           score: 66.7,
           criterionAverages: { originality: 4, relevance: 3 },
+          criterionAnswers: {
+            recommendation: ["Accept", "Maybe"],
+            comments: ["Strong, if a little long"],
+          },
         },
       },
       {
@@ -596,6 +652,7 @@ describe("CSV export", () => {
           recused: 0,
           score: null,
           criterionAverages: { originality: null, relevance: null },
+          criterionAnswers: { recommendation: [], comments: [] },
         },
       },
     ];
@@ -603,13 +660,38 @@ describe("CSV export", () => {
     const csv = roundResultsCsv(INITIAL_REVIEW, rows);
     const lines = csv.trimEnd().split("\n");
     expect(lines[0]).toBe(
-      "Submission,Speakers,Tracks,Status,Reviewers assigned,Scorecards submitted,Aggregate score,Originality (avg),Relevance (avg)",
+      "Submission,Speakers,Tracks,Status,Reviewers assigned,Scorecards submitted,Aggregate score,Originality (avg),Relevance (avg),Recommendation,Comments",
     );
+    // Both reviewers' dropdown answers survive the export, and a free-text note
+    // with a comma in it is quoted like any other cell.
     expect(lines[1]).toBe(
-      '"Retrieval, at scale",Priya Raman; Tom Beckett,AI Engineering,Unreviewed,2,2,66.7,4,3',
+      '"Retrieval, at scale",Priya Raman; Tom Beckett,AI Engineering,Unreviewed,2,2,66.7,4,3,Accept; Maybe,"Strong, if a little long"',
     );
-    expect(lines[2]).toBe("Nobody scored me,,,Unreviewed,1,0,,,");
+    expect(lines[2]).toBe("Nobody scored me,,,Unreviewed,1,0,,,,,");
     expect(csv.endsWith("\n")).toBe(true);
+  });
+
+  it("carries qualitative answers end to end, from scorecards to columns", () => {
+    const assignments = [
+      assignment({ id: "a1", submissionId: "sub-1", reviewerId: "dana" }),
+      assignment({ id: "a2", submissionId: "sub-1", reviewerId: "marco" }),
+    ];
+    const summaries = summarizeRound(INITIAL_REVIEW, assignments, [
+      score("a1", { originality: 5, relevance: 5, recommendation: "Accept", comments: "Yes" }),
+      score("a2", { originality: 5, relevance: 5, recommendation: "Decline" }),
+    ]);
+    const rows: ResultRow[] = summaries.map((summary) => ({
+      submissionId: summary.submissionId,
+      title: "Retrieval",
+      speakers: [],
+      trackNames: [],
+      status: "Unreviewed",
+      summary,
+    }));
+
+    expect(roundResultsCsv(INITIAL_REVIEW, rows).trimEnd().split("\n")[1]).toBe(
+      "Retrieval,,,Unreviewed,2,2,100,5,5,Accept; Decline,Yes",
+    );
   });
 });
 

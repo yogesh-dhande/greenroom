@@ -5,7 +5,13 @@ import { PageHeader } from "@/components/page-header";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { personName } from "../../../submissions/queue";
-import { loadReviewerPool, loadRound, loadRoundSubmissions, loadRoundWork } from "../../data";
+import {
+  loadReviewerPool,
+  loadRound,
+  loadRoundSubmissions,
+  loadRoundWork,
+  viewerHasQueue,
+} from "../../data";
 import { RoundNav } from "../round-nav";
 import { AssignmentManager, type AssignmentRow, type SubmissionOption } from "./assignment-manager";
 
@@ -20,17 +26,18 @@ export default async function RoundAssignmentsPage({
   params: Promise<{ eventSlug: string; roundId: string }>;
 }) {
   const { eventSlug, roundId } = await params;
-  await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
+  const viewer = await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
   const repos = await getRepos();
   const loaded = await loadRound(repos, eventSlug, roundId);
   if (!loaded) notFound();
   const { event, round } = loaded;
 
-  const [submissions, work, tracks, pool] = await Promise.all([
+  const [submissions, work, tracks, pool, hasQueue] = await Promise.all([
     loadRoundSubmissions(repos, event.id),
     loadRoundWork(repos, roundId),
     repos.tracks.listByEvent(event.id),
     loadReviewerPool(repos),
+    viewerHasQueue(repos, roundId, viewer.id),
   ]);
 
   const poolById = new Map(pool.map((person) => [person.id, person]));
@@ -69,7 +76,7 @@ export default async function RoundAssignmentsPage({
           </Button>
         }
       />
-      <RoundNav eventSlug={eventSlug} roundId={roundId} active="assignments" />
+      <RoundNav eventSlug={eventSlug} roundId={roundId} active="assignments" hasQueue={hasQueue} />
       <AssignmentManager
         eventSlug={eventSlug}
         roundId={roundId}

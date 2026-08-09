@@ -58,6 +58,20 @@ export async function loadRound(
 }
 
 /**
+ * Whether this viewer holds review work in this round — what puts "My queue"
+ * in the round nav. Read from their own assignments, because the assignment is
+ * the authorization and a role grants nothing on its own (D-035(1)).
+ */
+export async function viewerHasQueue(
+  repos: Repos,
+  roundId: string,
+  viewerId: string,
+): Promise<boolean> {
+  const mine = await repos.reviewRounds.listAssignmentsByReviewer(viewerId);
+  return mine.some((assignment) => assignment.roundId === roundId);
+}
+
+/**
  * Every submission that could be put in front of a reviewer, with the columns
  * the assignment and results tables show. Tracks and speakers are each fetched
  * in one batch — these tables must not cost a query per row.

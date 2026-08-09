@@ -5,7 +5,7 @@ import { createsSessionsDirectly, type FormField } from "@/db/entities";
 import { DIRECT_TO_SESSION_LABEL, prefillValues, publicFields } from "@/domain/forms";
 import { loadSubmissionDetail } from "@/domain/submissions";
 import { canRecordDecision, canViewSubmission, tallyReviews } from "@/domain/review";
-import { rollupProgressLabel, type SubmissionReviewRollup } from "@/domain/rounds";
+import { hidesSpeakerIdentity, rollupProgressLabel } from "@/domain/rounds";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
 import { fileUrl, filenameFromKey } from "@/lib/uploads";
@@ -20,8 +20,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { loadRoundRollups, personName, reviewerTrackIdsFor, rollupFor } from "../queue";
+import { ScorecardForm } from "../../rounds/[roundId]/score/[submissionId]/scorecard-form";
+import {
+  loadRoundRollups,
+  loadViewerScorecards,
+  personName,
+  reviewerTrackIdsFor,
+  rollupFor,
+  type SubmissionRollup,
+} from "../queue";
 import { DecisionPanel } from "./decision-panel";
 import { ReviewPanel } from "./review-panel";
 
@@ -85,7 +94,7 @@ export default async function SubmissionDetailPage({
 
   // What acceptance already produced, so the outcome is visible on the page
   // that caused it rather than only on the agenda and task screens.
-  const [eventTasks, assignments, rollups] = await Promise.all([
+  const [eventTasks, assignments, rollups, myScorecards] = await Promise.all([
     repos.tasks.listByEvent(event.id),
     Promise.all(detail.speakerIds.map((speakerId) => repos.taskAssignments.listBySpeaker(speakerId))),
     // Round scorecards are review activity too, and this record has to say so
@@ -93,7 +102,10 @@ export default async function SubmissionDetailPage({
     // Organizer-only, like every other view of a round's aggregate (D-035).
     viewer.role === "admin"
       ? loadRoundRollups(repos, event.id)
-      : Promise.resolve<Record<string, SubmissionReviewRollup>>({}),
+      : Promise.resolve<Record<string, SubmissionRollup>>({}),
+    // The viewer's own round work on this proposal, so the scorecard is where
+    // the proposal is rather than only behind the rounds pages (D-048).
+    loadViewerScorecards(repos, event.id, viewer.id, id),
   ]);
   const rollup = rollupFor(rollups, id);
   const taskById = new Map(eventTasks.map((task) => [task.id, task]));
@@ -189,23 +201,60 @@ export default async function SubmissionDetailPage({
                   Where this proposal stands in each review round it was assigned to.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col gap-3">
+              <CardContent className="flex flex-col gap-5">
                 {rollup.rounds.map((round) => (
-                  <div
-                    key={round.roundId}
-                    className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
-                  >
-                    <Link
-                      href={`/admin/${eventSlug}/rounds/${round.roundId}/results`}
-                      className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
-                    >
-                      {round.roundName}
-                    </Link>
-                    <span className="text-sm tabular-nums text-muted-foreground">
-                      {round.score === null ? "Not scored yet" : `avg ${round.score}`}
-                      {" · "}
-                      {rollupProgressLabel(round)}
-                    </span>
+                  <div key={round.roundId} className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <Link
+                        href={`/admin/${eventSlug}/rounds/${round.roundId}/results`}
+                        className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                      >
+                        {round.roundName}
+                      </Link>
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        {round.score === null ? "Not scored yet" : `avg ${round.score}`}
+                        {" · "}
+                        {rollupProgressLabel(round)}
+                      </span>
+                    </div>
+                    {/* The scorecards themselves, not just the aggregate: the
+                        dropdown and free-text criteria are never scored (D-035),
+                        so an average is the one thing that can't say what a
+                        reviewer actually answered. */}
+                    {round.filed.map((card, index) => (
+                      <div
+                        key={`${card.reviewerName}-${index}`}
+                        className="flex flex-col gap-1 border-l-2 border-border pl-3"
+                      >
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                          <span className="text-sm font-medium text-foreground">
+                            {card.reviewerName}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(card.submittedAt)}
+                          </span>
+                        </div>
+                        {card.answers.length === 0 ? (
+                          <p className="text-sm text-muted-foreground italic">
+                            Filed with nothing filled in.
+                          </p>
+                        ) : (
+                          <dl className="flex flex-col gap-0.5">
+                            {card.answers.map((answer, position) => (
+                              <div
+                                key={`${answer.label}-${position}`}
+                                className="flex flex-wrap gap-x-2 text-sm"
+                              >
+                                <dt className="text-muted-foreground">{answer.label}:</dt>
+                                <dd className="whitespace-pre-line text-foreground">
+                                  {answer.value}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </CardContent>
@@ -214,8 +263,58 @@ export default async function SubmissionDetailPage({
         </div>
 
         <div className="flex flex-col gap-6">
-          {/* Nothing to recommend on a talk the form already accepted (D-041). */}
-          {isDirectToSession ? null : (
+          {myScorecards.map((card) => (
+            <Card key={card.round.id}>
+              <CardHeader>
+                <CardTitle>{card.round.name}</CardTitle>
+                <CardDescription>
+                  {card.submitted
+                    ? "Your scorecard for this round — filed, and editable while the round is open."
+                    : "Your scorecard for this round."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* A blind round is scored where the author isn't shown, and
+                    this page shows the author — so the round keeps its own
+                    page and this card is only the way in (decisions.md D-049). */}
+                {hidesSpeakerIdentity(card.round) ? (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      This round hides speaker identity, so its scorecard is filled in on the
+                      round&apos;s own page.
+                    </p>
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={`/admin/${eventSlug}/rounds/${card.round.id}/score/${submission.id}`}
+                      >
+                        {card.submitted ? "Open your scorecard" : "Score this submission"}
+                      </Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <ScorecardForm
+                    eventSlug={eventSlug}
+                    roundId={card.round.id}
+                    submissionId={submission.id}
+                    criteria={card.round.criteria}
+                    values={card.values}
+                    submitted={card.submitted}
+                    recused={card.assignment.status === "recused"}
+                    recusalReason={card.assignment.recusalReason}
+                    canScore={card.open}
+                    returnTo={`/admin/${eventSlug}/submissions/${submission.id}`}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          ))}
+
+          {/* Nothing to recommend on a talk the form already accepted (D-041),
+              and nothing to recommend in the flat §4 vocabulary once a round
+              has asked this viewer its own questions: the round is the
+              authoritative scoring system where one is configured (D-048), so
+              the two forms never sit on the page together. */}
+          {isDirectToSession || myScorecards.length > 0 ? null : (
             <ReviewPanel
               eventSlug={eventSlug}
               submissionId={submission.id}

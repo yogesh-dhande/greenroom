@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
-import { loadRound } from "../data";
+import { loadRound, viewerHasQueue } from "../data";
 import { RoundForm } from "../round-form";
 import { RoundNav } from "./round-nav";
 
@@ -15,11 +15,12 @@ export default async function RoundSetupPage({
   params: Promise<{ eventSlug: string; roundId: string }>;
 }) {
   const { eventSlug, roundId } = await params;
-  await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}`);
+  const viewer = await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}`);
   const repos = await getRepos();
   const loaded = await loadRound(repos, eventSlug, roundId);
   if (!loaded) notFound();
   const { event, round } = loaded;
+  const hasQueue = await viewerHasQueue(repos, roundId, viewer.id);
 
   return (
     <div>
@@ -32,7 +33,7 @@ export default async function RoundSetupPage({
           </Button>
         }
       />
-      <RoundNav eventSlug={eventSlug} roundId={roundId} active="setup" />
+      <RoundNav eventSlug={eventSlug} roundId={roundId} active="setup" hasQueue={hasQueue} />
       <RoundForm eventSlug={eventSlug} eventTimezone={event.timezone} round={round} />
     </div>
   );

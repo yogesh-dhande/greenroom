@@ -90,6 +90,11 @@ export function numericCriteria(criteria: ScorecardCriterion[]): ScorecardCriter
   return criteria.filter((criterion) => criterion.type === "number");
 }
 
+/** Dropdown and free-text criteria: recorded and exported, never scored (D-035). */
+export function qualitativeCriteria(criteria: ScorecardCriterion[]): ScorecardCriterion[] {
+  return criteria.filter((criterion) => criterion.type !== "number");
+}
+
 /** Reads a stored answer as a number, tolerating the strings a form posts. */
 export function readNumber(raw: unknown): number | null {
   if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
@@ -252,6 +257,52 @@ export function pickScorecardValues(
   return clean;
 }
 
+/** One answered criterion, as the organizer reads it back. */
+export interface ScorecardAnswer {
+  label: string;
+  value: string;
+}
+
+/**
+ * A filed scorecard as label/value lines for the submission record (D-048).
+ *
+ * Ratings read **raw** — "4 / 5", not the 0–100 share the aggregate is built
+ * from: this is what the reviewer entered, and 75 is a number nobody typed.
+ * Unanswered criteria are dropped rather than shown blank, and a value stored
+ * under a key the scorecard no longer asks about is ignored — the criteria are
+ * the questions, the values only ever answers to them.
+ *
+ * Pure: reviewer names are resolved by the caller.
+ */
+export function scorecardAnswers(
+  criteria: ScorecardCriterion[],
+  values: Record<string, unknown>,
+): ScorecardAnswer[] {
+  const answers: ScorecardAnswer[] = [];
+  for (const criterion of criteria) {
+    const raw = values[criterion.id];
+    if (criterion.type === "number") {
+      const value = readNumber(raw);
+      if (value === null) continue;
+      answers.push({
+        label: criterion.label,
+        value: `${value} / ${criterionRange(criterion).max}`,
+      });
+      continue;
+    }
+    const text = readText(raw);
+    if (!text) continue;
+    answers.push({ label: criterion.label, value: text });
+  }
+  return answers;
+}
+
+/** A dropdown choice or a free-text note as stored, trimmed; "" when unanswered. */
+function readText(raw: unknown): string {
+  if (raw === null || raw === undefined) return "";
+  return (typeof raw === "string" ? raw : String(raw)).trim();
+}
+
 // ---------------------------------------------------------------------------
 // Reviewer queues & scoping
 // ---------------------------------------------------------------------------
@@ -364,6 +415,11 @@ export interface SubmissionRoundSummary {
   score: number | null;
   /** Mean of the raw ratings per numeric criterion, keyed by criterion id. */
   criterionAverages: Record<string, number | null>;
+  /** Every answer filed for a dropdown or free-text criterion, one entry per
+   * scorecard, keyed by criterion id. Those criteria carry judgement rather
+   * than a measurement (D-035), so they are carried verbatim instead of
+   * averaged — an export that dropped them would lose the reviewer's words. */
+  criterionAnswers: Record<string, string[]>;
 }
 
 /**
@@ -379,10 +435,16 @@ export function summarizeRound(
 ): SubmissionRoundSummary[] {
   const scoreByAssignment = new Map(scores.map((score) => [score.assignmentId, score]));
   const numeric = numericCriteria(criteria);
+  const qualitative = qualitativeCriteria(criteria);
 
   const bySubmission = new Map<
     string,
-    { summary: SubmissionRoundSummary; totals: number[]; raw: Map<string, number[]> }
+    {
+      summary: SubmissionRoundSummary;
+      totals: number[];
+      raw: Map<string, number[]>;
+      answers: Map<string, string[]>;
+    }
   >();
 
   for (const assignment of assignments) {
@@ -397,9 +459,11 @@ export function summarizeRound(
           recused: 0,
           score: null,
           criterionAverages: {},
+          criterionAnswers: {},
         },
         totals: [],
         raw: new Map(numeric.map((criterion) => [criterion.id, []])),
+        answers: new Map(qualitative.map((criterion) => [criterion.id, []])),
       };
       bySubmission.set(assignment.submissionId, entry);
     }
@@ -422,12 +486,19 @@ export function summarizeRound(
       const value = readNumber(values[criterion.id]);
       if (value !== null) entry.raw.get(criterion.id)!.push(value);
     }
+    for (const criterion of qualitative) {
+      const text = readText(values[criterion.id]);
+      if (text) entry.answers.get(criterion.id)!.push(text);
+    }
   }
 
-  return [...bySubmission.values()].map(({ summary, totals, raw }) => {
+  return [...bySubmission.values()].map(({ summary, totals, raw, answers }) => {
     summary.score = roundScoreValue(mean(totals));
     for (const [criterionId, values] of raw) {
       summary.criterionAverages[criterionId] = roundScoreValue(mean(values));
+    }
+    for (const [criterionId, texts] of answers) {
+      summary.criterionAnswers[criterionId] = texts;
     }
     return summary;
   });
@@ -551,7 +622,11 @@ export function csvRow(cells: Array<string | number | null>): string {
   return cells.map(csvCell).join(",");
 }
 
-/** Column headings for the export, in order. */
+/**
+ * Column headings for the export, in order. Dropdown and free-text criteria
+ * get a column each after the averages: they are never scored (D-035), so the
+ * export is the only place their answers reach a spreadsheet.
+ */
 export function csvHeader(criteria: ScorecardCriterion[]): string[] {
   return [
     "Submission",
@@ -562,6 +637,7 @@ export function csvHeader(criteria: ScorecardCriterion[]): string[] {
     "Scorecards submitted",
     "Aggregate score",
     ...numericCriteria(criteria).map((criterion) => `${criterion.label} (avg)`),
+    ...qualitativeCriteria(criteria).map((criterion) => criterion.label),
   ];
 }
 
@@ -571,6 +647,7 @@ export function csvHeader(criteria: ScorecardCriterion[]): string[] {
  */
 export function roundResultsCsv(criteria: ScorecardCriterion[], rows: ResultRow[]): string {
   const numeric = numericCriteria(criteria);
+  const qualitative = qualitativeCriteria(criteria);
   const lines = [csvRow(csvHeader(criteria))];
   for (const row of rows) {
     lines.push(
@@ -583,6 +660,11 @@ export function roundResultsCsv(criteria: ScorecardCriterion[], rows: ResultRow[
         row.summary.scored,
         row.summary.score,
         ...numeric.map((criterion) => row.summary.criterionAverages[criterion.id] ?? null),
+        // Every reviewer's answer, joined — averaging a judgement would invent
+        // a consensus, and keeping only one would discard the disagreement.
+        ...qualitative.map((criterion) =>
+          (row.summary.criterionAnswers[criterion.id] ?? []).join("; "),
+        ),
       ]),
     );
   }

@@ -353,6 +353,12 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** CRM is the rubric's optional extra-credit area and scored 0% on the baseline run purely as an architectural absence — every item was a confident not_found, not a defect. A real CRM is a product of its own and would displace fixes in graded core areas before the Aug 12 deadline. Several of the run's CRM defects were stale against the working tree (roster clickability, add/import, landing auth state — all fixed in W16/W17); the duplicate-tolerance major is the one genuinely unaddressed hazard, and a flag is the smallest honest answer to it.
 
+## D-060: The submission record is the scoring surface; rounds are authoritative over the flat panel — **accepted** (2026-08-09)
+
+**Decision:** A reviewer (or admin) who holds a round assignment on a submission scores it from the submission record itself: the round's own scorecard renders inline there, and the legacy flat Approve/Maybe/Deny panel is suppressed whenever round work exists — the two vocabularies never sit on one page. Blind rounds (D-049) are the exception: the record shows the author, so the card links to the round's identity-withholding scorecard page instead of inlining the form. Admins holding assignments get the same "Open queue"/"My queue" navigation reviewers had. Organizers read filed scorecards back in full on the record — reviewer, date, and every answer with ratings on their raw scale — and the round results CSV carries select/free-text answers verbatim (joined per criterion, never averaged).
+
+**Rationale:** Run-3 eval scored the ABS area's critical against us: a round configured with custom criteria (Originality w2, custom Accept/Maybe/Reject dropdown) never showed those criteria to the evaluator, because the scorecard UI — correct in itself — was reachable only via a reviewer-only queue link, while the submission page everyone actually opens rendered the hardcoded legacy panel; select/text answers were write-only app-wide. D-048 put round *aggregates* on the record; this completes it with the entry point and the read-back. The assignment remains the sole authorization (D-035); the read-back stays admin-gated so reviewers never see each other's scores.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

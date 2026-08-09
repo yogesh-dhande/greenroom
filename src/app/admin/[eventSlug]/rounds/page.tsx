@@ -122,6 +122,13 @@ export default async function RoundsPage({
                   (isAdmin || assignment.reviewerId === viewer.id),
               );
               const reviewers = new Set(mine.map((assignment) => assignment.reviewerId));
+              // An admin on a program committee reviews like anyone else
+              // (D-035(1): the assignment is the authorization), so the queue
+              // button follows the assignment, not the role.
+              const hasQueue = assignments.some(
+                (assignment) =>
+                  assignment.roundId === round.id && assignment.reviewerId === viewer.id,
+              );
               const required = mine.filter((assignment) => assignment.status !== "recused");
               const done = required.filter((assignment) => scored.has(assignment.id));
               return (
@@ -167,26 +174,29 @@ export default async function RoundsPage({
                     {progressLabel({ done: done.length, required: required.length })}
                   </TableCell>
                   <TableCell className="text-right">
-                    {isAdmin ? (
-                      <div className="flex justify-end gap-2">
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/admin/${eventSlug}/rounds/${round.id}/assignments`}>
-                            Assign
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {isAdmin ? (
+                        <>
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/admin/${eventSlug}/rounds/${round.id}/assignments`}>
+                              Assign
+                            </Link>
+                          </Button>
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/admin/${eventSlug}/rounds/${round.id}/results`}>
+                              Results
+                            </Link>
+                          </Button>
+                        </>
+                      ) : null}
+                      {hasQueue ? (
+                        <Button asChild size="sm">
+                          <Link href={`/admin/${eventSlug}/rounds/${round.id}/score`}>
+                            Open queue
                           </Link>
                         </Button>
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/admin/${eventSlug}/rounds/${round.id}/results`}>
-                            Results
-                          </Link>
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button asChild size="sm">
-                        <Link href={`/admin/${eventSlug}/rounds/${round.id}/score`}>
-                          Open queue
-                        </Link>
-                      </Button>
-                    )}
+                      ) : null}
+                    </div>
                   </TableCell>
                 </TableRow>
               );

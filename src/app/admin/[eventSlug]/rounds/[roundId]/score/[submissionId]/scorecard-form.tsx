@@ -17,7 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { recuseFromSubmission, submitScorecard } from "../../../actions";
+// Aliased rather than relative: the submission record renders this same form
+// from a different depth in the tree (decisions.md D-048).
+import { recuseFromSubmission, submitScorecard } from "@/app/admin/[eventSlug]/rounds/actions";
 
 /**
  * Fills in one round's scorecard for one submission (rubric ABS-03: ratings,
@@ -37,6 +39,7 @@ export function ScorecardForm({
   recused,
   recusalReason,
   canScore,
+  returnTo,
 }: {
   eventSlug: string;
   roundId: string;
@@ -48,8 +51,11 @@ export function ScorecardForm({
   recusalReason: string | null;
   /** False when the round isn't open — the form reads but doesn't submit. */
   canScore: boolean;
+  /** Where filing lands the reviewer; their queue unless the page says otherwise. */
+  returnTo?: string;
 }) {
   const router = useRouter();
+  const done = returnTo ?? `/admin/${eventSlug}/rounds/${roundId}/score`;
   const [answers, setAnswers] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     for (const criterion of criteria) {
@@ -86,7 +92,7 @@ export function ScorecardForm({
         return;
       }
       toast.success("Scorecard submitted");
-      router.push(`/admin/${eventSlug}/rounds/${roundId}/score`);
+      router.push(done);
       router.refresh();
     });
   }
@@ -99,7 +105,7 @@ export function ScorecardForm({
         return;
       }
       toast.success("Conflict recorded — this one's off your list");
-      router.push(`/admin/${eventSlug}/rounds/${roundId}/score`);
+      router.push(done);
       router.refresh();
     });
   }

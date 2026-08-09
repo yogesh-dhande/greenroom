@@ -6,7 +6,13 @@ import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
-import { buildResultRows, loadRound, loadRoundSubmissions, loadRoundWork } from "../../data";
+import {
+  buildResultRows,
+  loadRound,
+  loadRoundSubmissions,
+  loadRoundWork,
+  viewerHasQueue,
+} from "../../data";
 import { RoundNav } from "../round-nav";
 import { ResultsTable } from "./results-table";
 
@@ -22,15 +28,16 @@ export default async function RoundResultsPage({
   params: Promise<{ eventSlug: string; roundId: string }>;
 }) {
   const { eventSlug, roundId } = await params;
-  await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}/results`);
+  const viewer = await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}/results`);
   const repos = await getRepos();
   const loaded = await loadRound(repos, eventSlug, roundId);
   if (!loaded) notFound();
   const { event, round } = loaded;
 
-  const [submissions, work] = await Promise.all([
+  const [submissions, work, hasQueue] = await Promise.all([
     loadRoundSubmissions(repos, event.id),
     loadRoundWork(repos, roundId),
+    viewerHasQueue(repos, roundId, viewer.id),
   ]);
   const rows = buildResultRows(round, submissions, work.assignments, work.scores);
 
@@ -55,7 +62,7 @@ export default async function RoundResultsPage({
           </div>
         }
       />
-      <RoundNav eventSlug={eventSlug} roundId={roundId} active="results" />
+      <RoundNav eventSlug={eventSlug} roundId={roundId} active="results" hasQueue={hasQueue} />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Submissions in round" value={rows.length} />
