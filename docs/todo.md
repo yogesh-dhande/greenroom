@@ -6,12 +6,6 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 - [ ] **(Optional, for local dev only)** add `AIRTABLE_API_KEY=…` to `.dev.vars` yourself in an editor — don't paste the token into chat or a terminal command. Not needed for the deployed sync (the secret is already set in the worker); it only lets a local dev server hit the base.
 
-## Deploy headroom
-
-- [ ] **(Urgent — eval-critical) Upgrade Cloudflare Workers to the $5/mo paid plan** (dash.cloudflare.com → Workers & Pages → Plans). Two independent reasons, both hit on 2026-08-09:
-  1. **CPU cap is causing the site to hang.** Eval run 3 scored a **critical** defect in the SPK area: `/`, `/dashboard`, and `/admin` repeatedly timed out at 30s and sat on "Loading…" for over a minute, across two sessions (~30 wasted turns in one scenario), while lighter public pages kept working — and it dragged SPK coverage down to 81.8%. The pattern matches the free plan's **10 ms CPU per request** limit killing heavy admin SSR requests; three more judged defects (add-speaker dialog stuck on "Adding…", roster filter selections never committing, sidebar/nav clicks not navigating) are the same stalled round-trip seen from different UI. The paid plan raises CPU to 30 s per request.
-  2. **Bundle-size cliff.** The free plan caps the Worker at 3 MiB gzipped and the app sits right at it — a deploy was rejected at 3101 KiB and only fit after dropping esbuild's `keep_names` (see wrangler.jsonc). The paid plan's 10 MiB cap removes this cliff for the rest of the competition window.
-
 ## Evaluator prep (after the deploy is verified)
 
 - [ ] **`npm install` in the evals repo.** The judging harness now lives at `~/projects/killmysaas-evals` (moved out of the session temp dir); dependencies weren't copied, so run `npm install` there once.
@@ -26,6 +20,7 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 ## Done
 
+- [x] Cloudflare Workers **paid plan** upgraded (2026-08-09) — fixes both free-plan walls: the 10 ms CPU cap behind the eval-critical site hangs (`/admin` and friends timing out at 30s; now verified answering in 0.1–1.3s with an authenticated organizer session) and the 3 MiB bundle cliff (now 10 MiB; `keep_names: false` in wrangler.jsonc can be revisited if ever needed).
 - [x] `npx wrangler login` (2026-08-09) — account verified, D1 database created in WNAM, remote migrations applied, worker created, `BETTER_AUTH_SECRET` set.
 - [x] SendGrid chosen over Resend (D-030) — code migrated, `resend` dependency removed.
 - [x] R2 enabled (2026-08-09) — bucket `greenroom-files` created with `wnam` location hint.
