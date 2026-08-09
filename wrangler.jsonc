@@ -19,7 +19,7 @@
   // account); wrangler provisions the DNS record and certificate on deploy.
   "routes": [
     {
-      "pattern": "greenboard.usespaces.dev",
+      "pattern": "greenroom.usespaces.dev",
       "custom_domain": true
     }
   ],
