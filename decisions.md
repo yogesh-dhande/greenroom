@@ -191,6 +191,18 @@ Seed a realistic sandbox event so judges can test all flows without setup; decid
 
 **Rationale:** The owner already has a SendGrid API key (2026-08-09), which settles the email half of Q1 without a new signup or domain wait. Revises only the email-provider choice inside D-001; everything else there stands.
 
+## D-031: The published evaluator rubric drives remaining prioritization — **accepted** (2026-08-09)
+
+**Decision:** Judging runs through `sbek` (https://forge.smol.ai/swyx/killmysaas-evals): an LLM browser agent + judge scoring 84 required rubric items (178 weighted points) across 6 areas — Call for Papers 20%, Abstract Management 20%, Speaker Management 15%, Content Management 15%, AI Agenda 10%, Public Widgets 20% (+ optional Speaker CRM extra credit, which we skip). Remaining build time is allocated by rubric weight ÷ effort, which **promotes multi-round scored evaluations (rounds with own scorecards/dates/reviewer pools, per-reviewer assignment, aggregate score table, progress dashboard, CSV export) from enhancement tier to build-now** — Abstract Management is 20% of the score and we currently cover almost none of it. Same logic pulls up: public-widget search/filter/detail views/personal itinerary (EMB, 20%), and content-management depth (file versions, comments, approval gating publication, files library — CNT, 15%). Weight-1 "polish" items (CFP drafts, auto-place assist) are batched last.
+
+**Rationale:** The owner supplied the evaluator priority list (2026-08-09) and the full rubric was retrieved from the eval-kit repo (byte-exact clone). The rubric's own calibration note says `rule`/`scoping`/`roundtrip` items separate submissions while `exists`/`crud` don't — so depth in already-built areas beats breadth. Spec.md's tiering predates the rubric's publication; where they conflict, the rubric is the paying customer.
+
+## D-032: The organizer's product walkthrough video outranks other sources — **accepted** (2026-08-09)
+
+**Decision:** Where the walkthrough video (https://www.youtube.com/watch?v=vUuK4Knl7oc, by the event producer who will use the product) clearly contradicts spec.md or Sessionboard's docs/marketing, the video wins and spec.md is corrected. Discrepancies that aren't clear-cut go to questions.md instead of being silently resolved.
+
+**Rationale:** Owner directive (2026-08-09): "if there are any contradictions between spec or sessionboard docs vs the product walkthrough, we should go with product walkthrough video if the gap is clear. if anything doesn't make sense, capture as a question to follow up on later." The video shows the actual user's workflow, which is closer to evaluation reality than marketing copy.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

@@ -65,10 +65,12 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - **Airtable sync** (competition bonus; clarified expectation): app-created records land in Airtable so the customer's existing new-row automations run; the app periodically (or on page load) reads back Airtable-side changes. No real-time two-way sync. Exact tables/fields/source-of-truth: open question (see context doc).
 - Submission table UX: filters, sorting, columns, statuses.
 - Portal resource/wiki pages for speaker guidance, with HTML embeds for existing reference material.
+- **Multi-round scored evaluations** (promoted from enhancement tier by the evaluator rubric, D-031): two or more named review rounds, each with its own open/close dates and scorecard (numeric, dropdown, free-text criteria); per-reviewer submission assignment with scoped queues; aggregate score per submission in a sortable table; review-progress visibility; scores exportable (CSV).
+- **Content-management depth** (D-031): file re-upload creates versions (latest marked, older accessible); comments on uploaded files (author + timestamp, cross-role); a session approval status that gates what the public program shows; a central files library across sessions.
+- **Public program depth** (D-031): keyword search (titles + speaker names) and track filters on the sessions/schedule views; speaker directory search; session and speaker detail views; personal itinerary (star sessions, persists, `.ics` export).
 
 ## Useful enhancements (only if time permits)
 
-- Scored reviews / rating fields; multiple evaluation rounds.
 - Configurable edit-lock deadlines; admin notification customization.
 - Additional agenda views (week/track/room); dashboards and reporting; saved views/configurable columns.
 - Generalized CMS/embed tooling; API beyond what the UI needs (public read API modeled on Sessionboard's — bonus).
