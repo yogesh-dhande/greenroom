@@ -25,6 +25,12 @@ export function createSubmissionsRepo(db: DrizzleD1): SubmissionsRepo {
       const row = await db.query.submissions.findFirst({ where: eq(submissions.id, id) });
       return row ? submissionSchema.parse(row) : null;
     },
+    async getByResumeToken(token) {
+      const row = await db.query.submissions.findFirst({
+        where: eq(submissions.resumeToken, token),
+      });
+      return row ? submissionSchema.parse(row) : null;
+    },
     async listByEvent(eventId) {
       const rows = await db.query.submissions.findMany({
         where: eq(submissions.eventId, eventId),
@@ -35,6 +41,30 @@ export function createSubmissionsRepo(db: DrizzleD1): SubmissionsRepo {
     async listByForm(formId) {
       const rows = await db.query.submissions.findMany({
         where: eq(submissions.formId, formId),
+        orderBy: [desc(submissions.createdAt)],
+      });
+      return rows.map((r) => submissionSchema.parse(r));
+    },
+    async listByFormAndSpeaker(formId, userId) {
+      const links = await db.query.submissionSpeakers.findMany({
+        where: and(eq(submissionSpeakers.userId, userId), eq(submissionSpeakers.role, "primary")),
+      });
+      if (links.length === 0) return [];
+      const rows = await db.query.submissions.findMany({
+        where: and(
+          eq(submissions.formId, formId),
+          inArray(
+            submissions.id,
+            links.map((l) => l.submissionId),
+          ),
+        ),
+        orderBy: [desc(submissions.createdAt)],
+      });
+      return rows.map((r) => submissionSchema.parse(r));
+    },
+    async listAllByStatus(status) {
+      const rows = await db.query.submissions.findMany({
+        where: eq(submissions.status, status),
         orderBy: [desc(submissions.createdAt)],
       });
       return rows.map((r) => submissionSchema.parse(r));

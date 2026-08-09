@@ -9,8 +9,27 @@ import type {
 
 export interface SubmissionsRepo {
   getById(id: string): Promise<Submission | null>;
+  /**
+   * Resolves the secret in an emailed "finish your draft" link (decisions.md
+   * D-034). Possession of the token is the authorisation, so this is a lookup
+   * by secret rather than by id — see src/app/submit/[formSlug]/resume.
+   */
+  getByResumeToken(token: string): Promise<Submission | null>;
   listByEvent(eventId: string): Promise<Submission[]>;
   listByForm(formId: string): Promise<Submission[]>;
+  /**
+   * One person's proposals on one form, as the *primary* speaker — what a
+   * per-form submission cap counts (D-034, D-038). Being someone else's
+   * co-speaker doesn't use up a slot, so co-speaker links are excluded here;
+   * which statuses count is the domain's call (src/domain/forms.ts).
+   */
+  listByFormAndSpeaker(formId: string, userId: string): Promise<Submission[]>;
+  /**
+   * Every submission in `status` across all events — the reminder cron's
+   * starting point for "drafts on a form that closes soon" (D-034, D-038). The
+   * per-event variant is `listByStatus`.
+   */
+  listAllByStatus(status: SubmissionStatus): Promise<Submission[]>;
   /** Response counts keyed by form id — the forms list shows one per row and
    * must not fetch every submission to get them. Forms with no submissions
    * are present with a count of 0. */

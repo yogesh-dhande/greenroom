@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type {
   EmailLog,
   Event,
+  Form,
   NewEmailLog,
   Session,
+  Submission,
   Task,
   TaskAssignment,
   User,
@@ -12,12 +14,15 @@ import type { Repos } from "@/db/repos";
 import type { EmailSender } from "@/lib/email";
 import {
   buildCommunicationLog,
+  decideDraftReminder,
   decideReminder,
   DEFAULT_REMINDER_COOLDOWN_DAYS,
+  DRAFT_REMINDER_WINDOW_HOURS,
   filterCommunicationLog,
   inviteBlocker,
   runReminderJob,
   summarizeSessionInvites,
+  type DraftReminderDecisionInput,
   type ReminderDecisionInput,
 } from "@/domain/comms";
 
@@ -112,6 +117,58 @@ function logEntry(overrides: Partial<EmailLog> = {}): EmailLog {
   };
 }
 
+const HOUR = 60 * 60 * 1000;
+
+function form(overrides: Partial<Form> = {}): Form {
+  return {
+    id: "form-1",
+    eventId: "event-1",
+    name: "Call for Speakers",
+    slug: "aie-2026-cfp",
+    welcomeCopy: null,
+    fields: [],
+    opensAt: null,
+    closesAt: new Date(NOW.getTime() + 12 * HOUR),
+    confirmationPageContent: null,
+    confirmationEmailSubject: null,
+    confirmationEmailBody: null,
+    maxSubmissionsPerSpeaker: null,
+    isPublished: true,
+    ...timestamps(),
+    ...overrides,
+  };
+}
+
+function submission(overrides: Partial<Submission> = {}): Submission {
+  return {
+    id: "submission-1",
+    eventId: "event-1",
+    formId: "form-1",
+    title: "Shipping agents that don't page you at 3am",
+    description: null,
+    answers: {},
+    status: "draft",
+    resumeToken: "resume-token-1",
+    decidedBy: null,
+    decidedAt: null,
+    decisionNote: null,
+    ...timestamps(),
+    ...overrides,
+  };
+}
+
+function draftReminderInput(
+  overrides: Partial<DraftReminderDecisionInput> = {},
+): DraftReminderDecisionInput {
+  return {
+    status: "draft",
+    closesAt: new Date(NOW.getTime() + 12 * HOUR),
+    alreadyReminded: false,
+    now: NOW,
+    ...overrides,
+  };
+}
+
 function reminderInput(overrides: Partial<ReminderDecisionInput> = {}): ReminderDecisionInput {
   return {
     status: "pending",
@@ -144,10 +201,31 @@ function fakeRepos(seed: {
   assignments: TaskAssignment[];
   users: User[];
   emailLog?: EmailLog[];
+  forms?: Form[];
+  submissions?: Submission[];
+  /** submission id → speaker ids, primary first. */
+  submissionSpeakers?: Record<string, string[]>;
 }) {
   const emails: EmailLog[] = [...(seed.emailLog ?? [])];
+  const forms = seed.forms ?? [];
+  const submissions = seed.submissions ?? [];
+  const speakerLinks = seed.submissionSpeakers ?? {};
 
   const repos = {
+    forms: {
+      getById: async (id: string) => forms.find((row) => row.id === id) ?? null,
+    },
+    submissions: {
+      listAllByStatus: async (status: string) =>
+        submissions.filter((row) => row.status === status),
+      getById: async (id: string) => submissions.find((row) => row.id === id) ?? null,
+      listSpeakers: async (submissionId: string) =>
+        (speakerLinks[submissionId] ?? []).map((userId, index) => ({
+          submissionId,
+          userId,
+          role: index === 0 ? "primary" : "co",
+        })),
+    },
     events: {
       listAll: async () => seed.events,
       getById: async (id: string) => seed.events.find((row) => row.id === id) ?? null,
@@ -292,6 +370,56 @@ describe("decideReminder", () => {
 });
 
 // ---------------------------------------------------------------------------
+// decideDraftReminder — the form-closing nudge (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+describe("decideDraftReminder", () => {
+  it("nudges an unfinished draft on a form closing inside the window", () => {
+    expect(decideDraftReminder(draftReminderInput())).toEqual({ send: true });
+  });
+
+  it("says nothing about a proposal that was actually submitted", () => {
+    expect(decideDraftReminder(draftReminderInput({ status: "submitted" }))).toEqual({
+      send: false,
+      reason: "completed",
+    });
+  });
+
+  it("says nothing about a draft on a call with no closing date", () => {
+    expect(decideDraftReminder(draftReminderInput({ closesAt: null }))).toEqual({
+      send: false,
+      reason: "not_due",
+    });
+  });
+
+  it("waits until the close is inside the window", () => {
+    const wellAhead = new Date(NOW.getTime() + (DRAFT_REMINDER_WINDOW_HOURS + 6) * 60 * 60 * 1000);
+    expect(decideDraftReminder(draftReminderInput({ closesAt: wellAhead }))).toEqual({
+      send: false,
+      reason: "not_due",
+    });
+
+    const justInside = new Date(NOW.getTime() + (DRAFT_REMINDER_WINDOW_HOURS - 1) * 60 * 60 * 1000);
+    expect(decideDraftReminder(draftReminderInput({ closesAt: justInside })).send).toBe(true);
+  });
+
+  it("doesn't chase a draft once the call has closed", () => {
+    // Unlike a task, which stays actionable when overdue, a draft on a closed
+    // form can't be submitted — the email would only be bad news.
+    expect(
+      decideDraftReminder(draftReminderInput({ closesAt: new Date(NOW.getTime() - HOUR) })),
+    ).toEqual({ send: false, reason: "closed" });
+  });
+
+  it("only ever nudges once", () => {
+    expect(decideDraftReminder(draftReminderInput({ alreadyReminded: true }))).toEqual({
+      send: false,
+      reason: "cooldown",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // runReminderJob
 // ---------------------------------------------------------------------------
 
@@ -304,6 +432,52 @@ describe("runReminderJob", () => {
       assignment({ id: "assignment-2", taskId: "task-2", status: "completed" }),
     ],
     users: [user()],
+  });
+
+  const draftSeed = () => ({
+    events: [event()],
+    tasks: [],
+    assignments: [],
+    users: [user()],
+    forms: [form()],
+    submissions: [submission()],
+    submissionSpeakers: { "submission-1": ["user-1"] },
+  });
+
+  it("nudges a draft whose call is about to close", async () => {
+    const { repos } = fakeRepos(draftSeed());
+    const { sender, sent } = fakeSender();
+
+    const result = await runReminderJob({ repos, sender, now: NOW });
+
+    expect(result.remindersSent).toBe(1);
+    expect(result.sentTo).toEqual(["priya@example.test"]);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("never nudges the same draft twice, however often the cron runs", async () => {
+    const { repos } = fakeRepos(draftSeed());
+    const { sender, sent } = fakeSender();
+
+    await runReminderJob({ repos, sender, now: NOW });
+    const second = await runReminderJob({ repos, sender, now: NOW });
+
+    expect(sent).toHaveLength(1);
+    expect(second.remindersSent).toBe(0);
+    expect(second.skippedByReason.cooldown).toBe(1);
+  });
+
+  it("leaves drafts alone while the call still has weeks to run", async () => {
+    const { repos } = fakeRepos({
+      ...draftSeed(),
+      forms: [form({ closesAt: new Date(NOW.getTime() + 20 * DAY) })],
+    });
+    const { sender, sent } = fakeSender();
+
+    const result = await runReminderJob({ repos, sender, now: NOW });
+
+    expect(sent).toHaveLength(0);
+    expect(result.skippedByReason.not_due).toBe(1);
   });
 
   it("emails the pending task and skips the finished one", async () => {

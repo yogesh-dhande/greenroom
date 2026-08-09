@@ -55,6 +55,8 @@ export default async function FormBuilderPage({
           confirmationPageContent: form.confirmationPageContent ?? "",
           confirmationEmailSubject: form.confirmationEmailSubject ?? "",
           confirmationEmailBody: form.confirmationEmailBody ?? "",
+          maxSubmissionsPerSpeaker:
+            form.maxSubmissionsPerSpeaker === null ? "" : String(form.maxSubmissionsPerSpeaker),
           isPublished: form.isPublished,
         }}
       />

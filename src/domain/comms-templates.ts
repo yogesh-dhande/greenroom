@@ -40,6 +40,8 @@ export const MERGE_FIELDS = [
   "portalUrl",
   "submissionTitle",
   "submissionUrl",
+  /** Magic link back into an unfinished draft proposal (D-034, D-038). */
+  "resumeUrl",
   "decisionNote",
   "changeRequest",
   "changeDueDate",
@@ -214,6 +216,8 @@ export function mergeFieldsUsed(source: string): MergeField[] {
 
 export const COMMS_TEMPLATE_IDS = [
   "submission_confirmation",
+  "draft_saved",
+  "draft_reminder",
   "submission_accepted",
   "submission_waitlisted",
   "submission_declined",
@@ -261,6 +265,50 @@ Review or update it any time from your speaker portal:
 {{portalUrl}}
 
 Thanks for offering to share your work with our audience.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "draft_saved",
+    name: "Draft saved",
+    description:
+      "Carries the link back to an unfinished proposal, saved from the public CFP form (D-034).",
+    kind: "draft_saved",
+    subject: 'Your draft proposal for {{eventName}} — "{{submissionTitle}}"',
+    body: `Hi {{speakerFirstName}},
+
+We've saved your proposal as a draft. Nothing has been submitted yet — the review committee can't see it, and you can change anything you like before you send it.
+
+Pick up where you left off here:
+
+{{resumeUrl}}
+
+Keep this link: it's how you get back in, so there's no password to remember.
+
+{{#changeDueDate}}
+Submissions for {{eventName}} close on {{changeDueDate}}. A draft that isn't submitted by then doesn't go to the committee.
+
+{{/changeDueDate}}
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "draft_reminder",
+    name: "Draft closing soon",
+    description:
+      "One nudge when a form with an unsubmitted draft on it is about to close (D-034). Sent by the reminder cron.",
+    kind: "draft_reminder",
+    subject: 'Submissions close soon — your draft "{{submissionTitle}}" isn\'t in yet',
+    body: `Hi {{speakerFirstName}},
+
+You started a proposal for {{eventName}} and saved it as a draft, but it hasn't been submitted{{#changeDueDate}}, and submissions close on {{changeDueDate}}{{/changeDueDate}}.
+
+If you still want it considered, open it and hit submit — it's the same link as before:
+
+{{resumeUrl}}
+
+If you've changed your mind, no action needed; this is the only reminder we'll send.
 
 {{organizerName}}
 {{eventName}}`,
@@ -493,6 +541,8 @@ export type TemplateOverrideRow = {
 /** How an override row is classified in `email_templates.trigger`. */
 export const TEMPLATE_TRIGGERS: Record<CommsTemplateId, EmailTrigger> = {
   submission_confirmation: "manual",
+  draft_saved: "manual",
+  draft_reminder: "deadline_reminder",
   submission_accepted: "on_acceptance",
   submission_waitlisted: "manual",
   submission_declined: "on_denial",
@@ -572,6 +622,8 @@ const SESSION_MERGE_FIELDS: MergeField[] = [
  */
 export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
   submission_confirmation: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeDueDate"],
+  draft_saved: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeDueDate", "resumeUrl"],
+  draft_reminder: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeDueDate", "resumeUrl"],
   submission_accepted: [
     ...COMMON_MERGE_FIELDS,
     "submissionTitle",
@@ -645,6 +697,8 @@ export function templatePreviewData(overrides: MergeData = {}): MergeData {
     organizerEmail: "hello@example.com",
     portalUrl: "https://example.com/portal",
     submissionTitle: "Retrieval that survives production traffic",
+    submissionUrl: "https://example.com/portal/submissions/1",
+    resumeUrl: "https://example.com/submit/call-for-speakers/resume/8f2c…",
     decisionNote: "The committee loved the production war stories.",
     changeRequest: "Please trim the abstract to 400 words.",
     changeDueDate: "March 1, 2026",

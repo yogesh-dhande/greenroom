@@ -44,6 +44,10 @@ export default async function PortalSubmissionPage({
     tracks.map((track) => track.name),
   );
   const editable = acceptsSubmissions(form);
+  // A draft is reachable here as well as through its emailed link; saving it
+  // from this form submits it, since this form asks for everything
+  // (decisions.md D-034, D-038).
+  const isDraft = submission.status === "draft";
   const values = prefillValues(fields, {
     answers: submission.answers,
     title: submission.title,
@@ -71,7 +75,13 @@ export default async function PortalSubmissionPage({
 
       {editable ? (
         <>
-          {form.closesAt ? (
+          {isDraft ? (
+            <p className="mb-6 text-sm text-muted-foreground">
+              This is still a draft — the organizers haven&apos;t seen it. Finish the required
+              questions and submit it
+              {form.closesAt ? ` before ${formatDeadline(form.closesAt, event.timezone)}` : ""}.
+            </p>
+          ) : form.closesAt ? (
             <p className="mb-6 text-sm text-muted-foreground">
               You can keep editing until {formatDeadline(form.closesAt, event.timezone)}.
             </p>
@@ -83,8 +93,8 @@ export default async function PortalSubmissionPage({
           <SchemaForm
             fields={fields}
             defaultValues={values}
-            submitLabel="Save changes"
-            pendingLabel="Saving…"
+            submitLabel={isDraft ? "Submit proposal" : "Save changes"}
+            pendingLabel={isDraft ? "Submitting…" : "Saving…"}
             action={updateOwnSubmission.bind(null, submission.id)}
             uploadAction={uploadFormFile}
             uploadScope={form.slug}

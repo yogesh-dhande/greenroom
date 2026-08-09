@@ -23,11 +23,14 @@ import {
 import type { Repos } from "@/db/repos";
 import {
   cleanCoSpeakers,
+  optionalFields,
   publicFields,
   selectedTrackNames,
+  submissionLimitState,
   validateSubmissionValues,
   type CoSpeakerValue,
   type FormValues,
+  type SubmissionLimitState,
 } from "@/domain/forms";
 import { fileUrl } from "@/lib/uploads";
 
@@ -43,13 +46,48 @@ export interface SaveSubmissionInput {
   values: FormValues;
   /** Update this submission instead of creating one. */
   submissionId?: string;
-  /** Status for a newly created submission. */
+  /**
+   * Status for a newly created submission — and, for an update, the status a
+   * **draft** is being moved to (decisions.md D-034, D-038). It is ignored when
+   * the existing submission is anything else: a proposal already in front of
+   * the committee doesn't change state through the answer-saving path.
+   */
   status?: SubmissionStatus;
 }
 
 export type SaveSubmissionResult =
   | { ok: true; submission: Submission; created: boolean; primarySpeaker: User }
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
+
+/**
+ * The secret in a draft's resume link. A v4 UUID's 122 bits of randomness is
+ * the same order of unguessability as the magic-link tokens better-auth issues
+ * (decisions.md D-007), which is the bar: the link *is* the authentication.
+ */
+export function newResumeToken(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+/**
+ * How many proposals the person behind an email address has left on a form
+ * (decisions.md D-034, D-038).
+ *
+ * Keyed by email rather than by session: the public CFP page takes no login,
+ * so the address on the proposal is the only identity there is. Someone who
+ * has never written to us has a clean slate by definition.
+ */
+export async function speakerLimitState(
+  ctx: SubmissionContext,
+  form: Form,
+  email: string,
+  options: { excludeId?: string } = {},
+): Promise<SubmissionLimitState> {
+  const normalized = email.trim().toLowerCase();
+  const user = normalized ? await ctx.repos.users.getByEmail(normalized) : null;
+  if (!user) return submissionLimitState(form, [], options);
+  const existing = await ctx.repos.submissions.listByFormAndSpeaker(form.id, user.id);
+  return submissionLimitState(form, existing, options);
+}
 
 function text(values: FormValues, id: string): string {
   const value = values[id];
@@ -157,8 +195,12 @@ export async function saveSubmission(
 ): Promise<SaveSubmissionResult> {
   const trackNames = input.tracks.map((track) => track.name);
   const fields = publicFields(input.form.fields, trackNames);
+  const isDraft = input.status === "draft";
 
-  const validation = validateSubmissionValues(fields, input.values);
+  const validation = validateSubmissionValues(
+    isDraft ? optionalFields(fields) : fields,
+    input.values,
+  );
   if (!validation.ok) {
     return {
       ok: false,
@@ -195,6 +237,9 @@ export async function saveSubmission(
     description,
     answers,
     status: input.status ?? "submitted",
+    // A draft is only reachable through the link we email its author, so it
+    // gets the secret that link carries (D-034, D-038).
+    resumeToken: isDraft ? newResumeToken() : null,
     decidedBy: null,
     decidedAt: null,
     decisionNote: null,
@@ -206,11 +251,25 @@ export async function saveSubmission(
     // Only the answer-shaped fields are updated: a decision already recorded
     // on this submission is the organizer's, not the submitter's, and an edit
     // must never reset it (spec.md §3).
-    submission = await ctx.repos.submissions.update(input.submissionId, {
+    const patch: Partial<NewSubmission> = {
       title: payload.title,
       description: payload.description,
       answers: payload.answers,
-    });
+    };
+
+    // The one status change the submitter owns: finishing their own draft, or
+    // saving it again as a draft. Anything already submitted keeps its status
+    // no matter what the caller asks for.
+    const existing = await ctx.repos.submissions.getById(input.submissionId);
+    if (existing?.status === "draft" && input.status) {
+      patch.status = input.status;
+      // The token outlives the draft: the link already in the speaker's inbox
+      // has to keep resolving once they've submitted (it lands on their
+      // confirmation page), and a draft saved before this feature has none.
+      if (!existing.resumeToken) patch.resumeToken = newResumeToken();
+    }
+
+    submission = await ctx.repos.submissions.update(input.submissionId, patch);
     created = false;
   } else {
     submission = await ctx.repos.submissions.create(payload);

@@ -190,6 +190,8 @@ export const forms = sqliteTable("forms", {
   confirmationPageContent: text("confirmation_page_content"),
   confirmationEmailSubject: text("confirmation_email_subject"),
   confirmationEmailBody: text("confirmation_email_body"),
+  /** Cap on proposals per submitter email; null = unlimited (D-034, D-038). */
+  maxSubmissionsPerSpeaker: integer("max_submissions_per_speaker"),
   isPublished: integer("is_published", { mode: "boolean" })
     .notNull()
     .default(false),
@@ -226,6 +228,12 @@ export const submissions = sqliteTable(
     })
       .notNull()
       .default("draft"),
+    /**
+     * Secret in the emailed "finish your draft" link (D-034, D-038). Unique so a
+     * token resolves to exactly one proposal; null for submissions that were
+     * never saved as a draft.
+     */
+    resumeToken: text("resume_token").unique(),
     decidedBy: text("decided_by").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -528,6 +536,8 @@ export const emailLog = sqliteTable(
         "decision",
         "change_request",
         "task_reminder",
+        "draft_saved",
+        "draft_reminder",
         "calendar_invite",
         "manual",
       ],

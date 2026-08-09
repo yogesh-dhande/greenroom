@@ -162,6 +162,13 @@ export const formFieldSchema = z.object({
   required: z.boolean().optional(),
   /** Choices for select/multiselect. */
   options: z.array(z.string()).optional(),
+  /**
+   * Character cap for the free-text types (`text`, `textarea`, `url`,
+   * `email`). Enforced in the browser *and* on the server by
+   * `buildFormValidator` (decisions.md D-034, D-038: the CFP form must not accept
+   * an answer it will later reject). Absent means no cap.
+   */
+  maxLength: z.number().int().positive().optional(),
   showIf: formFieldConditionSchema.optional(),
 });
 export type FormField = z.infer<typeof formFieldSchema>;
@@ -204,6 +211,12 @@ export const formSchema = z.object({
   confirmationPageContent: z.string().nullable(),
   confirmationEmailSubject: z.string().nullable(),
   confirmationEmailBody: z.string().nullable(),
+  /**
+   * How many proposals one speaker may have on this form (decisions.md D-034,
+   * D-038). Null means unlimited. Counted by submitter email across every status
+   * except `withdrawn`, so a withdrawn proposal frees a slot.
+   */
+  maxSubmissionsPerSpeaker: z.number().int().positive().nullable(),
   isPublished: z.boolean(),
   ...timestamps,
 });
@@ -247,6 +260,14 @@ export const submissionSchema = z.object({
   /** Answers to the form's custom fields, keyed by FormField.id. */
   answers: z.record(z.string(), z.unknown()),
   status: submissionStatusSchema,
+  /**
+   * Secret for the emailed "finish your draft" link (decisions.md D-034, D-038).
+   * There are no speaker accounts at submit time, so possession of the token
+   * *is* the authorisation to reopen that draft — same trust model as a magic
+   * link. Set when a draft is saved and kept afterwards so the resume link a
+   * speaker already has in their inbox keeps resolving to their proposal.
+   */
+  resumeToken: z.string().nullable(),
   decidedBy: z.string().nullable(),
   decidedAt: z.coerce.date().nullable(),
   decisionNote: z.string().nullable(),
@@ -501,6 +522,10 @@ export const emailKindSchema = z.enum([
   /** "We need something from you before review continues" (decisions.md D-023). */
   "change_request",
   "task_reminder",
+  /** "Here's the link back to your unfinished proposal" (D-034, D-038). */
+  "draft_saved",
+  /** "Your draft proposal — this form closes soon" (D-034, D-038). */
+  "draft_reminder",
   "calendar_invite",
   "manual",
 ]);

@@ -21,10 +21,12 @@ import type {
   EmailLog,
   EmailTemplate,
   Event,
+  Form,
   Room,
   Session,
   Submission,
   SubmissionDecision,
+  SubmissionStatus,
   Task,
   TaskAssignmentStatus,
   User,
@@ -341,6 +343,101 @@ export async function sendSubmissionConfirmation(
     );
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Unfinished drafts (decisions.md D-034, D-038, I2)
+// ---------------------------------------------------------------------------
+
+/** The public link that reopens a draft. Possession of the token is the auth. */
+export function resumeUrl(ctx: CommsContext, formSlug: string, token: string): string {
+  return `${trimTrailingSlash(ctx.appUrl)}/submit/${formSlug}/resume/${token}`;
+}
+
+interface DraftMailContext {
+  submission: Submission;
+  speaker: User;
+  overrides: TemplateOverrideRow[];
+  data: MergeData;
+}
+
+/**
+ * Everything both draft emails need. Returns null when the draft can't be
+ * mailed about at all — no resume token, no form, or no submitter — because
+ * that's a state the caller should skip rather than crash the cron on.
+ */
+async function draftMailContext(
+  ctx: CommsContext,
+  submissionId: string,
+): Promise<DraftMailContext | null> {
+  const submission = await ctx.repos.submissions.getById(submissionId);
+  if (!submission?.resumeToken) return null;
+
+  const event = await requireEvent(ctx, submission.eventId);
+  const [form, speakers, overrides] = await Promise.all([
+    ctx.repos.forms.getById(submission.formId),
+    submissionSpeakers(ctx, submission.id),
+    eventTemplateOverrides(ctx, event.id),
+  ]);
+  const speaker = speakers[0];
+  if (!form || !speaker) return null;
+
+  return {
+    submission,
+    speaker,
+    overrides,
+    data: {
+      ...eventFields(ctx, event),
+      ...speakerFields(speaker),
+      submissionTitle: submission.title,
+      resumeUrl: resumeUrl(ctx, form.slug, submission.resumeToken),
+      changeDueDate: form.closesAt ? formatDeadline(form.closesAt, event.timezone) : "",
+    },
+  };
+}
+
+export interface DraftEmailInput {
+  submissionId: string;
+}
+
+/**
+ * Sends the speaker the link back into a proposal they saved but didn't
+ * submit. This *is* the resume mechanism — there are no speaker accounts at
+ * submit time (D-007's magic links are for people who already exist), so the
+ * emailed token is how a draft is reclaimed on another device or another day.
+ * Goes to the submitter alone: a co-speaker shouldn't be told about a proposal
+ * that hasn't been sent yet.
+ */
+export async function sendDraftSavedLink(
+  ctx: CommsContext,
+  input: DraftEmailInput,
+): Promise<CommsDelivery[]> {
+  const draft = await draftMailContext(ctx, input.submissionId);
+  if (!draft) return [];
+  return [
+    await deliver(ctx, draft.speaker.email, renderForEvent("draft_saved", draft.overrides, draft.data), {
+      kind: "draft_saved",
+      relatedType: "submission",
+      relatedId: draft.submission.id,
+    }),
+  ];
+}
+
+/** The single "this form closes soon and your draft isn't in" nudge (D-034, D-038). */
+export async function sendDraftReminder(
+  ctx: CommsContext,
+  input: DraftEmailInput,
+): Promise<CommsDelivery[]> {
+  const draft = await draftMailContext(ctx, input.submissionId);
+  if (!draft) return [];
+  return [
+    await deliver(
+      ctx,
+      draft.speaker.email,
+      renderForEvent("draft_reminder", draft.overrides, draft.data),
+      { kind: "draft_reminder", relatedType: "submission", relatedId: draft.submission.id },
+    ),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -801,6 +898,8 @@ export const REMINDER_SKIP_REASONS = [
   "event_started",
   "not_due",
   "cooldown",
+  /** Draft reminders only: the form has already shut (D-034, D-038). */
+  "closed",
 ] as const;
 export type ReminderSkipReason = (typeof REMINDER_SKIP_REASONS)[number];
 
@@ -810,6 +909,7 @@ export const REMINDER_SKIP_LABELS: Record<ReminderSkipReason, string> = {
   event_started: "event already under way",
   not_due: "not due yet",
   cooldown: "reminded in the last few days",
+  closed: "submissions already closed",
 };
 
 export interface ReminderDecisionInput {
@@ -869,6 +969,48 @@ export function decideReminder(input: ReminderDecisionInput): ReminderDecision {
   return SEND;
 }
 
+/**
+ * How close a form has to be to closing before an unfinished draft is worth
+ * an email. Two days is late enough that the speaker has stopped intending to
+ * come back on their own, and early enough that they can still finish.
+ */
+export const DRAFT_REMINDER_WINDOW_HOURS = 48;
+
+export interface DraftReminderDecisionInput {
+  /** The draft's current status — a proposal already sent needs no nudge. */
+  status: SubmissionStatus;
+  /** The form's close time; null means the call never closes. */
+  closesAt: Date | null;
+  /** True once a `draft_reminder` for this draft has been logged. */
+  alreadyReminded: boolean;
+  now: Date;
+  windowHours?: number;
+}
+
+/**
+ * Should this unfinished draft get its one "submissions close soon" email
+ * (decisions.md D-034, D-038)?
+ *
+ * Deliberately **once per draft**, not a cadence: unlike an onboarding task,
+ * which the speaker has already committed to, a draft may simply be a proposal
+ * someone thought better of. One nudge is a service; three are a nag. That's
+ * why idempotency here is "has a `draft_reminder` ever been logged for this
+ * submission" rather than the task reminder's rolling cooldown.
+ */
+export function decideDraftReminder(input: DraftReminderDecisionInput): ReminderDecision {
+  if (input.status !== "draft") return { send: false, reason: "completed" };
+  if (!input.closesAt) return { send: false, reason: "not_due" };
+
+  const millisLeft = input.closesAt.getTime() - input.now.getTime();
+  if (millisLeft < 0) return { send: false, reason: "closed" };
+  if (millisLeft > (input.windowHours ?? DRAFT_REMINDER_WINDOW_HOURS) * 60 * 60 * 1000) {
+    return { send: false, reason: "not_due" };
+  }
+  if (input.alreadyReminded) return { send: false, reason: "cooldown" };
+
+  return SEND;
+}
+
 export interface RunReminderJobInput extends Omit<CommsContext, "appUrl"> {
   appUrl?: string;
   /** Remind about anything due within this many days. Default 7. */
@@ -894,7 +1036,7 @@ function emptyResult(): RunReminderJobResult {
     remindersSent: 0,
     remindersFailed: 0,
     skipped: 0,
-    skippedByReason: { completed: 0, event_started: 0, not_due: 0, cooldown: 0 },
+    skippedByReason: { completed: 0, event_started: 0, not_due: 0, cooldown: 0, closed: 0 },
     sentTo: [],
   };
 }
@@ -928,6 +1070,8 @@ export async function runReminderJob(
   const events = input.eventId
     ? allEvents.filter((event) => event.id === input.eventId)
     : allEvents;
+
+  await remindAboutDrafts(ctx, events, now, result);
 
   for (const event of events) {
     const [assignments, tasks] = await Promise.all([
@@ -973,6 +1117,63 @@ export async function runReminderJob(
     }
   }
   return result;
+}
+
+/**
+ * The draft half of the job (D-034, D-038): one email per unfinished proposal
+ * whose form closes inside `DRAFT_REMINDER_WINDOW_HOURS`.
+ *
+ * Driven from the drafts rather than from the forms because drafts are the
+ * rare thing — most runs read one list, find nothing, and stop. Idempotency
+ * is the same email_log-derived trick the task reminders use, so a re-run
+ * (or the admin's "send reminders now") can't double-send.
+ */
+async function remindAboutDrafts(
+  ctx: CommsContext,
+  events: Event[],
+  now: Date,
+  result: RunReminderJobResult,
+): Promise<void> {
+  const eventIds = new Set(events.map((event) => event.id));
+  const drafts = (await ctx.repos.submissions.listAllByStatus("draft")).filter((submission) =>
+    eventIds.has(submission.eventId),
+  );
+  if (drafts.length === 0) return;
+
+  const forms = new Map<string, Form | null>();
+  for (const formId of new Set(drafts.map((draft) => draft.formId))) {
+    forms.set(formId, await ctx.repos.forms.getById(formId));
+  }
+
+  const reminded = new Set(
+    (await ctx.repos.emailLog.listByRelatedIds("submission", drafts.map((draft) => draft.id)))
+      .filter((row) => row.kind === "draft_reminder" && row.status === "sent")
+      .map((row) => row.relatedId),
+  );
+
+  for (const draft of drafts) {
+    const form = forms.get(draft.formId) ?? null;
+    const decision = decideDraftReminder({
+      status: draft.status,
+      closesAt: form?.closesAt ?? null,
+      alreadyReminded: reminded.has(draft.id),
+      now,
+    });
+
+    if (!decision.send) {
+      result.skipped += 1;
+      result.skippedByReason[decision.reason] += 1;
+      continue;
+    }
+
+    const [delivery] = await sendDraftReminder(ctx, { submissionId: draft.id });
+    if (delivery?.status === "sent") {
+      result.remindersSent += 1;
+      result.sentTo.push(delivery.to);
+    } else if (delivery) {
+      result.remindersFailed += 1;
+    }
+  }
 }
 
 /** assignment id → when its most recent successful reminder went out. */

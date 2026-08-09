@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Controller, useFormContext } from "react-hook-form";
+import { Controller, useFormContext, useWatch } from "react-hook-form";
 import { LoaderCircleIcon, PaperclipIcon, XIcon } from "lucide-react";
 import type { FormField } from "@/db/entities";
-import type { FormValues } from "@/domain/forms";
+import { effectiveMaxLength, showsCharacterCount, type FormValues } from "@/domain/forms";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -125,6 +125,33 @@ function FileControl({
 }
 
 /**
+ * The live character count for a capped question (decisions.md D-034, D-038).
+ *
+ * It stays out of the way until the answer is close to the cap — a counter
+ * sitting under every box from the first keystroke reads as a demand for a
+ * long answer. Short caps (a 60-character tagline) show it immediately, since
+ * there is no "far from the limit" to speak of.
+ *
+ * The input is deliberately *not* given a hard `maxlength`: silently swallowing
+ * the tail of a pasted abstract is worse than saying it's too long.
+ */
+function CharacterCount({ field, max }: { field: FormField; max: number }) {
+  const value = useWatch({ name: field.id });
+  const length = typeof value === "string" ? value.length : 0;
+  if (!showsCharacterCount(max, length)) return null;
+
+  const over = length > max;
+  return (
+    <p
+      className={over ? "text-sm text-destructive" : "text-sm text-muted-foreground"}
+      aria-live="polite"
+    >
+      {over ? `${length - max} characters over the ${max} limit` : `${length} / ${max} characters`}
+    </p>
+  );
+}
+
+/**
  * Renders one question from the JSON field schema (decisions.md D-009).
  *
  * Every control is driven by react-hook-form, and every type maps onto a
@@ -191,6 +218,8 @@ export function FieldControl({
   const help = field.helpText ? (
     <p className="text-sm text-muted-foreground">{field.helpText}</p>
   ) : null;
+
+  const max = effectiveMaxLength(field);
 
   let control_: React.ReactNode;
   switch (field.type) {
@@ -293,6 +322,7 @@ export function FieldControl({
       )}
       {help}
       {control_}
+      {max !== null ? <CharacterCount field={field} max={max} /> : null}
       {message ? <p className="text-sm text-destructive">{message}</p> : null}
     </div>
   );

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PlusIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
 import { formatDate } from "@/components/date-format";
@@ -55,6 +57,16 @@ export default async function SubmissionsPage({
             ? "The talks proposed in the tracks you review. Open one to record your recommendation."
             : "Every talk proposed to this event. Open one to see the full proposal and decide."
         }
+        action={
+          viewer.role === "admin" ? (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/admin/${eventSlug}/submissions/new`}>
+                <PlusIcon />
+                Add a submission
+              </Link>
+            </Button>
+          ) : null
+        }
       />
 
       {queue.rows.length === 0 ? (
@@ -63,7 +75,7 @@ export default async function SubmissionsPage({
           description={
             isReviewer
               ? "Submissions appear here once a talk is proposed in one of your tracks."
-              : "They'll show up here as soon as speakers submit via a published form."
+              : "They'll show up here as soon as speakers submit via a published form — or add one yourself for a talk that came to you another way."
           }
         />
       ) : (

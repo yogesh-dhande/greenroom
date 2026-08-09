@@ -91,6 +91,8 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
   decision: "Decision",
   change_request: "Change request",
   task_reminder: "Task reminder",
+  draft_saved: "Draft link",
+  draft_reminder: "Draft closing soon",
   calendar_invite: "Calendar invite",
   manual: "One-off message",
 };
@@ -100,8 +102,10 @@ export const LOG_KIND_ORDER: EmailKind[] = [
   "decision",
   "change_request",
   "task_reminder",
+  "draft_reminder",
   "calendar_invite",
   "manual",
   "submission_confirmation",
+  "draft_saved",
   "magic_link",
 ];

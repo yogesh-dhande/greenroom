@@ -19,6 +19,12 @@ const EDITED_TITLE = "Shipping retrieval that survives real traffic";
 const SPEAKER_EMAIL = "e2e.speaker@example.com";
 const CO_SPEAKER_EMAIL = "e2e.cospeaker@example.com";
 
+/** Seeded by scripts/seed.ts: closes in 30h, one proposal per speaker, and
+ * carries an unfinished draft belonging to tom.beckett@example.com. */
+const LIGHTNING_SLUG = "ai-engineer-summit-2026-lightning";
+const LIGHTNING_DRAFT_TOKEN = "seed-draft-resume-lightning";
+const DRAFT_EMAIL = "e2e.drafter@example.com";
+
 /** Set by the submission test, used by the edit test (one worker, in order). */
 let submissionUrl = "";
 
@@ -192,7 +198,226 @@ test("an unpublished form is invisible to the public", async ({ page }) => {
   expect(response?.status()).toBe(404);
 });
 
-// Runs last: it closes the form the earlier tests submit to.
+// ---------------------------------------------------------------------------
+// Field length limits (spec.md §2, decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+test("a capped question counts down and refuses an over-long answer", async ({ page }) => {
+  await page.goto(`/submit/${LIGHTNING_SLUG}`);
+
+  const title = page.getByLabel("Lightning talk title");
+  await title.fill("Five things that broke");
+  // The cap is 60 characters, so the counter is on screen from the start.
+  await expect(page.getByText(/\/ 60 characters/)).toBeVisible();
+
+  await title.fill("x".repeat(75));
+  await expect(page.getByText("15 characters over the 60 limit")).toBeVisible();
+
+  await page.getByLabel("What's the idea?").fill("Short and to the point.");
+  await page.getByLabel("Your name").fill("E2E Overlong");
+  await page.getByLabel("Your email").fill("e2e.overlong@example.com");
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+
+  // Refused in the browser and never saved — the same rule the server holds.
+  await expect(
+    page.getByText("Lightning talk title has to be 60 characters or fewer"),
+  ).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/submit/${LIGHTNING_SLUG}$`));
+});
+
+// ---------------------------------------------------------------------------
+// The video-link preset (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+test("an organizer can accept video pitches in one click", async ({ page }) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/forms`);
+  await page.getByRole("link", { name: FORM_NAME }).click();
+
+  await page.getByRole("button", { name: "Accept video pitches" }).click();
+  await expect(page.getByText("Video pitch or talk recording").first()).toBeVisible();
+  // Offered once: the form already has the question now.
+  await expect(page.getByRole("button", { name: "Accept video pitches" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Form saved")).toBeVisible();
+
+  // It's a validated link on the public form, not free text.
+  await page.goto(`/submit/${FORM_SLUG}`);
+  const video = page.getByLabel("Video pitch or talk recording");
+  await expect(video).toBeVisible();
+  await video.fill("my talk is on my laptop");
+  await page.getByLabel("Talk title").fill("Pitched on camera");
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+  await expect(page.getByText("Enter a full link, starting with https://")).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Save as draft and resume (spec.md §2, decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+test("a speaker saves a draft, gets a link, and finishes it later", async ({ page }) => {
+  const startedAt = Date.now();
+
+  await page.goto(`/submit/${FORM_SLUG}`);
+  await page.getByLabel("Talk title").fill("Half an idea about eval harnesses");
+  await page.getByLabel("Your email").fill(DRAFT_EMAIL);
+
+  // Required questions are still blank — that's the whole point of a draft.
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page).toHaveURL(new RegExp(`/submit/${FORM_SLUG}/resume/[0-9a-f]{32}$`));
+  await expect(page.getByText("Picking up where you left off")).toBeVisible();
+  await expect(page.getByLabel("Talk title")).toHaveValue("Half an idea about eval harnesses");
+
+  const resumePath = new URL(page.url()).pathname;
+
+  // The link back really was emailed — that link *is* the authentication.
+  await expect(async () => {
+    const emails = await devEmailsSince(startedAt);
+    const mine = emails.filter((body) => body.includes(DRAFT_EMAIL));
+    expect(mine.join("\n"), "draft link email in .dev-emails/").toContain(resumePath);
+  }).toPass({ timeout: 15_000 });
+
+  // Coming back on a fresh visit — no session, no cookie, just the link.
+  await page.context().clearCookies();
+  await page.goto(resumePath);
+  await expect(page.getByLabel("Talk title")).toHaveValue("Half an idea about eval harnesses");
+
+  await page.getByLabel("Abstract").fill("Finished at last: what we measured and what we changed.");
+  await page.getByLabel("AI Engineering").check();
+  await page.getByLabel("Your name").fill("E2E Drafter");
+  await page.getByLabel("Speaker biography").fill("Writes evals, eventually.");
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+
+  await expect(page).toHaveURL(/\/submit\/.+\/thanks\/.+/);
+  await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
+
+  // The token outlives the draft, so the link in the inbox still resolves.
+  await page.goto(resumePath);
+  await expect(page).toHaveURL(/\/submit\/.+\/thanks\/.+/);
+});
+
+test("the emailed link is the only key a saved draft needs", async ({ page }) => {
+  // The seeded draft belongs to Tom Beckett; nobody is signed in here.
+  await page.goto(`/submit/${LIGHTNING_SLUG}/resume/${LIGHTNING_DRAFT_TOKEN}`);
+
+  await expect(page.getByText("Picking up where you left off")).toBeVisible();
+  await expect(page.getByLabel("Lightning talk title")).toHaveValue(
+    "Untitled draft — five things that broke in prod",
+  );
+  // Identity comes from the submission's speaker record, not from the answers.
+  await expect(page.getByLabel("Your email")).toHaveValue("tom.beckett@example.com");
+
+  // A guessed token is simply not a page.
+  const response = await page.goto(`/submit/${LIGHTNING_SLUG}/resume/not-a-real-token`);
+  expect(response?.status()).toBe(404);
+});
+
+test("a draft is not offered to reviewers but is visible to admins", async ({ page }) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/submissions?status=draft`);
+  await expect(page.getByText("Untitled draft — five things that broke in prod")).toBeVisible();
+  await expect(page.getByText("Draft", { exact: true }).first()).toBeVisible();
+
+  // A reviewer's queue is what goes in front of the committee; an unfinished
+  // proposal has not been offered to anyone yet.
+  await signIn(page, "reviewer@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/submissions`);
+  await expect(page.getByText("Untitled draft — five things that broke in prod")).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// Per-form submission limits (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+test("a one-proposal-per-speaker form turns a second attempt away", async ({ page }) => {
+  await page.goto(`/submit/${LIGHTNING_SLUG}`);
+  await page.getByLabel("Lightning talk title").fill("Five minutes on flaky retries");
+  await page.getByLabel("What's the idea?").fill("The retry that made the outage worse.");
+  await page.getByLabel("Your name").fill("E2E Lightning");
+  await page.getByLabel("Your email").fill("e2e.lightning@example.com");
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+  await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
+
+  // Same address, second go: refused server-side, since a logged-out visitor
+  // is only identifiable by what they type.
+  await page.goto(`/submit/${LIGHTNING_SLUG}`);
+  await page.getByLabel("Lightning talk title").fill("Another five minutes");
+  await page.getByLabel("What's the idea?").fill("A second idea, one too many.");
+  await page.getByLabel("Your name").fill("E2E Lightning");
+  await page.getByLabel("Your email").fill("e2e.lightning@example.com");
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+  // The refusal shows twice — inline alert and toast — so pick the alert.
+  await expect(
+    page.getByRole("alert").filter({ hasText: /accepts one proposal per speaker/ }),
+  ).toBeVisible();
+
+  // And a speaker we can already identify never sees the form at all.
+  await signIn(page, "e2e.lightning@example.com");
+  await page.goto(`/submit/${LIGHTNING_SLUG}`);
+  await expect(page.getByText("You've used your proposals for this call")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// Co-speakers are never required (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+test("nothing in the builder can make co-speakers mandatory", async ({ page }) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/forms`);
+  await page.getByRole("link", { name: FORM_NAME }).click();
+
+  // Open the co-speaker question: it has no "must answer" switch to find.
+  // The expand toggle's accessible name is "<label> <type> · built-in";
+  // plain /Co-speakers/ would also match the move/remove icon buttons.
+  await page.getByRole("button", { name: /Co-speakers ·/ }).click();
+  await expect(page.getByText("Co-speakers are never required")).toBeVisible();
+  await expect(page.getByLabel("Speakers must answer this")).toHaveCount(0);
+
+  // And a solo speaker sails past it on the public form.
+  await page.goto(`/submit/${FORM_SLUG}`);
+  await expect(page.getByRole("button", { name: "Add a co-speaker" })).toBeVisible();
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+  await expect(page.getByText("Talk title is required")).toBeVisible();
+  // No "required" complaint anywhere in the co-speakers block, even though
+  // other questions are showing theirs.
+  await expect(
+    page.getByRole("group", { name: "Co-speakers" }).getByText(/required/i),
+  ).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// Entering a proposal for someone (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+test("an admin enters a proposal on a speaker's behalf", async ({ page }) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/submissions`);
+  await page.getByRole("link", { name: "Add a submission" }).click();
+
+  await page.getByRole("link", { name: "Lightning Talks (closing soon)" }).click();
+  await page.getByLabel("Lightning talk title").fill("The keynote we agreed in the hallway");
+  await page.getByLabel("What's the idea?").fill("Invited talk, entered by the organizer.");
+  await page.getByLabel("Your name").fill("Invited Keynote");
+  await page.getByLabel("Your email").fill("e2e.invited@example.com");
+  await page.getByRole("button", { name: "Add proposal" }).click();
+
+  // Lands in the queue like any other proposal.
+  await expect(page).toHaveURL(new RegExp(`/admin/${EVENT_SLUG}/submissions/[^/]+$`));
+  await expect(
+    page.getByRole("heading", { name: "The keynote we agreed in the hallway" }),
+  ).toBeVisible();
+
+  await page.goto(`/admin/${EVENT_SLUG}/submissions`);
+  await expect(page.getByText("The keynote we agreed in the hallway")).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Closing the window — runs last: it closes the form the earlier tests
+// submit to.
+// ---------------------------------------------------------------------------
+
 test("a closed submission window shows a friendly closed page", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/forms`);

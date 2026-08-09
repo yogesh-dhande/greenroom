@@ -7,6 +7,7 @@ import {
   defaultFormDraft,
   fieldSchemaProblems,
   fromZonedInputValue,
+  normalizeFormFields,
   unknownMergePlaceholders,
 } from "@/domain/forms";
 import { getRepos } from "@/lib/db";
@@ -65,6 +66,7 @@ export async function createForm(eventSlug: string, name: string) {
       confirmationPageContent: draft.confirmationPageContent,
       confirmationEmailSubject: draft.confirmationEmailSubject,
       confirmationEmailBody: draft.confirmationEmailBody,
+      maxSubmissionsPerSpeaker: null,
       isPublished: false,
     });
     revalidatePath(`/admin/${eventSlug}/forms`);
@@ -94,6 +96,8 @@ const saveFormInputSchema = z.object({
   confirmationPageContent: z.string(),
   confirmationEmailSubject: z.string(),
   confirmationEmailBody: z.string(),
+  /** "" = no cap; otherwise a positive whole number (D-034, D-038). */
+  maxSubmissionsPerSpeaker: z.string(),
 });
 export type SaveFormInput = z.infer<typeof saveFormInputSchema>;
 
@@ -104,11 +108,24 @@ export async function saveForm(eventSlug: string, formId: string, input: SaveFor
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Something in the form is off");
   const v = parsed.data;
 
+  // Fixed before validation, not rejected: a co-speaker block can never be
+  // required (spec.md §2, D-034, D-038), and a character cap on a field type that
+  // has no text is meaningless. Both are stripped here rather than trusted
+  // from the client, so no payload — hand-crafted or from a stale tab — can
+  // store a form that demands a co-speaker.
+  const fields = normalizeFormFields(v.fields as FormField[]);
+
   // The renderer can't do anything sensible with a broken schema (a select
   // with no choices, a condition pointing at a deleted question), so it never
   // reaches the database.
-  const problems = fieldSchemaProblems(v.fields as FormField[]);
+  const problems = fieldSchemaProblems(fields);
   if (problems.length > 0) return fail(problems[0]);
+
+  const maxPerSpeaker = v.maxSubmissionsPerSpeaker.trim();
+  const limit = maxPerSpeaker === "" ? null : Number(maxPerSpeaker);
+  if (limit !== null && (!Number.isInteger(limit) || limit < 1)) {
+    return fail("Proposals per speaker has to be a whole number, 1 or more — or blank for no limit");
+  }
 
   const repos = await getRepos();
   const [event, form] = await Promise.all([repos.events.getBySlug(eventSlug), repos.forms.getById(formId)]);
@@ -132,12 +149,13 @@ export async function saveForm(eventSlug: string, formId: string, input: SaveFor
       name: v.name,
       slug: v.slug,
       welcomeCopy: v.welcomeCopy.trim() || null,
-      fields: v.fields as FormField[],
+      fields,
       opensAt,
       closesAt,
       confirmationPageContent: v.confirmationPageContent.trim() || null,
       confirmationEmailSubject: v.confirmationEmailSubject.trim() || null,
       confirmationEmailBody: v.confirmationEmailBody.trim() || null,
+      maxSubmissionsPerSpeaker: limit,
     });
   } catch {
     return fail("Couldn't save the form — try again");

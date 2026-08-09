@@ -33,6 +33,7 @@ const FULL: MergeData = {
   portalUrl: "https://example.test/portal",
   submissionTitle: "Retrieval that survives production traffic",
   submissionUrl: "https://example.test/portal/submissions/sub-1",
+  resumeUrl: "https://example.test/submit/aie-2026-cfp/resume/8f2c1d",
   decisionNote: "Best retrieval submission this year.",
   changeRequest: "Please trim the abstract to 400 words.",
   changeDueDate: "Friday, May 1, 2026",

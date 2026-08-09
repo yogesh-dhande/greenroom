@@ -2,17 +2,19 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLinkIcon, PlusIcon } from "lucide-react";
+import { ExternalLinkIcon, PlusIcon, VideoIcon } from "lucide-react";
 import { toast } from "sonner";
 import { RESERVED_FIELD_IDS, type FormField } from "@/db/entities";
 import {
   CONFIRMATION_MERGE_FIELDS,
   FORM_STATE_LABELS,
+  VIDEO_LINK_FIELD,
   allowsCoSpeakers,
   checkConfirmationEmail,
   fieldSchemaProblems,
   formWindowState,
   fromZonedInputValue,
+  hasVideoLinkField,
   publicFields,
 } from "@/domain/forms";
 import { slugify } from "@/lib/slug";
@@ -39,6 +41,8 @@ export interface FormDraft {
   confirmationPageContent: string;
   confirmationEmailSubject: string;
   confirmationEmailBody: string;
+  /** "" = no cap (D-034, D-038). Kept as a string: it's an <input> value. */
+  maxSubmissionsPerSpeaker: string;
   isPublished: boolean;
 }
 
@@ -128,6 +132,7 @@ export function FormBuilder({
       confirmationPageContent: draft.confirmationPageContent,
       confirmationEmailSubject: draft.confirmationEmailSubject,
       confirmationEmailBody: draft.confirmationEmailBody,
+      maxSubmissionsPerSpeaker: draft.maxSubmissionsPerSpeaker,
     });
     if (!result.ok) {
       toast.error(result.error);
@@ -296,6 +301,16 @@ export function FormBuilder({
               <PlusIcon />
               Add a question
             </Button>
+            {!hasVideoLinkField(draft.fields) ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFields([...draft.fields, { ...VIDEO_LINK_FIELD }])}
+              >
+                <VideoIcon />
+                Accept video pitches
+              </Button>
+            ) : null}
             {!draft.fields.some((field) => field.id === RESERVED_FIELD_IDS.tracks) &&
             trackNames.length > 0 ? (
               <Button
@@ -509,6 +524,27 @@ export function FormBuilder({
             limit — a published form with no dates accepts submissions immediately and
             indefinitely.
           </p>
+
+          <Separator />
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="max-submissions">Proposals per speaker</Label>
+            <Input
+              id="max-submissions"
+              type="number"
+              min={1}
+              step={1}
+              className="max-w-40"
+              placeholder="No limit"
+              value={draft.maxSubmissionsPerSpeaker}
+              onChange={(event) => patch({ maxSubmissionsPerSpeaker: event.target.value })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave blank for no limit. Counted per email address across everything they&apos;ve
+              sent you here, drafts included; a withdrawn proposal frees a slot. Someone who has
+              used their allowance sees an explanation instead of the form.
+            </p>
+          </div>
 
           <Separator />
 

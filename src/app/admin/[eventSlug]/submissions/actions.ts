@@ -55,6 +55,10 @@ async function authorize(eventSlug: string, submissionId: string) {
   if (!canViewSubmission(viewer.role, reviewerTrackIds, trackIds)) {
     return { ok: false as const, error: "Submission not found" };
   }
+  // An unsubmitted draft isn't in front of the committee (D-034, D-038).
+  if (viewer.role !== "admin" && submission.status === "draft") {
+    return { ok: false as const, error: "Submission not found" };
+  }
 
   return { ok: true as const, repos, event, submission, viewer: viewer as SessionUser };
 }

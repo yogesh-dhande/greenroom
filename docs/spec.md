@@ -30,6 +30,8 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 3. Public submission flow
 - Speakers submit via a public CFP page with no admin access; submissions remain **editable by the submitter** afterward (admin edit-lock deadlines: enhancement).
+- Submitters can **save an unfinished proposal as a draft** and resume it from an emailed link — no account needed. Drafts don't reach reviewers until submitted (D-038; see Important tier).
+- Admins can **enter a proposal on a speaker's behalf** from the admin area (invited talks, abstracts that arrived by email), using the event's own form questions (D-038).
 
 ### 4. Review & decisions
 - Routing: submissions pick tracks and reviewers own tracks — the default scoping for the review queue. The walkthrough additionally shows evaluation plans that assign explicit submission sets to a reviewing committee (D-032, D-034), and the evaluator rubric tests exact per-reviewer assigned queues — covered by the evaluation-rounds work (D-031).

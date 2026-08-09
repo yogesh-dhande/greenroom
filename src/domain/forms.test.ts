@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { FormField, FormFieldCondition } from "@/db/entities";
 import {
   acceptsSubmissions,
+  countsTowardSubmissionLimit,
+  effectiveMaxLength,
+  fieldTakesMaxLength,
+  hasVideoLinkField,
+  normalizeCoSpeakerField,
+  normalizeFormFields,
+  optionalFields,
+  showsCharacterCount,
+  submissionLimitMessage,
+  submissionLimitState,
+  VIDEO_LINK_FIELD,
   buildFormValidator,
   checkConfirmationEmail,
   cleanCoSpeakers,
@@ -554,5 +565,209 @@ describe("confirmation email checks", () => {
     expect(check.preview.subject).toContain("Retrieval that survives production traffic");
     expect(check.preview.text).toContain("Hi Priya,");
     expect(check.preview.html).toContain("<p");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Character limits (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+describe("field character limits", () => {
+  it("applies only to the question types that hold typed text", () => {
+    expect(fieldTakesMaxLength("text")).toBe(true);
+    expect(fieldTakesMaxLength("textarea")).toBe(true);
+    expect(fieldTakesMaxLength("url")).toBe(true);
+    expect(fieldTakesMaxLength("email")).toBe(true);
+    expect(fieldTakesMaxLength("select")).toBe(false);
+    expect(fieldTakesMaxLength("checkbox")).toBe(false);
+    expect(fieldTakesMaxLength("file")).toBe(false);
+    expect(fieldTakesMaxLength("co_speakers")).toBe(false);
+  });
+
+  it("ignores a cap stored against a type that can't have one", () => {
+    expect(effectiveMaxLength(field({ id: "agree", type: "checkbox", maxLength: 10 }))).toBeNull();
+    expect(effectiveMaxLength(field({ id: "title", maxLength: 80 }))).toBe(80);
+    expect(effectiveMaxLength(field({ id: "title" }))).toBeNull();
+  });
+
+  it("rejects an answer past the cap, and says by how much", () => {
+    const fields = [field({ id: "title", label: "Talk title", maxLength: 10 })];
+    expect(errorsFor(fields, { title: "0123456789" })).toEqual({});
+    expect(errorsFor(fields, { title: "0123456789abc" }).title).toBe(
+      "Talk title has to be 10 characters or fewer — that's 3 too many",
+    );
+  });
+
+  it("doesn't count whitespace the save would strip anyway", () => {
+    // The browser counter counts raw keystrokes, so it can read "one over"
+    // on a trailing space. Erring that way round is deliberate: the server
+    // never rejects an answer the counter said was fine.
+    const fields = [field({ id: "title", label: "Talk title", maxLength: 4 })];
+    expect(errorsFor(fields, { title: "abcd " })).toEqual({});
+    expect(errorsFor(fields, { title: "abcde" })).toHaveProperty("title");
+  });
+
+  it("holds the counter back until the answer is near a generous limit", () => {
+    expect(showsCharacterCount(2000, 100)).toBe(false);
+    expect(showsCharacterCount(2000, 1600)).toBe(true);
+    expect(showsCharacterCount(2000, 2400)).toBe(true);
+  });
+
+  it("shows the counter from the first keystroke on a short limit", () => {
+    // "60 characters" is the whole instruction for a tagline — there is no
+    // "far from the limit" worth hiding.
+    expect(showsCharacterCount(60, 0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The video-link preset (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+describe("the video-link preset", () => {
+  it("is a validated URL question, not a new field type", () => {
+    expect(VIDEO_LINK_FIELD.type).toBe("url");
+    expect(VIDEO_LINK_FIELD.required).toBeUndefined();
+  });
+
+  it("accepts a link and rejects something that isn't one", () => {
+    const fields = [{ ...VIDEO_LINK_FIELD }];
+    expect(errorsFor(fields, { [VIDEO_LINK_FIELD.id]: "https://youtu.be/abc123" })).toEqual({});
+    expect(errorsFor(fields, { [VIDEO_LINK_FIELD.id]: "my talk is on my laptop" })).toHaveProperty(
+      VIDEO_LINK_FIELD.id,
+    );
+  });
+
+  it("stays optional, so a written abstract is still a complete proposal", () => {
+    expect(errorsFor([{ ...VIDEO_LINK_FIELD }], { [VIDEO_LINK_FIELD.id]: "" })).toEqual({});
+  });
+
+  it("is detectable so the builder never offers to add it twice", () => {
+    expect(hasVideoLinkField(DEFAULT_CFP_FIELDS)).toBe(false);
+    expect(hasVideoLinkField([...DEFAULT_CFP_FIELDS, { ...VIDEO_LINK_FIELD }])).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Co-speakers are never required (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+describe("co-speakers can never be made mandatory", () => {
+  it("strips a required flag someone managed to set on the block", () => {
+    const normalized = normalizeCoSpeakerField(
+      field({ id: "co_speakers", type: "co_speakers", required: true }),
+    );
+    expect(normalized.required).toBeUndefined();
+  });
+
+  it("strips it on the way into storage, whatever the payload said", () => {
+    const saved = normalizeFormFields([
+      field({ id: "title", required: true }),
+      field({ id: "co_speakers", type: "co_speakers", label: "Co-speakers", required: true }),
+    ]);
+    expect(saved[0].required).toBe(true);
+    expect(saved[1].required).toBeUndefined();
+  });
+
+  it("never blocks a solo speaker, even with the flag forced on", () => {
+    // The belt-and-braces case: a stored field that somehow kept `required`
+    // still validates an empty co-speaker list, because the generated
+    // validator has no rule that could fail it.
+    const fields = [field({ id: "co_speakers", type: "co_speakers", required: true })];
+    expect(errorsFor(fields, { co_speakers: [] })).toEqual({});
+  });
+
+  it("drops a character cap from a question that can't use one", () => {
+    const saved = normalizeFormFields([field({ id: "agree", type: "checkbox", maxLength: 5 })]);
+    expect(saved[0].maxLength).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-form submission limits (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+describe("submissionLimitState", () => {
+  const submissions = (...statuses: Array<import("@/db/entities").SubmissionStatus>) =>
+    statuses.map((status, index) => ({ id: `s-${index}`, status }));
+
+  it("never limits a form that sets no cap", () => {
+    const state = submissionLimitState({ maxSubmissionsPerSpeaker: null }, submissions("submitted", "submitted"));
+    expect(state).toEqual({ limit: null, used: 2, remaining: null, atLimit: false });
+  });
+
+  it("counts a saved draft against the allowance", () => {
+    // Otherwise "one proposal per speaker" is defeated by saving ten drafts
+    // and submitting them all on the last day.
+    expect(countsTowardSubmissionLimit("draft")).toBe(true);
+    const state = submissionLimitState({ maxSubmissionsPerSpeaker: 1 }, submissions("draft"));
+    expect(state.atLimit).toBe(true);
+  });
+
+  it("frees the slot a withdrawn proposal was using", () => {
+    expect(countsTowardSubmissionLimit("withdrawn")).toBe(false);
+    const state = submissionLimitState(
+      { maxSubmissionsPerSpeaker: 2 },
+      submissions("submitted", "withdrawn"),
+    );
+    expect(state).toEqual({ limit: 2, used: 1, remaining: 1, atLimit: false });
+  });
+
+  it("still counts a proposal that was denied", () => {
+    // A cap is about how much reviewing the committee signed up for, not how
+    // much of it went well.
+    expect(submissionLimitState({ maxSubmissionsPerSpeaker: 1 }, submissions("denied")).atLimit).toBe(
+      true,
+    );
+  });
+
+  it("doesn't count the proposal being edited against itself", () => {
+    const state = submissionLimitState({ maxSubmissionsPerSpeaker: 1 }, submissions("draft"), {
+      excludeId: "s-0",
+    });
+    expect(state.atLimit).toBe(false);
+  });
+
+  it("explains the cap in the singular and the plural", () => {
+    expect(submissionLimitMessage(1)).toContain("one proposal per speaker");
+    expect(submissionLimitMessage(3)).toContain("up to 3 proposals");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drafts (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+describe("optionalFields — what a draft is validated against", () => {
+  const fields = publicFields(DEFAULT_CFP_FIELDS, ["AI Engineering"]);
+
+  it("accepts a half-finished proposal", () => {
+    const { errors } = validateSubmissionValues(optionalFields(fields), {
+      ...emptyValues(fields),
+      title: "Retrieval that survives production traffic",
+    });
+    expect(errors).toEqual({});
+  });
+
+  it("still refuses an answer the finished form could never accept", () => {
+    // Relaxing "you must answer" is not the same as relaxing "this has to be
+    // an email address" — a draft must never hold a value that would be
+    // rejected the moment the speaker pressed submit.
+    const { errors } = validateSubmissionValues(optionalFields(fields), {
+      ...emptyValues(fields),
+      speaker_email: "not-an-address",
+    });
+    expect(errors).toHaveProperty("speaker_email");
+  });
+
+  it("still enforces character limits", () => {
+    const capped = optionalFields([field({ id: "title", label: "Talk title", maxLength: 5 })]);
+    expect(errorsFor(capped, { title: "far too long" })).toHaveProperty("title");
+  });
+
+  it("leaves the original schema untouched", () => {
+    const original = [field({ id: "title", required: true })];
+    optionalFields(original);
+    expect(original[0].required).toBe(true);
   });
 });

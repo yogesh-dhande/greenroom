@@ -43,8 +43,10 @@ export default async function SubmissionDetailPage({
     reviewerTrackIdsFor(repos, viewer, event.id),
   ]);
   // A reviewer outside this submission's tracks gets the same answer as a
-  // stranger: it isn't here.
+  // stranger: it isn't here. Same for an unsubmitted draft, which is nobody's
+  // to review yet (decisions.md D-034).
   if (!canViewSubmission(viewer.role, reviewerTrackIds, trackIds)) notFound();
+  if (viewer.role !== "admin" && detail.submission.status === "draft") notFound();
 
   const { submission, form, tracks } = detail;
   const fields = publicFields(

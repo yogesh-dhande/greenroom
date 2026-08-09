@@ -25,6 +25,7 @@ import {
   type FormField,
   type FormFieldCondition,
   type FormFieldType,
+  type SubmissionStatus,
 } from "@/db/entities";
 import {
   MERGE_FIELDS,
@@ -121,6 +122,34 @@ export const SELECTABLE_FIELD_TYPES: FormFieldType[] = [
   "checkbox",
   "file",
 ];
+
+/**
+ * Types whose answer is free text, and which can therefore carry a character
+ * cap (decisions.md D-034, D-038). A cap on anything else is meaningless — the
+ * answer is a choice, a boolean, or a file key — so the builder hides the
+ * control and `normalizeFormFields` drops the value.
+ */
+const MAX_LENGTH_TYPES = new Set<FormFieldType>(["text", "textarea", "email", "url"]);
+
+export function fieldTakesMaxLength(type: FormFieldType): boolean {
+  return MAX_LENGTH_TYPES.has(type);
+}
+
+/** The cap actually in force for a field — null when there isn't one. */
+export function effectiveMaxLength(field: FormField): number | null {
+  if (!fieldTakesMaxLength(field.type)) return null;
+  return field.maxLength && field.maxLength > 0 ? field.maxLength : null;
+}
+
+/**
+ * When the public form starts warning about the cap. Showing a counter from
+ * the first keystroke turns every question into a typing test; showing it only
+ * at the boundary is a surprise. 80% is the compromise — and a short cap
+ * (a 60-character title) counts from the start, where every character matters.
+ */
+export function showsCharacterCount(max: number, length: number): boolean {
+  return max <= 120 || length >= Math.floor(max * 0.8);
+}
 
 // ---------------------------------------------------------------------------
 // Conditional visibility (`showIf`)
@@ -295,6 +324,16 @@ function checkField(field: FormField, value: unknown, ctx: z.RefinementCtx): voi
       if (field.type === "select" && field.options && !field.options.includes(text)) {
         addIssue(ctx, [field.id], `"${text}" isn't one of the choices`);
       }
+      // D-034, D-038: the same cap the browser counts down to is re-checked here,
+      // so a form can never accept an answer its own rules reject.
+      const max = effectiveMaxLength(field);
+      if (max !== null && text.length > max) {
+        addIssue(
+          ctx,
+          [field.id],
+          `${field.label} has to be ${max} characters or fewer — that's ${text.length - max} too many`,
+        );
+      }
     }
   }
 }
@@ -441,6 +480,118 @@ export function allowsCoSpeakers(fields: FormField[]): boolean {
 }
 
 /**
+ * The one rule about co-speakers that no configuration may break: they are
+ * supported, never mandatory (spec.md §2, decisions.md D-034, D-038).
+ *
+ * Enforced by removing the possibility rather than by validating against it —
+ * `required` is stripped from the co-speaker block on every save, so there is
+ * no stored state in which a form demands a co-speaker, whatever a hand-edited
+ * payload or an older draft asks for. The validator (`checkField`) never reads
+ * `required` for this type either; this keeps the *data* honest as well, so
+ * the builder can't render a switch that appears to have taken effect.
+ *
+ * There is deliberately no minimum-count concept anywhere in `FormField`: a
+ * minimum is just "required" with extra steps.
+ */
+export function normalizeCoSpeakerField(field: FormField): FormField {
+  if (field.type !== "co_speakers" && field.id !== RESERVED_FIELD_IDS.coSpeakers) return field;
+  if (field.required === undefined) return field;
+  const stripped: FormField = { ...field };
+  delete stripped.required;
+  return stripped;
+}
+
+/**
+ * Everything the save path should fix silently rather than reject: the
+ * co-speaker guard above, plus dropping character caps from field types that
+ * can't have one (a cap on a checkbox would be stored forever and never read).
+ */
+export function normalizeFormFields(fields: FormField[]): FormField[] {
+  return fields.map((field) => {
+    const next = normalizeCoSpeakerField(field);
+    if (next.maxLength === undefined || effectiveMaxLength(next) !== null) return next;
+    const stripped: FormField = { ...next };
+    delete stripped.maxLength;
+    return stripped;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Question presets (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+export const VIDEO_LINK_FIELD_ID = "video_link";
+
+/**
+ * "Proposals may be abstracts or videos" (spec.md §2). A video proposal needs
+ * no new field type — a validated link is the whole feature — but an organizer
+ * only gets there if the builder offers it, so it ships as a one-click preset
+ * with the right label, help text and `url` validation already set.
+ */
+export const VIDEO_LINK_FIELD: FormField = {
+  id: VIDEO_LINK_FIELD_ID,
+  type: "url",
+  label: "Video pitch or talk recording",
+  helpText:
+    "Prefer to pitch on camera? Paste a link (YouTube, Loom, Vimeo, Drive) to a recording instead of — or as well as — writing it out.",
+  maxLength: 500,
+};
+
+export function hasVideoLinkField(fields: FormField[]): boolean {
+  return fields.some((field) => field.id === VIDEO_LINK_FIELD_ID);
+}
+
+// ---------------------------------------------------------------------------
+// Per-form submission limit (decisions.md D-034, D-038)
+// ---------------------------------------------------------------------------
+
+/**
+ * A withdrawn proposal frees its slot; everything else — including a saved
+ * draft — occupies one. Drafts have to count, or "one proposal per speaker"
+ * would be trivially defeated by saving ten drafts and submitting them all.
+ */
+export function countsTowardSubmissionLimit(status: SubmissionStatus): boolean {
+  return status !== "withdrawn";
+}
+
+export interface SubmissionLimitState {
+  /** Null when the form sets no cap. */
+  limit: number | null;
+  /** Proposals this speaker already has here, excluding the one in hand. */
+  used: number;
+  /** Null when there's no cap. */
+  remaining: number | null;
+  atLimit: boolean;
+}
+
+/**
+ * How much room a speaker has left on a form.
+ *
+ * `excludeId` is the proposal currently being edited or promoted from draft:
+ * saving it again must not be blocked by its own existence.
+ */
+export function submissionLimitState(
+  form: { maxSubmissionsPerSpeaker: number | null },
+  existing: Array<{ id: string; status: SubmissionStatus }>,
+  options: { excludeId?: string } = {},
+): SubmissionLimitState {
+  const limit = form.maxSubmissionsPerSpeaker;
+  const used = existing.filter(
+    (submission) =>
+      submission.id !== options.excludeId && countsTowardSubmissionLimit(submission.status),
+  ).length;
+  if (limit === null || limit <= 0) return { limit: null, used, remaining: null, atLimit: false };
+  return { limit, used, remaining: Math.max(0, limit - used), atLimit: used >= limit };
+}
+
+/** The sentence a speaker who has run out of slots reads. */
+export function submissionLimitMessage(limit: number): string {
+  return limit === 1
+    ? "You've already sent us a proposal on this form, and this call accepts one proposal per speaker. You can edit the one you have — you don't need to start another."
+    : `This call accepts up to ${limit} proposals per speaker, and you've used all ${limit}. You can still edit the ones you've sent us.`;
+}
+
+/**
  * Keeps the track question's choices in step with the event's actual tracks.
  * Track names are the stored answer, so a rename is picked up here rather
  * than leaving a stale option list frozen in the form's JSON.
@@ -494,6 +645,20 @@ export function withSpeakerIdentityFields(fields: FormField[]): FormField[] {
  */
 export function publicFields(fields: FormField[], trackNames: string[]): FormField[] {
   return withTrackOptions(withSpeakerIdentityFields(fields), trackNames);
+}
+
+/**
+ * The same questions with every `required` flag dropped — what a **draft** is
+ * validated against (decisions.md D-034, D-038).
+ *
+ * A half-finished proposal is the entire point of saving a draft, so required
+ * questions can't block the save. Everything else still applies: formats,
+ * choice membership and character caps are checked on a draft exactly as they
+ * are on a submission, because those are answers that are wrong rather than
+ * answers that are missing.
+ */
+export function optionalFields(fields: FormField[]): FormField[] {
+  return fields.map((field) => (field.required ? { ...field, required: false } : field));
 }
 
 // ---------------------------------------------------------------------------

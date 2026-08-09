@@ -7,6 +7,7 @@ import { RESERVED_FIELD_IDS } from "@/db/entities";
 import {
   FIELD_TYPE_LABELS,
   SELECTABLE_FIELD_TYPES,
+  fieldTakesMaxLength,
   fieldTakesOptions,
   isReservedFieldId,
 } from "@/domain/forms";
@@ -175,6 +176,7 @@ export function FieldEditor({
                     patch({
                       type,
                       options: fieldTakesOptions(type) ? (field.options ?? []) : undefined,
+                      maxLength: fieldTakesMaxLength(type) ? field.maxLength : undefined,
                     });
                   }}
                 >
@@ -239,6 +241,33 @@ export function FieldEditor({
                 }
               />
               <p className="text-xs text-muted-foreground">One choice per line.</p>
+            </div>
+          ) : null}
+
+          {fieldTakesMaxLength(field.type) ? (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={`${field.id}-max`}>Longest answer (optional)</Label>
+              <Input
+                id={`${field.id}-max`}
+                type="number"
+                min={1}
+                step={1}
+                className="max-w-40"
+                placeholder="No limit"
+                value={field.maxLength === undefined ? "" : String(field.maxLength)}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const parsed = Number(raw);
+                  patch({
+                    maxLength:
+                      raw === "" || !Number.isInteger(parsed) || parsed < 1 ? undefined : parsed,
+                  });
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Characters. Speakers see a counter as they approach it, and an answer over the
+                limit is refused when they submit.
+              </p>
             </div>
           ) : null}
 

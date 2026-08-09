@@ -27,6 +27,7 @@ import type {
   Session,
   Submission,
   SubmissionDecision,
+  SubmissionStatus,
   Task,
   TaskAssignment,
 } from "@/db/entities";
@@ -134,16 +135,26 @@ export function canViewSubmission(
   return isRoutedToReviewer(reviewerTrackIds, submissionTrackIds);
 }
 
-/** Narrows a list to what this viewer is allowed to see. */
-export function visibleSubmissions<T extends { id: string }>(
+/**
+ * Narrows a list to what this viewer is allowed to see.
+ *
+ * A `draft` is a proposal its author hasn't sent yet (decisions.md D-034, D-038):
+ * it never reaches a reviewer, whatever tracks it names, because reviewing
+ * something nobody submitted is both unfair and confusing. Admins still see
+ * drafts — they run the call, and an unfinished proposal on a closing form is
+ * something they may want to chase.
+ */
+export function visibleSubmissions<T extends { id: string; status: SubmissionStatus }>(
   submissions: T[],
   trackIdsBySubmission: Record<string, string[]>,
   role: Role,
   reviewerTrackIds: string[],
 ): T[] {
   if (role === "admin") return submissions;
-  return submissions.filter((submission) =>
-    canViewSubmission(role, reviewerTrackIds, trackIdsBySubmission[submission.id] ?? []),
+  return submissions.filter(
+    (submission) =>
+      submission.status !== "draft" &&
+      canViewSubmission(role, reviewerTrackIds, trackIdsBySubmission[submission.id] ?? []),
   );
 }
 

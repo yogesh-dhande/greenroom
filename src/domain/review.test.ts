@@ -43,6 +43,7 @@ function submission(overrides: Partial<Submission> = {}): Submission {
     description: "What broke and what we measured.",
     answers: {},
     status: "submitted" as SubmissionStatus,
+    resumeToken: null,
     decidedBy: null,
     decidedAt: null,
     decisionNote: null,
@@ -183,7 +184,11 @@ describe("routing", () => {
   });
 
   it("narrows a reviewer's list to their own tracks", () => {
-    const rows = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const rows = [
+      { id: "a", status: "submitted" as SubmissionStatus },
+      { id: "b", status: "submitted" as SubmissionStatus },
+      { id: "c", status: "submitted" as SubmissionStatus },
+    ];
     const tracks = { a: ["trk-1"], b: ["trk-2"], c: ["trk-2", "trk-3"] };
 
     expect(visibleSubmissions(rows, tracks, "reviewer", ["trk-2"]).map((r) => r.id)).toEqual([
@@ -191,6 +196,19 @@ describe("routing", () => {
       "c",
     ]);
     expect(visibleSubmissions(rows, tracks, "admin", ["trk-2"])).toHaveLength(3);
+  });
+
+  it("keeps unsubmitted drafts out of a reviewer's queue but not an admin's", () => {
+    // D-034, D-038: a draft is a proposal nobody has sent yet — reviewing it would
+    // be judging work in progress.
+    const rows = [
+      { id: "a", status: "draft" as SubmissionStatus },
+      { id: "b", status: "submitted" as SubmissionStatus },
+    ];
+    const tracks = { a: ["trk-1"], b: ["trk-1"] };
+
+    expect(visibleSubmissions(rows, tracks, "reviewer", ["trk-1"]).map((r) => r.id)).toEqual(["b"]);
+    expect(visibleSubmissions(rows, tracks, "admin", ["trk-1"])).toHaveLength(2);
   });
 });
 

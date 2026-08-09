@@ -34,6 +34,7 @@ import type {
   Track,
   User,
 } from "@/db/entities";
+import { VIDEO_LINK_FIELD } from "@/domain/forms";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,6 +43,7 @@ import type {
 const DAY = 24 * 60 * 60 * 1000;
 const now = new Date();
 const daysFromNow = (days: number) => new Date(now.getTime() + days * DAY);
+const hoursFromNow = (hours: number) => new Date(now.getTime() + (hours * DAY) / 24);
 /** "YYYY-MM-DD" (UTC-derived) for a day `days` from now — for the date-only
  * columns, which the app renders in UTC (src/components/date-format.ts). */
 const dayFromNow = (days: number) => daysFromNow(days).toISOString().slice(0, 10);
@@ -193,6 +195,7 @@ function cfpFields(trackNames: string[]): FormField[] {
       label: "Talk title",
       helpText: "Aim for something a busy attendee understands at a glance.",
       required: true,
+      maxLength: 80,
     },
     {
       id: "description",
@@ -200,6 +203,7 @@ function cfpFields(trackNames: string[]): FormField[] {
       label: "Abstract",
       helpText: "150–400 words. What will attendees be able to do afterwards?",
       required: true,
+      maxLength: 2500,
     },
     {
       id: "tracks",
@@ -229,6 +233,7 @@ function cfpFields(trackNames: string[]): FormField[] {
       type: "textarea",
       label: "Speaker biography",
       required: true,
+      maxLength: 600,
     },
     {
       id: "headshot",
@@ -242,6 +247,8 @@ function cfpFields(trackNames: string[]): FormField[] {
       label: "Link to a previous talk",
       helpText: "Optional, but it helps the review committee a lot.",
     },
+    // The video-proposal preset (spec.md §2 "abstracts or videos", D-034).
+    { ...VIDEO_LINK_FIELD },
     {
       id: "code_of_conduct",
       type: "checkbox",
@@ -559,6 +566,9 @@ async function seed(repos: Repos): Promise<void> {
     confirmationEmailSubject: "We received your talk proposal — {{submissionTitle}}",
     confirmationEmailBody:
       'Hi {{speakerFirstName}},\n\nThanks for proposing "{{submissionTitle}}" for {{eventName}}. Our program committee reviews submissions by track, and you\'ll hear from us by 15 April.\n\nYou can edit your proposal any time before submissions close:\n\n{{portalUrl}}\n\n— The AI Engineer Summit team',
+    // Two proposals per speaker (D-034, D-038) — enough to exercise the cap
+    // without making the demo feel restrictive.
+    maxSubmissionsPerSpeaker: 2,
     isPublished: true,
   });
 
@@ -574,6 +584,7 @@ async function seed(repos: Repos): Promise<void> {
     confirmationPageContent: "Got it — thanks. We'll follow up by email once your room is booked.",
     confirmationEmailSubject: null,
     confirmationEmailBody: null,
+    maxSubmissionsPerSpeaker: null,
     // Onboarding form: reached from a task, not from the public CFP listing.
     isPublished: false,
   });
@@ -589,6 +600,7 @@ async function seed(repos: Repos): Promise<void> {
     confirmationPageContent: "Thanks — reimbursements are processed within two weeks of the event.",
     confirmationEmailSubject: null,
     confirmationEmailBody: null,
+    maxSubmissionsPerSpeaker: null,
     isPublished: false,
   });
   console.log(
@@ -621,6 +633,9 @@ async function seed(repos: Repos): Promise<void> {
           : {}),
       },
       status: seedRow.status,
+      // Every draft carries the token behind its emailed resume link (D-034),
+      // so the demo can reopen one at /submit/{slug}/resume/{token}.
+      resumeToken: seedRow.status === "draft" ? `seed-draft-resume-${index}` : null,
       decidedBy: decided ? admin.id : null,
       decidedAt: decided ? daysFromNow(-7 + (index % 5)) : null,
       decisionNote: seedRow.decisionNote ?? null,
@@ -644,6 +659,62 @@ async function seed(repos: Repos): Promise<void> {
     if (seedRow.status === "approved") approved.push({ submissionId: submission.id, seedRow });
   }
   console.log(`submissions ${SUBMISSION_SEEDS.length} across all six statuses`);
+
+  // --- a second CFP that closes tomorrow, with an unfinished draft on it ----
+  // Exercises two D-034 features that the main CFP can't: the one-proposal
+  // cap, and the reminder the cron sends when a form with a saved draft is
+  // inside its final 48 hours.
+  const lightning = await repos.forms.create({
+    eventId: event.id,
+    name: "Lightning Talks (closing soon)",
+    slug: "ai-engineer-summit-2026-lightning",
+    welcomeCopy:
+      "Five minutes, one idea, no slides required. One proposal per speaker — pick your best one.",
+    fields: [
+      {
+        id: "title",
+        type: "text",
+        label: "Lightning talk title",
+        required: true,
+        maxLength: 60,
+      },
+      {
+        id: "description",
+        type: "textarea",
+        label: "What's the idea?",
+        helpText: "Two or three sentences is plenty.",
+        required: true,
+        maxLength: 400,
+      },
+      { ...VIDEO_LINK_FIELD },
+      { id: "speaker_name", type: "text", label: "Your name", required: true },
+      { id: "speaker_email", type: "email", label: "Your email", required: true },
+    ],
+    opensAt: daysFromNow(-7),
+    closesAt: hoursFromNow(30),
+    confirmationPageContent: "Got it — five minutes are yours if we can fit you in.",
+    confirmationEmailSubject: null,
+    confirmationEmailBody: null,
+    maxSubmissionsPerSpeaker: 1,
+    isPublished: true,
+  });
+
+  const lightningDraft = await repos.submissions.create({
+    eventId: event.id,
+    formId: lightning.id,
+    title: "Untitled draft — five things that broke in prod",
+    description: "Half-written: the five smallest changes that caused the biggest outages.",
+    answers: { video_link: "" },
+    status: "draft",
+    resumeToken: "seed-draft-resume-lightning",
+    decidedBy: null,
+    decidedAt: null,
+    decisionNote: null,
+  });
+  await repos.submissions.addSpeaker(lightningDraft.id, speakers[1].id, "primary");
+  console.log(
+    `forms      "${lightning.name}" (/submit/${lightning.slug}) closes in 30h with 1 draft waiting`,
+  );
 
   // --- a couple of reviewer notes (enhancement tier, but nice for the demo) --
   const reviewSeeds: NewReview[] = [

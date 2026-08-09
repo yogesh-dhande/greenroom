@@ -23,6 +23,13 @@ export interface SchemaFormProps {
   uploadAction: UploadAction;
   /** Namespaces uploaded object keys, e.g. the form slug. */
   uploadScope: string;
+  /**
+   * Bound server action that saves an unfinished proposal (decisions.md D-034,
+   * D-038). Omitted where drafts make no sense — editing something already
+   * sent.
+   */
+  draftAction?: SchemaFormAction;
+  draftLabel?: string;
   /** Rendered under the submit button (legal copy, edit hints…). */
   footnote?: React.ReactNode;
 }
@@ -51,10 +58,42 @@ export function SchemaForm({
   action,
   uploadAction,
   uploadScope,
+  draftAction,
+  draftLabel = "Save draft",
   footnote,
 }: SchemaFormProps) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+
+  /**
+   * A draft deliberately skips the browser's validation pass: the whole point
+   * is to keep an answer that isn't finished yet. The server validates it
+   * against the same schema with `required` relaxed, so a genuinely broken
+   * answer (a malformed URL, an over-long abstract) still comes back as a
+   * field error here.
+   */
+  async function onSaveDraft() {
+    if (!draftAction) return;
+    setFormError(null);
+    methods.clearErrors();
+    setSavingDraft(true);
+    try {
+      const result = await draftAction(methods.getValues());
+      if (result.ok) {
+        if (result.message) toast.success(result.message);
+        if (result.redirectTo) router.push(result.redirectTo);
+        return;
+      }
+      for (const [name, message] of Object.entries(result.fieldErrors ?? {})) {
+        methods.setError(name, { message });
+      }
+      setFormError(result.error);
+      toast.error(result.error);
+    } finally {
+      setSavingDraft(false);
+    }
+  }
 
   const resolver = useMemo(
     () => zodResolver(buildFormValidator(fields)) as unknown as Resolver<FormValues>,
@@ -97,10 +136,25 @@ export function SchemaForm({
         ) : null}
 
         <div className="flex flex-col gap-3 border-t border-border pt-6">
-          <div>
-            <Button type="submit" size="lg" disabled={methods.formState.isSubmitting}>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="submit"
+              size="lg"
+              disabled={methods.formState.isSubmitting || savingDraft}
+            >
               {methods.formState.isSubmitting ? pendingLabel : submitLabel}
             </Button>
+            {draftAction ? (
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                disabled={methods.formState.isSubmitting || savingDraft}
+                onClick={onSaveDraft}
+              >
+                {savingDraft ? "Saving…" : draftLabel}
+              </Button>
+            ) : null}
           </div>
           {footnote}
         </div>
