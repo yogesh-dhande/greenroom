@@ -792,7 +792,9 @@ export async function runAirtableSync(ctx: AirtableSyncContext): Promise<Airtabl
   const client = new AirtableClient(
     apiKey,
     baseId,
-    ctx.fetchImpl ?? fetch,
+    // Wrap rather than pass `fetch` directly: workerd throws "Illegal
+    // invocation" when the global is called with a different `this`.
+    ctx.fetchImpl ?? ((input, init) => fetch(input, init)),
     ctx.requestSpacingMs ?? DEFAULT_REQUEST_SPACING_MS,
     ctx.rateLimitRetryMs ?? DEFAULT_RATE_LIMIT_RETRY_MS,
   );

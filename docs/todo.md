@@ -18,12 +18,6 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 - [ ] **Run the evaluation** — the harness now supports your Claude Code subscription, no API key needed (ported 2026-08-09). After `npm install`, verify auth with `npm run probe:claude-code`, then run `SBEK_CLAUDE_CODE=1 npm run eval -- --url https://greenroom.usespaces.dev`. Caveats: subscription-mode scores are directional (judge runs under slightly different plumbing than the API-key path), so if you want "official"-style numbers and have an `ANTHROPIC_API_KEY`, the default path is unchanged and preferred. `npm run smoke` still needs no auth at all.
 - [ ] **Competition submission** — organizer's form + repo link + deployed URL + walkthrough video, before **Wed Aug 12, 10 PM PT**.
 
-## Open questions (answer when convenient — working assumptions in questions.md meanwhile)
-
-- [ ] Q4: reminder cadence — recommend closing with the built default (one nudge per task every 3 days, stop at completion or event start). Say the word and it's recorded as a decision.
-- [ ] Q8: public "session intake" form type — recommend closing as not-building; admin direct entry (now shipped in W9) covers the job.
-- [ ] Q6: what does "embeddable" minimally mean — is an iframe snippet enough? (assumed: yes; a question for the organizer, not you.)
-
 ## Done
 
 - [x] `npx wrangler login` (2026-08-09) — account verified, D1 database created in WNAM, remote migrations applied, worker created, `BETTER_AUTH_SECRET` set.
@@ -35,4 +29,5 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 - [x] Q5 answered (2026-08-09): build the Airtable sync against a real base — see top section for what it needs from you.
 - [x] Q7 answered (2026-08-09): `.ics` calendar invites are good enough; D-020 stands, the organizer follow-up video is moot.
 - [x] `AIRTABLE_API_KEY` secret set via wrangler (2026-08-09) — verified in the worker's secret list.
-- [x] Airtable base ID shared (2026-08-09): `appXXXXXXXXXXXXXX` — recorded as `AIRTABLE_BASE_ID` in wrangler.jsonc; W10 sync build started.
+- [x] Airtable base ID shared (2026-08-09) — stored as the `AIRTABLE_BASE_ID` worker secret (not committed anywhere); W10 sync shipped and deployed.
+- [x] Q4/Q6/Q8 closed (2026-08-09) — owner directive: match Sessionboard's documented behavior. Recorded as D-039 (weekly task digest), D-040 (JS embed + JSON/iCal feeds), D-041 (session-type forms); W11 builds the changes.

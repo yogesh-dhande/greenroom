@@ -19,16 +19,12 @@ interface CloudflareEnv {
   EMAIL_FROM_ADDRESS?: string;
   /**
    * Airtable personal access token for the one-way sync (decisions.md D-036,
-   * docs/airtable-sync.md). Production: `wrangler secret put AIRTABLE_API_KEY`.
-   *
-   * Its companion `AIRTABLE_BASE_ID` is *not* declared here: the base id is
-   * not a secret, so it lives in wrangler.jsonc under `vars` and reaches this
-   * interface through `wrangler types` (worker-configuration.d.ts).
-   *
-   * Local dev reads both from `.dev.vars` — the token because it has nowhere
-   * else to come from, the base id only if you want to point `next dev` at a
-   * different base than wrangler.jsonc's. Missing either one makes the sync
-   * no-op with a log line rather than throwing.
+   * docs/airtable-sync.md). Production: `wrangler secret put AIRTABLE_API_KEY`
+   * and `wrangler secret put AIRTABLE_BASE_ID` — both are secrets so nothing
+   * account-specific is committed. Local dev reads both from `.dev.vars`.
+   * Missing either one makes the sync no-op with a log line rather than
+   * throwing.
    */
   AIRTABLE_API_KEY?: string;
+  AIRTABLE_BASE_ID?: string;
 }
