@@ -1,11 +1,12 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRepos } from "@/lib/db";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/stat-card";
 
-/** Event overview: a handful of real numbers pulled from the repos, plus a
- * note on what's coming in later waves (review queue, agenda board, etc). */
+/** Event overview: a handful of real numbers pulled from the repos, plus
+ * links into the day-to-day surfaces. */
 export default async function EventOverviewPage({
   params,
 }: {
@@ -43,12 +44,41 @@ export default async function EventOverviewPage({
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>What&apos;s coming next</CardTitle>
+          <CardTitle>Jump back in</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          This is the Wave 1 shell — routes, navigation, and a shared UI kit.
-          Reviewing submissions, building the agenda, sending communications,
-          and tracking onboarding all land in later waves.
+          <ul className="grid gap-2 sm:grid-cols-2">
+            <li>
+              <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/submissions`}>
+                Review submissions
+              </Link>{" "}
+              — the queue, recommendations, and decisions.
+            </li>
+            <li>
+              <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/agenda`}>
+                Build the agenda
+              </Link>{" "}
+              — drag sessions onto the day/room grid.
+            </li>
+            <li>
+              <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/speakers`}>
+                Track onboarding
+              </Link>{" "}
+              — who still owes which task.
+            </li>
+            <li>
+              <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/communications`}>
+                Communications
+              </Link>{" "}
+              — the email log, composer, templates, and invites.
+            </li>
+            <li>
+              <Link className="text-foreground underline underline-offset-4" href={`/p/${eventSlug}`}>
+                Public program
+              </Link>{" "}
+              — what attendees see, with embeds.
+            </li>
+          </ul>
         </CardContent>
       </Card>
     </div>

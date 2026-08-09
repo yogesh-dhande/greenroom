@@ -234,6 +234,19 @@ export function DecisionPanel({
               {!notify && " Emails are switched off, so nobody will be told yet."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* The same draft note as the panel's field, editable here too —
+              the natural order is "click Accept, then write the note", and a
+              note typed behind an open dialog would otherwise be lost. */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="decision-note-confirm">Note to the speakers</Label>
+            <Textarea
+              id="decision-note-confirm"
+              rows={3}
+              placeholder="Optional — included in the decision email."
+              value={draftNote}
+              onChange={(event) => setDraftNote(event.target.value)}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction

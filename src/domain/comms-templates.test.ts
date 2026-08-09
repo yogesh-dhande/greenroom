@@ -32,6 +32,7 @@ const FULL: MergeData = {
   organizerEmail: "hello@greenroom.dev",
   portalUrl: "https://example.test/portal",
   submissionTitle: "Retrieval that survives production traffic",
+  submissionUrl: "https://example.test/portal/submissions/sub-1",
   decisionNote: "Best retrieval submission this year.",
   changeRequest: "Please trim the abstract to 400 words.",
   changeDueDate: "Friday, May 1, 2026",

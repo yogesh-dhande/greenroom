@@ -106,6 +106,11 @@ function portalUrl(ctx: CommsContext): string {
   return `${trimTrailingSlash(ctx.appUrl)}/portal`;
 }
 
+/** The speaker's own edit page for one proposal (src/app/portal/submissions/[id]). */
+function submissionUrl(ctx: CommsContext, submissionId: string): string {
+  return `${portalUrl(ctx)}/submissions/${submissionId}`;
+}
+
 function eventUrl(ctx: CommsContext, event: Event): string {
   return `${trimTrailingSlash(ctx.appUrl)}/e/${event.slug}`;
 }
@@ -439,6 +444,7 @@ export async function sendChangeRequest(
       ...eventFields(ctx, event),
       ...speakerFields(user),
       submissionTitle: submission.title,
+      submissionUrl: submissionUrl(ctx, submission.id),
       changeRequest: input.request,
       changeDueDate: input.dueAt ? formatDeadline(input.dueAt, event.timezone) : "",
     };

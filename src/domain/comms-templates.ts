@@ -39,6 +39,7 @@ export const MERGE_FIELDS = [
   "organizerEmail",
   "portalUrl",
   "submissionTitle",
+  "submissionUrl",
   "decisionNote",
   "changeRequest",
   "changeDueDate",
@@ -363,9 +364,9 @@ We're reviewing "{{submissionTitle}}" for {{eventName}} and need one thing from 
 
 {{changeRequest}}
 
-You can make the change yourself in your speaker portal — everything stays editable:
+You can make the change yourself — this link opens your proposal, ready to edit:
 
-{{portalUrl}}
+{{submissionUrl}}
 
 {{#changeDueDate}}
 Please do it by {{changeDueDate}} so your proposal stays in this review round.
@@ -590,7 +591,13 @@ export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
     "decisionNote",
     ...SESSION_MERGE_FIELDS,
   ],
-  change_request: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeRequest", "changeDueDate"],
+  change_request: [
+    ...COMMON_MERGE_FIELDS,
+    "submissionTitle",
+    "submissionUrl",
+    "changeRequest",
+    "changeDueDate",
+  ],
   task_reminder: [
     ...COMMON_MERGE_FIELDS,
     "taskTitle",
