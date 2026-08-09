@@ -14,6 +14,10 @@
 /coverage
 /test-results/
 /playwright-report/
+# demo walkthrough recording output (playwright.demo.config.ts)
+/demo-recording/
+/walkthrough.mp4
+/walkthrough.srt
 
 # next.js
 /.next/

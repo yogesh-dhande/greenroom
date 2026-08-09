@@ -156,7 +156,8 @@ test("admin drags a session from the tray onto the grid", async ({ page }) => {
       ),
     ),
   ]);
-  // 9:30 in Workshop B (third column).
+  // 9:30 in Workshop A (rooms are listed alphabetically, so columns[2] is
+  // Workshop A: Community Hall, Main Stage, Workshop A, Workshop B).
   const target = page.locator(`[data-slot-id="slot|${columns[2]}|570"]`);
 
   const source = await trayCard(page, TOOL_SCHEMAS).boundingBox();

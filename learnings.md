@@ -87,3 +87,7 @@ Expected: asserting `getByText("{{badField}}")` finds the error message that ech
 ## Resend attachments: `contentType` camelCase, base64 string content, no raw MIME (2026-08-08)
 
 Expected: set an attachment's MIME type via a `Content-Type` entry in Resend's `headers`. Actually: that returns a 500 "Duplicate header"; the only channel is the attachment's own `contentType` (camelCase) field, with `content` as a base64 *string*. Resend also has no raw-MIME endpoint, so the classic Gmail-friendly `multipart/alternative` with a `text/calendar` sibling part is unreachable — calendar invites must ship as a `text/calendar; method=REQUEST` attachment (D-020).
+
+## The agenda board auto-scrolls under a dnd-kit drag at small viewports (2026-08-08)
+
+Expected: replicating `e2e/agenda.spec.ts`'s drag (move past the 5px activation threshold, then to the pre-computed drop coordinate) would land a card on the intended slot in the 1280×720 demo recording. Actually: the board's horizontal auto-scroll kicks in while the pointer crosses it, sliding the columns out from under a coordinate computed before the drag — the card silently landed one column over (Workshop A instead of Main Stage), producing no conflict. `agenda.spec.ts` never sees this because it sets a 1600×1500 viewport where nothing scrolls. Fix in `e2e/demo-walkthrough.record.ts`: after the initial travel, re-read the target slot's bounding box and re-aim until the slot itself highlights, then drop.
