@@ -13,6 +13,10 @@ export const E2E_PORT = 3010;
 
 export default defineConfig({
   testDir: "e2e",
+  // The webServer wrapper's own exit handlers don't run when Playwright
+  // kills its process tree, so .dev.vars restoration happens here — this
+  // runs in Playwright's process after the server is torn down.
+  globalTeardown: "./e2e/global-teardown.mjs",
   // One worker: tests share a single seeded D1 database and magic-link log.
   workers: 1,
   timeout: 60_000,
