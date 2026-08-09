@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { reviewSchema, type NewReview } from "@/db/entities";
 import { reviews } from "@/db/schema";
 import type { ReviewsRepo } from "@/db/repos/reviews";
@@ -13,6 +13,13 @@ export function createReviewsRepo(db: DrizzleD1): ReviewsRepo {
     async listBySubmission(submissionId) {
       const rows = await db.query.reviews.findMany({
         where: eq(reviews.submissionId, submissionId),
+      });
+      return rows.map((r) => reviewSchema.parse(r));
+    },
+    async listBySubmissionIds(submissionIds) {
+      if (submissionIds.length === 0) return [];
+      const rows = await db.query.reviews.findMany({
+        where: inArray(reviews.submissionId, submissionIds),
       });
       return rows.map((r) => reviewSchema.parse(r));
     },

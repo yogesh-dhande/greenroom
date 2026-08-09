@@ -56,6 +56,14 @@ Expected: the documented `object.writeHttpMetadata(headers)` idiom populates res
 
 Expected: a webServer wrapper script can restore swapped config (`.dev.vars`) in `SIGTERM`/`exit` handlers when the run ends. Actually those handlers reliably did NOT fire — two separate agents found `.dev.vars` still pointing at the e2e port after green runs. Playwright kills the webServer's process tree with SIGKILL, which is uncatchable, so no in-process cleanup in the server wrapper can ever be trusted. Fix: do cleanup in Playwright's own `globalTeardown` (runs in the Playwright process, which exits normally), keeping the wrapper's restore-from-stale-backup self-heal as a second net.
 
+## A `"use client"` import chain can pull the email transport into the browser bundle (2026-08-08)
+
+Expected: importing a constant (a filter list, decision options) from a domain module into a client component is free. Actually: the import makes the whole module — and everything it transitively imports — part of the client bundle, so a client component reaching anything that touches `src/domain/comms.ts` dragged the email-transport code toward the browser. Cost a refactor mid-wave: shared constants moved into small UI-side modules (`filters.ts`), and client components spell out option lists locally instead of importing them from server-leaning domain files. Rule of thumb: domain modules that touch transports/repos are server-only; anything a client component needs from them gets its own dependency-free module.
+
+## Playwright: `alertdialog` role and worker-discard turning one failure into many (2026-08-08)
+
+Two behaviors that cost a red run: (1) shadcn/Radix `AlertDialog` exposes ARIA role **`alertdialog`** — `getByRole("dialog")` never matches it, and the timeout looks like a missing dialog rather than a wrong query. (2) Playwright discards the worker process after a test failure, so module-level state shared between tests (ids captured in an earlier test) evaporates and one real failure cascades into every later test failing for the wrong reason. Tests must each re-derive their target through the UI rather than sharing module state.
+
 ## Resend attachments: `contentType` camelCase, base64 string content, no raw MIME (2026-08-08)
 
 Expected: set an attachment's MIME type via a `Content-Type` entry in Resend's `headers`. Actually: that returns a 500 "Duplicate header"; the only channel is the attachment's own `contentType` (camelCase) field, with `content` as a base64 *string*. Resend also has no raw-MIME endpoint, so the classic Gmail-friendly `multipart/alternative` with a `text/calendar` sibling part is unreachable — calendar invites must ship as a `text/calendar; method=REQUEST` attachment (D-020).

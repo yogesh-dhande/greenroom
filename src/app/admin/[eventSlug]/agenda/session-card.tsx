@@ -68,6 +68,10 @@ export function SessionCard({
 
   const severity = worstSeverity(conflicts);
   const blocking = conflicts.find((c) => CONFLICT_SEVERITY[c.type] === "blocking");
+  // A talk accepted and later declined stands its session down as "cancelled"
+  // (src/domain/review.ts) — it stays visible so the gap is explained, but
+  // reads as stood-down rather than programmed.
+  const cancelled = session.status === "cancelled";
   const speakerLine = speakers.map((s) => s.name).join(", ");
   const timeLine =
     session.startTime && session.endTime
@@ -81,7 +85,7 @@ export function SessionCard({
       {...dragProps}
       role="button"
       tabIndex={0}
-      aria-label={`${session.title}${severity === "blocking" ? " — has a conflict" : ""}`}
+      aria-label={`${session.title}${cancelled ? " — cancelled" : severity === "blocking" ? " — has a conflict" : ""}`}
       data-session-id={session.id}
       data-conflict={severity ?? "none"}
       onClick={() => onOpen(session)}
@@ -96,6 +100,7 @@ export function SessionCard({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
         conflictClasses(conflicts),
+        cancelled && "border-dashed opacity-60",
         (isDragging || isGhost) && "opacity-40",
         className,
       )}
@@ -108,7 +113,12 @@ export function SessionCard({
             style={track.color ? { backgroundColor: track.color } : undefined}
           />
         )}
-        <p className="line-clamp-2 min-w-0 flex-1 text-xs font-medium leading-tight text-foreground">
+        <p
+          className={cn(
+            "line-clamp-2 min-w-0 flex-1 text-xs font-medium leading-tight text-foreground",
+            cancelled && "line-through decoration-muted-foreground",
+          )}
+        >
           {session.title}
         </p>
         {severity && (
@@ -140,15 +150,19 @@ export function SessionCard({
         </p>
       )}
 
-      {severity && (
-        <p
-          className={cn(
-            "truncate text-[11px] font-medium",
-            severity === "blocking" ? "text-destructive" : "text-warning",
-          )}
-        >
-          {CONFLICT_LABEL[(blocking ?? conflicts[0]).type]}
-        </p>
+      {cancelled ? (
+        <p className="truncate text-[11px] font-medium text-muted-foreground">Cancelled</p>
+      ) : (
+        severity && (
+          <p
+            className={cn(
+              "truncate text-[11px] font-medium",
+              severity === "blocking" ? "text-destructive" : "text-warning",
+            )}
+          >
+            {CONFLICT_LABEL[(blocking ?? conflicts[0]).type]}
+          </p>
+        )
       )}
     </div>
   );
