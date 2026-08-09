@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { inspectIcs, unfoldIcs, buildItineraryCalendar } from "@/lib/ics";
 import {
   ANY_FACET,
   buildGallery,
+  buildProgramFeed,
   buildSchedule,
   compareBySurname,
   countScheduleSessions,
@@ -14,7 +16,9 @@ import {
   itinerarySessions,
   itineraryStorageKey,
   parseStarredIds,
+  resolveFeedAssetUrl,
   scheduleFacetOptions,
+  scheduleFeedEntries,
   scheduleSessions,
   sessionFormatLabel,
   sessionMatchesFilters,
@@ -528,5 +532,187 @@ describe("speakerMatchesQuery / filterSpeakers", () => {
     ]);
     expect(filterSpeakers(lineup, "")).toEqual(lineup);
     expect(filterSpeakers(lineup, "nobody")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Public JSON feed (decisions.md D-040)
+// ---------------------------------------------------------------------------
+
+describe("buildProgramFeed", () => {
+  const lookups = {
+    trackById: new Map([["t1", { name: "AI Engineering", color: "#0e7490" }]]),
+    roomById: new Map([["r1", { name: "Main Stage" }]]),
+    speakerNameById: new Map([["u1", "Priya Raman"]]),
+  };
+  const event = { name: "AI Engineer Summit 2026", timezone: "America/Los_Angeles" };
+
+  it("only carries confirmed, scheduled sessions — draft, unscheduled, and cancelled are excluded", () => {
+    const scheduled = session({
+      id: "s1",
+      title: "Retrieval at scale",
+      trackId: "t1",
+      roomId: "r1",
+      speakerIds: ["u1"],
+    });
+    const draft = session({ id: "s2", status: "draft" });
+    const cancelled = session({ id: "s3", status: "cancelled" });
+    const unscheduled = session({
+      id: "s4",
+      status: "confirmed",
+      day: null,
+      startTime: null,
+      endTime: null,
+    });
+
+    const days = buildSchedule([scheduled, draft, cancelled, unscheduled], lookups);
+    const gallery = buildGallery([scheduled, draft, cancelled, unscheduled], new Map());
+
+    const feed = buildProgramFeed(event, days, gallery);
+
+    expect(feed.sessions).toHaveLength(1);
+    expect(feed.sessions[0]).toEqual({
+      title: "Retrieval at scale",
+      description: null,
+      day: "2026-06-16",
+      startTime: "10:00",
+      endTime: "10:30",
+      roomName: "Main Stage",
+      trackName: "AI Engineering",
+      speakerNames: ["Priya Raman"],
+    });
+  });
+
+  it("carries resolved speaker fields and no internal id or email", () => {
+    const priya = person({
+      id: "u1",
+      name: "Priya Raman",
+      title: "Staff Engineer",
+      company: "Northwind",
+      bio: "Builds retrieval systems.",
+      headshotUrl: "/files/uploads/priya.jpg",
+    });
+    const scheduled = session({ id: "s1", speakerIds: ["u1"] });
+    const days = buildSchedule([scheduled], lookups);
+    const gallery = buildGallery([scheduled], new Map([["u1", priya]]));
+
+    const feed = buildProgramFeed(event, days, gallery);
+
+    expect(feed.speakers).toEqual([
+      {
+        name: "Priya Raman",
+        title: "Staff Engineer",
+        company: "Northwind",
+        bio: "Builds retrieval systems.",
+        headshotUrl: "/files/uploads/priya.jpg",
+      },
+    ]);
+    // No `id`, no `email` — check the exact key set, not just the values.
+    expect(Object.keys(feed.speakers[0]).sort()).toEqual([
+      "bio",
+      "company",
+      "headshotUrl",
+      "name",
+      "title",
+    ]);
+    expect(JSON.stringify(feed)).not.toMatch(/"id"|@|email/i);
+  });
+
+  it("carries the event's name and timezone, nothing else", () => {
+    const feed = buildProgramFeed(event, [], []);
+    expect(feed.event).toEqual({
+      name: "AI Engineer Summit 2026",
+      timezone: "America/Los_Angeles",
+    });
+  });
+});
+
+describe("resolveFeedAssetUrl", () => {
+  it("resolves a relative /files/ path against the given origin", () => {
+    expect(resolveFeedAssetUrl("https://example.com", "/files/uploads/priya.jpg")).toBe(
+      "https://example.com/files/uploads/priya.jpg",
+    );
+  });
+
+  it("leaves an already-absolute URL untouched", () => {
+    expect(resolveFeedAssetUrl("https://example.com", "https://cdn.example/priya.jpg")).toBe(
+      "https://cdn.example/priya.jpg",
+    );
+  });
+
+  it("passes null through", () => {
+    expect(resolveFeedAssetUrl("https://example.com", null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Public iCal feed (decisions.md D-040)
+// ---------------------------------------------------------------------------
+
+describe("scheduleFeedEntries", () => {
+  const lookups = {
+    trackById: new Map(),
+    roomById: new Map([["r1", { name: "Main Stage" }]]),
+    speakerNameById: new Map(),
+  };
+
+  it("maps the public schedule to buildItineraryCalendar's entry shape", () => {
+    const scheduled = session({
+      id: "s1",
+      title: "Retrieval at scale",
+      description: "A practical pattern for retrieval under load.",
+      roomId: "r1",
+    });
+    const days = buildSchedule([scheduled], lookups);
+
+    expect(scheduleFeedEntries(days)).toEqual([
+      {
+        sessionId: "s1",
+        title: "Retrieval at scale",
+        description: "A practical pattern for retrieval under load.",
+        location: "Main Stage",
+        day: "2026-06-16",
+        startTime: "10:00",
+        endTime: "10:30",
+      },
+    ]);
+  });
+
+  it("produces a valid iCalendar object for the whole public schedule (RFC 5545/5546)", () => {
+    const days = buildSchedule(
+      [
+        session({ id: "s1", title: "Retrieval at scale", roomId: "r1" }),
+        session({ id: "s2", title: "Shipping an agent", day: "2026-06-17" }),
+      ],
+      lookups,
+    );
+
+    const calendar = buildItineraryCalendar({
+      timeZone: "America/Los_Angeles",
+      calendarName: "AI Engineer Summit 2026 — schedule",
+      filenameBase: "ai-engineer-summit-2026-schedule",
+      entries: scheduleFeedEntries(days),
+      stamp: new Date("2026-05-01T12:00:00Z"),
+    });
+
+    expect(calendar.contentType).toBe("text/calendar; charset=utf-8");
+    // A feed calendar is METHOD:PUBLISH with no ORGANIZER/ATTENDEE (see
+    // src/lib/ics.ts's own buildItineraryCalendar tests), so only the
+    // structural/timezone checks apply here, not inspectIcs's full REQUEST
+    // checklist.
+    const inspection = inspectIcs(calendar.content);
+    expect(inspection.errors).not.toContain(
+      "DTSTART is floating local time (no Z, no TZID) — it will render in the reader's zone",
+    );
+    expect(inspection.errors.join(" ")).not.toMatch(/VTIMEZONE/);
+    expect(inspection.properties.VERSION).toEqual(["2.0"]);
+    expect(unfoldIcs(calendar.content).filter((l) => l.startsWith("SUMMARY:"))).toEqual([
+      "SUMMARY:Retrieval at scale",
+      "SUMMARY:Shipping an agent",
+    ]);
+    // METHOD:PUBLISH, no ORGANIZER/ATTENDEE — this is a feed, not an invite.
+    expect(calendar.content).toContain("METHOD:PUBLISH");
+    expect(calendar.content).not.toContain("ORGANIZER");
+    expect(calendar.content).not.toContain("ATTENDEE");
   });
 });

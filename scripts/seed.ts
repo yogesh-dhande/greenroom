@@ -184,6 +184,17 @@ const SPEAKER_SEEDS: Array<{
     bio: null,
     headshotUrl: null,
   },
+  // Appended last on purpose: every index above is referenced by
+  // SUBMISSION_SEEDS and the email log, so new speakers go on the end.
+  // This one never went through review — she was invited (D-041).
+  {
+    email: "n.abiodun@example.com",
+    name: "Ngozi Abiodun",
+    title: "VP of Engineering",
+    company: "Fathom Systems",
+    bio: "Invited keynote: fifteen years of putting models in front of people who never asked for them.",
+    headshotUrl: "https://files.greenroom.dev/demo/ngozi.jpg",
+  },
 ];
 
 /** ~8 fields including one conditional field and the track multiselect. */
@@ -554,6 +565,8 @@ async function seed(repos: Repos): Promise<void> {
     eventId: event.id,
     name: "Call for Speakers 2026",
     slug: "ai-engineer-summit-2026",
+    // The review pipeline: proposals here queue for the committee (D-041).
+    type: "abstract",
     welcomeCopy:
       "We're looking for practitioner talks: things you built, shipped, measured, and would do differently. Submissions close on 1 March. You can edit your proposal until then.",
     fields: cfpFields(TRACK_SEEDS.map((t) => t.name)),
@@ -576,6 +589,7 @@ async function seed(repos: Repos): Promise<void> {
     eventId: event.id,
     name: "Hotel Stay Requirements",
     slug: "ai-engineer-summit-2026-hotel",
+    type: "abstract",
     welcomeCopy:
       "Tell us your dates and preferences so we can book your room — or let us know you're arranging your own stay.",
     fields: HOTEL_FORM_FIELDS,
@@ -593,6 +607,7 @@ async function seed(repos: Repos): Promise<void> {
     eventId: event.id,
     name: "Flight Reimbursement",
     slug: "ai-engineer-summit-2026-flight",
+    type: "abstract",
     welcomeCopy: "Booked your own flight? Submit the amount and your receipt here for reimbursement.",
     fields: FLIGHT_FORM_FIELDS,
     opensAt: null,
@@ -668,6 +683,7 @@ async function seed(repos: Repos): Promise<void> {
     eventId: event.id,
     name: "Lightning Talks (closing soon)",
     slug: "ai-engineer-summit-2026-lightning",
+    type: "abstract",
     welcomeCopy:
       "Five minutes, one idea, no slides required. One proposal per speaker — pick your best one.",
     fields: [
@@ -714,6 +730,85 @@ async function seed(repos: Repos): Promise<void> {
   await repos.submissions.addSpeaker(lightningDraft.id, speakers[1].id, "primary");
   console.log(
     `forms      "${lightning.name}" (/submit/${lightning.slug}) closes in 30h with 1 draft waiting`,
+  );
+
+  // --- a session-type form: proposals become sessions on arrival (D-041) -----
+  // How an organizer collects the talks that were already agreed — invited
+  // keynotes, sponsor slots — without pretending to review them.
+  const invited = await repos.forms.create({
+    eventId: event.id,
+    name: "Invited & Sponsor Sessions",
+    slug: "ai-engineer-summit-2026-invited",
+    type: "session",
+    welcomeCopy:
+      "We've already agreed your slot — this is where you tell us what to print. What you submit here goes straight onto the programme, so please write it as you'd like attendees to read it.",
+    fields: [
+      {
+        id: "title",
+        type: "text",
+        label: "Session title",
+        helpText: "Exactly as it should appear in the programme.",
+        required: true,
+        maxLength: 80,
+      },
+      {
+        id: "description",
+        type: "textarea",
+        label: "Session description",
+        helpText: "150–300 words for the public agenda.",
+        required: true,
+        maxLength: 2000,
+      },
+      {
+        id: "tracks",
+        type: "multiselect",
+        label: "Track(s)",
+        helpText: "Where this sits on the programme.",
+        required: true,
+        options: TRACK_SEEDS.map((t) => t.name),
+      },
+      {
+        id: "session_format",
+        type: "select",
+        label: "Session format",
+        required: true,
+        options: ["30-minute talk", "45-minute talk", "Keynote"],
+      },
+      { id: "speaker_bio", type: "textarea", label: "Speaker biography", maxLength: 600 },
+    ],
+    opensAt: daysFromNow(-30),
+    closesAt: daysFromNow(45),
+    confirmationPageContent:
+      "Thanks — you're on the programme. We'll be in touch with your time slot and the onboarding checklist.",
+    confirmationEmailSubject: "You're on the programme — {{submissionTitle}}",
+    confirmationEmailBody:
+      'Hi {{speakerFirstName}},\n\n"{{submissionTitle}}" is confirmed for {{eventName}}. We\'ll send your time slot once the agenda is set; in the meantime your speaker portal has everything we need from you:\n\n{{portalUrl}}\n\n— The AI Engineer Summit team',
+    maxSubmissionsPerSpeaker: null,
+    isPublished: true,
+  });
+
+  // The one that already came in. It carries what an acceptance would have
+  // written: approved, decided when it arrived, by nobody (D-041).
+  const invitedSubmission = await repos.submissions.create({
+    eventId: event.id,
+    formId: invited.id,
+    title: "Keynote: the second year of an AI product",
+    description:
+      "What actually changed once the demo was in front of a million people: the org chart, the evaluation budget, and the three assumptions we had to throw away.",
+    answers: {
+      session_format: "Keynote",
+      speaker_bio: SPEAKER_SEEDS[8].bio ?? "",
+    },
+    status: "approved",
+    resumeToken: null,
+    decidedBy: null,
+    decidedAt: daysFromNow(-10),
+    decisionNote: null,
+  });
+  await repos.submissions.setTracks(invitedSubmission.id, [tracks[0].id]);
+  await repos.submissions.addSpeaker(invitedSubmission.id, speakers[8].id, "primary");
+  console.log(
+    `forms      "${invited.name}" (/submit/${invited.slug}) — submissions become sessions directly`,
   );
 
   // --- a couple of reviewer notes (enhancement tier, but nice for the demo) --
@@ -893,6 +988,26 @@ async function seed(repos: Repos): Promise<void> {
       await repos.sessions.assignSpeaker(session.id, speakers[speakerIndex].id);
     }
   }
+
+  // The invited session (D-041): created by its form on submit rather than by a
+  // decision, so it lands confirmed and unscheduled — exactly like an accepted
+  // abstract nobody has placed yet. Appended last so the indexes above, which
+  // the email log references, don't move.
+  const invitedSession = await repos.sessions.create({
+    eventId: event.id,
+    title: invitedSubmission.title,
+    description: invitedSubmission.description,
+    submissionId: invitedSubmission.id,
+    trackId: tracks[0].id,
+    roomId: null,
+    day: null,
+    startTime: null,
+    endTime: null,
+    status: "confirmed",
+  });
+  sessionIds.push(invitedSession.id);
+  await repos.sessions.assignSpeaker(invitedSession.id, speakers[8].id);
+
   console.log(
     `sessions   ${sessionIds.length} from accepted talks (${SCHEDULE.length} scheduled, ${sessionIds.length - SCHEDULE.length} unscheduled)`,
   );

@@ -6,21 +6,10 @@ Workflow: when a question is answered, record the answer as a first-class entry 
 
 ---
 
-## For the owner
+**Q9 — How does the first admin get admin access on a fresh instance? (owner, asked 2026-08-09)**
+The owner raised this while scoping the W12 team-management page. Today the bootstrap is accidental: the local seed creates an admin, and the deployed instance's admins were written into D1 by hand — a fresh self-hosted deployment has no path to its first admin at all. It matters because Greenroom is an open-source product others will deploy, and the team page is useless until someone can reach it. **Working assumption (recommended to owner, not yet confirmed):** an `ADMIN_EMAILS` env var/secret promotes matching accounts on sign-in; if it's unset and no admin exists yet, the first account to sign in becomes admin, and that rule switches off permanently once any admin exists.
 
-### Q4. Reminder cadence and cooldown
-Task/deadline reminder emails run from a cron (W5b). How often should a speaker be nudged about the same overdue task — daily, every 3 days, weekly? At what point do reminders stop?
-**Working assumption:** one reminder per task at most every 3 days, stopping after the task is done or the event starts; admins can always send a manual nudge.
-
-### Q8. Form-level "abstracts vs sessions" type switch — worth building?
-The walkthrough ([04:35]) shows a Sessionboard form setting choosing whether a form collects abstracts (proposals to review) or sessions (confirmed talks, e.g. sponsor slots). Greenroom covers the second job via admin direct session entry (spec §5), not as a public form type. Is a public form that creates confirmed sessions actually needed, or is admin entry enough for the job?
-**Working assumption:** admin direct entry covers it; no form-type switch. Revisit only if judging shows a public "session intake" form being exercised.
-
-## For the organizer
-
-### Q6. What does "embeddable on an external website" minimally mean?
-For the public speaker gallery and schedule (important tier): is an iframe snippet enough, or is a script-embed/web-component expected?
-**Working assumption:** responsive public pages plus a copy-paste iframe snippet.
+*(Q4, Q6 and Q8 were closed 2026-08-09 by the owner's directive to match Sessionboard's documented behavior; see decisions.md D-039, D-040, D-041.)*
 
 ## Product defaults we chose without explicit guidance
 

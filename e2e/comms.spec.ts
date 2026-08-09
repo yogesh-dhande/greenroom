@@ -5,7 +5,7 @@ import { signIn } from "./helpers";
 /**
  * Key flow: communications (spec.md §7) — the per-speaker log, one-off
  * messages with merge fields, per-event template wording, calendar invites,
- * and the deadline-reminder cadence (questions.md Q4).
+ * and the weekly task digest (decisions.md D-039).
  *
  * Every assertion that matters checks the *email*, not just the toast: mail
  * that renders in the UI but never leaves the building is the failure mode
@@ -112,7 +112,7 @@ test("a template edit with a bad merge field is refused, a good one sticks", asy
   await page.goto(COMMS);
   await openTab(page, "Templates");
 
-  await page.getByRole("button", { name: "Task / deadline reminder" }).click();
+  await page.getByRole("button", { name: "Weekly task digest" }).click();
   const body = page.locator("textarea[id^='body-']");
   const original = await body.inputValue();
 
@@ -134,46 +134,46 @@ test("a template edit with a bad merge field is refused, a good one sticks", asy
   // Valid copy saves and survives a reload as this event's own wording.
   await body.fill(`${original}\n\nOur team is around all week, {{speakerFirstName}}.`);
   await page.getByRole("button", { name: "Save wording" }).click();
-  await expect(page.getByText("Saved “Task / deadline reminder”")).toBeVisible();
+  await expect(page.getByText("Saved “Weekly task digest”")).toBeVisible();
 
   await page.reload();
   await openTab(page, "Templates");
-  await page.getByRole("button", { name: "Task / deadline reminder" }).click();
+  await page.getByRole("button", { name: "Weekly task digest" }).click();
   await expect(page.locator("textarea[id^='body-']")).toHaveValue(/Our team is around all week/);
   await expect(page.getByText("Edited")).toBeVisible();
 });
 
-test("a reminder run sends once, then respects the three-day cooldown", async ({ page }) => {
+test("a digest run sends once per speaker, then respects the cooldown", async ({ page }) => {
   const startedAt = Date.now();
 
   await signIn(page, "admin@greenroom.dev");
   await page.goto(COMMS);
 
-  await page.getByRole("button", { name: "Send reminders now" }).click();
-  // The seed leaves outstanding tasks due within the week, so the first run
-  // has something to do.
-  await expect(page.getByText(/Sent \d+ reminders?/)).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Send task digest now" }).click();
+  // The seed leaves speakers with outstanding tasks, so the first manual run
+  // has something to do (the manual path bypasses the Monday window, D-039).
+  await expect(page.getByText(/Sent \d+ emails?/)).toBeVisible({ timeout: 30_000 });
 
-  // The reminder used this event's saved wording from the previous test —
+  // The digest used this event's saved wording from the previous test —
   // proof the override reaches the send path, not just the editor.
   await expect(async () => {
-    const reminders = (await devEmailsSince(startedAt)).filter((body) =>
-      body.includes("X-Greenroom-Log: task_reminder"),
+    const digests = (await devEmailsSince(startedAt)).filter((body) =>
+      body.includes("X-Greenroom-Log: task_digest"),
     );
-    expect(reminders.length).toBeGreaterThan(0);
-    expect(reminders.some((body) => body.includes("Our team is around all week"))).toBe(true);
+    expect(digests.length).toBeGreaterThan(0);
+    expect(digests.some((body) => body.includes("Our team is around all week"))).toBe(true);
   }).toPass({ timeout: 20_000 });
 
   // Pressing it again immediately must be a no-op: idempotency comes from
-  // email_log, so the first run's own rows suppress the second
-  // (questions.md Q4 — at most one nudge per task every three days).
+  // email_log, so the first run's own rows suppress the second (D-039's
+  // 24-hour guard on the manual button).
   const secondRunAt = Date.now();
-  await page.getByRole("button", { name: "Send reminders now" }).click();
-  await expect(page.getByText("No reminders needed")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText(/reminded in the last few days/)).toBeVisible();
+  await page.getByRole("button", { name: "Send task digest now" }).click();
+  await expect(page.getByText("Nothing to send")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/already emailed recently/)).toBeVisible();
 
   const afterSecond = (await devEmailsSince(secondRunAt)).filter((body) =>
-    body.includes("X-Greenroom-Log: task_reminder"),
+    body.includes("X-Greenroom-Log: task_digest"),
   );
   expect(afterSecond).toHaveLength(0);
 });
@@ -230,5 +230,5 @@ test("a reviewer can read the log but cannot send anything", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "Communications" })).toBeVisible();
   await expect(page.getByLabel("Filter by speaker")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Compose" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Send reminders now" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send task digest now" })).toHaveCount(0);
 });

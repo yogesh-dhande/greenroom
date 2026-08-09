@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
-import type { FormField } from "@/db/entities";
-import { prefillValues, publicFields } from "@/domain/forms";
+import { createsSessionsDirectly, type FormField } from "@/db/entities";
+import { DIRECT_TO_SESSION_LABEL, prefillValues, publicFields } from "@/domain/forms";
 import { loadSubmissionDetail } from "@/domain/submissions";
 import { canRecordDecision, canViewSubmission, tallyReviews } from "@/domain/review";
 import { getRepos } from "@/lib/db";
@@ -47,8 +47,12 @@ export default async function SubmissionDetailPage({
   // to review yet (decisions.md D-034).
   if (!canViewSubmission(viewer.role, reviewerTrackIds, trackIds)) notFound();
   if (viewer.role !== "admin" && detail.submission.status === "draft") notFound();
+  // Nor is a session-type submission review work — it was a session before a
+  // reviewer could have an opinion (decisions.md D-041).
+  if (viewer.role !== "admin" && createsSessionsDirectly(detail.form)) notFound();
 
   const { submission, form, tracks } = detail;
+  const isDirectToSession = createsSessionsDirectly(form);
   const fields = publicFields(
     form.fields,
     tracks.map((track) => track.name),
@@ -96,7 +100,12 @@ export default async function SubmissionDetailPage({
       <PageHeader
         title={submission.title}
         description={`Submitted ${formatDate(submission.createdAt)} via ${form.name}`}
-        action={<SubmissionStatusBadge status={submission.status} />}
+        action={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <SubmissionStatusBadge status={submission.status} />
+            {isDirectToSession ? <Badge variant="outline">{DIRECT_TO_SESSION_LABEL}</Badge> : null}
+          </div>
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -152,16 +161,19 @@ export default async function SubmissionDetailPage({
         </div>
 
         <div className="flex flex-col gap-6">
-          <ReviewPanel
-            eventSlug={eventSlug}
-            submissionId={submission.id}
-            tally={tally}
-            myReview={
-              myReview
-                ? { recommendation: myReview.recommendation, comment: myReview.comment }
-                : null
-            }
-          />
+          {/* Nothing to recommend on a talk the form already accepted (D-041). */}
+          {isDirectToSession ? null : (
+            <ReviewPanel
+              eventSlug={eventSlug}
+              submissionId={submission.id}
+              tally={tally}
+              myReview={
+                myReview
+                  ? { recommendation: myReview.recommendation, comment: myReview.comment }
+                  : null
+              }
+            />
+          )}
 
           <DecisionPanel
             eventSlug={eventSlug}

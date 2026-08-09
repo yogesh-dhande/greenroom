@@ -13,7 +13,9 @@ rationale.
   short/long text, choice, file, and co-speaker fields, plus **basic
   conditional logic** (`showIf`, one field's visibility keyed on another's
   answer) — no arbitrary rules engine. Submissions stay editable by the
-  submitter until the form closes.
+  submitter until the form closes. A form can also be **session-type** (for
+  invited or sponsor slots): its submissions skip review and become
+  confirmed sessions on arrival.
 - **Track-based review routing** — submissions pick tracks, reviewers own
   tracks (`src/domain/review.ts`), so each reviewer's queue is scoped
   automatically. No separate routing engine.
@@ -41,13 +43,16 @@ rationale.
   all accept, with a correctly incrementing `SEQUENCE` so a re-sent invite
   (e.g. after a room assignment) updates the speaker's existing calendar
   entry instead of duplicating it (`src/domain/comms.ts`, `src/lib/ics.ts`).
-- **Reminder cron** — a Cloudflare cron trigger nudges speakers about
-  outstanding tasks at most once every 3 days, and stops once the event has
-  started (`runReminderJob`, wired in `custom-worker.ts`).
+- **Reminder cron** — a Cloudflare cron trigger sends each speaker one weekly
+  digest of everything still open on their checklist (Mondays, 07:00 UTC),
+  stopping once the list is clear or the event has started (`runReminderJob`,
+  wired in `custom-worker.ts`).
 - **Public program pages** — `/p/<slug>` renders a speaker gallery and
   schedule; `/embed/<slug>` serves the same content chrome-less for
-  iframing, with a copy-paste `<iframe>` snippet built into the public page
-  itself.
+  iframing, with a one-line `<script src=".../embed.js">` embed (auto-sizing
+  iframe) and copy-paste snippets built into the public page itself. The
+  program is also machine-readable: `/p/<slug>/feed.json` (CORS-open) and
+  `/p/<slug>/feed.ics`.
 
 ## Stack
 
@@ -175,16 +180,26 @@ Both are expected to pass before every commit, alongside `npm run typecheck`,
 
 ## Deploying
 
-1. `wrangler d1 create greenroom` and paste the returned `database_id` into
-   `wrangler.jsonc`.
-2. `wrangler r2 bucket create greenroom-files`.
-3. `npm run db:migrate:remote`.
-4. `wrangler secret put BETTER_AUTH_SECRET` (and `SENDGRID_API_KEY` once you
-   have one).
-5. `npm run deploy`.
+**[docs/deploying.md](docs/deploying.md) is the full walkthrough** — fresh
+clone to live deployment, with every gotcha we hit doing it for real. The
+short version:
 
-The cron trigger in `wrangler.jsonc` (every 15 minutes) runs the deadline
-reminder job (`src/domain/comms.ts`) via the `scheduled` handler in
+1. `npx wrangler d1 create greenroom` and paste the returned `database_id`
+   into `wrangler.jsonc`; `npx wrangler r2 bucket create greenroom-files`.
+2. `npm run db:migrate:remote`.
+3. Set secrets (`npx wrangler secret put <NAME>`): `BETTER_AUTH_SECRET` and
+   `BETTER_AUTH_URL` always; `SENDGRID_API_KEY` + `EMAIL_FROM_ADDRESS` for
+   real email (nobody can sign in without it); `AIRTABLE_API_KEY` +
+   `AIRTABLE_BASE_ID` for the optional Airtable sync. Full table in
+   [docs/deploying.md](docs/deploying.md).
+4. Point `wrangler.jsonc`'s `routes` at your own domain (or switch to
+   `workers_dev`).
+5. `npm run deploy`, sign in, and promote your first admin (one
+   `wrangler d1 execute` command — see the guide).
+
+The cron trigger in `wrangler.jsonc` (every 15 minutes) runs the weekly task
+digest, CFP draft reminders, and the Airtable sync (`src/domain/comms.ts`,
+`src/domain/airtable-sync.ts`) via the `scheduled` handler in
 `custom-worker.ts`, which wraps the OpenNext-generated fetch handler.
 
 > In production, `EMAIL_FROM_ADDRESS` must be a
@@ -212,10 +227,12 @@ harness (destructive to local dev data, like the e2e suite), and
 
 ## Design notes
 
-- [docs/airtable-sync.md](docs/airtable-sync.md) — architecture for the
-  competition's Airtable-sync bonus. It's design-only, not implemented (see
-  the doc for why), and describes the adapter shape and sync mechanics we'd
-  build.
+- [docs/airtable-sync.md](docs/airtable-sync.md) — architecture of the
+  Airtable sync (competition bonus). It's implemented and running: the cron
+  pushes events, speakers, submissions, sessions, and tasks one-way into an
+  owner-provided base, creating the tables via Airtable's API
+  (`src/domain/airtable-sync.ts`; enable it with the two `AIRTABLE_*`
+  secrets).
 
 ## License
 

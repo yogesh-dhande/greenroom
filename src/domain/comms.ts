@@ -28,7 +28,7 @@ import type {
   SubmissionDecision,
   SubmissionStatus,
   Task,
-  TaskAssignmentStatus,
+  TaskAssignment,
   User,
 } from "@/db/entities";
 import type { Repos } from "@/db/repos";
@@ -232,37 +232,53 @@ function sessionFields(session: Session, event: Event, room: Room | null): Merge
   };
 }
 
-function taskFields(task: Task, event: Event): MergeData {
-  return {
-    taskTitle: task.title,
-    taskInstructions: task.instructions ?? "",
-    taskDueDate: task.dueAt ? formatDeadline(task.dueAt, event.timezone) : "",
-  };
+/**
+ * The tasks behind a speaker's incomplete assignments, soonest deadline
+ * first and undated work last.
+ *
+ * Pure, and explicitly sorted: repository reads carry no guaranteed order
+ * (learnings.md — an unordered `listSpeakerIds()` once made "deterministic"
+ * seed logic vary between runs), and a digest that reshuffles its list every
+ * week reads as a different email each time.
+ */
+export function outstandingTasksOf(
+  assignments: readonly TaskAssignment[],
+  tasks: readonly Task[],
+): Task[] {
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  return assignments
+    .filter((assignment) => assignment.status !== "completed")
+    .map((assignment) => tasksById.get(assignment.taskId))
+    .filter((task): task is Task => Boolean(task))
+    .sort((a, b) => {
+      const dueA = a.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+      const dueB = b.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+      return dueA - dueB || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+    });
 }
 
 /** "- Upload your headshot (due June 5)" per outstanding item, or "". */
+export function formatOutstandingTasks(tasks: readonly Task[], timezone: string): string {
+  return tasks
+    .map((task) =>
+      task.dueAt
+        ? `- ${task.title} (due ${formatShortDate(task.dueAt, timezone)})`
+        : `- ${task.title}`,
+    )
+    .join("\n");
+}
+
+/** The same list for one speaker, read through the repos. */
 async function outstandingTasksFor(
   ctx: CommsContext,
   event: Event,
   speakerId: string,
-  excludeTaskId?: string,
 ): Promise<string> {
   const [assignments, tasks] = await Promise.all([
     ctx.repos.taskAssignments.listBySpeaker(speakerId),
     ctx.repos.tasks.listByEvent(event.id),
   ]);
-  const tasksById = new Map(tasks.map((task) => [task.id, task]));
-
-  const lines = assignments
-    .filter((assignment) => assignment.status !== "completed")
-    .map((assignment) => tasksById.get(assignment.taskId))
-    .filter((task): task is Task => Boolean(task) && task!.id !== excludeTaskId)
-    .map((task) =>
-      task.dueAt
-        ? `- ${task.title} (due ${formatShortDate(task.dueAt, event.timezone)})`
-        : `- ${task.title}`,
-    );
-  return lines.join("\n");
+  return formatOutstandingTasks(outstandingTasksOf(assignments, tasks), event.timezone);
 }
 
 async function requireEvent(ctx: CommsContext, eventId: string): Promise<Event> {
@@ -557,43 +573,77 @@ export async function sendChangeRequest(
 }
 
 // ---------------------------------------------------------------------------
-// Task / deadline reminders (spec.md §6, decisions.md D-013)
+// The weekly task digest (spec.md §6, decisions.md D-039)
 // ---------------------------------------------------------------------------
 
-export interface TaskReminderInput {
-  assignmentId: string;
+/**
+ * The `email_log` identity of "this event's digest to this speaker".
+ *
+ * A digest is about a (speaker, event) pair, but `email_log` has no event
+ * column — a send is addressed to a person, not to an event — and the schema
+ * is frozen. Keying the cooldown on the speaker alone would let one event's
+ * digest suppress another's every week, so a speaker on two programmes would
+ * silently stop hearing from one of them. The pair is therefore the
+ * `relatedId`, with `relatedType: "user"` saying what the row is about.
+ * Nothing reads these ids back as entity ids: the communication log resolves
+ * context for submissions, sessions and task assignments only.
+ */
+export function taskDigestLogId(eventId: string, speakerId: string): string {
+  return `${eventId}:${speakerId}`;
 }
 
-export async function sendTaskReminder(
+interface TaskDigestMail {
+  event: Event;
+  user: User;
+  /** Everything still open for this speaker — never empty. */
+  tasks: Task[];
+  overrides: TemplateOverrideRow[];
+}
+
+async function deliverTaskDigest(ctx: CommsContext, mail: TaskDigestMail): Promise<CommsDelivery> {
+  const data: MergeData = {
+    ...eventFields(ctx, mail.event),
+    ...speakerFields(mail.user),
+    outstandingTasks: formatOutstandingTasks(mail.tasks, mail.event.timezone),
+  };
+  return deliver(ctx, mail.user.email, renderForEvent("task_digest", mail.overrides, data), {
+    kind: "task_digest",
+    relatedType: "user",
+    relatedId: taskDigestLogId(mail.event.id, mail.user.id),
+  });
+}
+
+export interface TaskDigestInput {
+  eventId: string;
+  speakerId: string;
+}
+
+/**
+ * One email listing everything still open on a speaker's checklist for an
+ * event (D-039). Returns `[]` — sending nothing at all — when the speaker has
+ * nothing outstanding: a digest of an empty list is noise, and "the mail
+ * stops when the work is done" is exactly what the decision asks for.
+ *
+ * `runReminderJob` drives this on a schedule and does its reads in bulk; this
+ * entry point exists for one-off sends (scripts/send-test-email.ts).
+ */
+export async function sendTaskDigest(
   ctx: CommsContext,
-  input: TaskReminderInput,
+  input: TaskDigestInput,
 ): Promise<CommsDelivery[]> {
-  const assignment = await ctx.repos.taskAssignments.getById(input.assignmentId);
-  if (!assignment) throw new Error(`Task assignment ${input.assignmentId} not found`);
-
-  const task = await ctx.repos.tasks.getById(assignment.taskId);
-  if (!task) throw new Error(`Task ${assignment.taskId} not found`);
-
-  const event = await requireEvent(ctx, task.eventId);
-  const [user, overrides] = await Promise.all([
-    ctx.repos.users.getById(assignment.speakerId),
+  const event = await requireEvent(ctx, input.eventId);
+  const [user, assignments, tasks, overrides] = await Promise.all([
+    ctx.repos.users.getById(input.speakerId),
+    ctx.repos.taskAssignments.listBySpeaker(input.speakerId),
+    ctx.repos.tasks.listByEvent(event.id),
     eventTemplateOverrides(ctx, event.id),
   ]);
-  if (!user) throw new Error(`Speaker ${assignment.speakerId} not found`);
+  if (!user) throw new Error(`Speaker ${input.speakerId} not found`);
 
-  const data: MergeData = {
-    ...eventFields(ctx, event),
-    ...speakerFields(user),
-    ...taskFields(task, event),
-    outstandingTasks: await outstandingTasksFor(ctx, event, user.id, task.id),
-  };
-  return [
-    await deliver(ctx, user.email, renderForEvent("task_reminder", overrides, data), {
-      kind: "task_reminder",
-      relatedType: "task_assignment",
-      relatedId: assignment.id,
-    }),
-  ];
+  const outstanding = outstandingTasksOf(assignments, tasks);
+  if (outstanding.length === 0) return [];
+
+  return [await deliverTaskDigest(ctx, { event, user, tasks: outstanding, overrides })];
 }
 
 // ---------------------------------------------------------------------------
@@ -883,18 +933,58 @@ export const INVITE_BLOCKER_LABELS: Record<InviteBlocker, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// The reminder cron (decisions.md D-013)
+// The reminder cron (decisions.md D-013, D-039)
 // ---------------------------------------------------------------------------
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
-/** Nudge the same speaker about the same task at most this often (Q4). */
-export const DEFAULT_REMINDER_COOLDOWN_DAYS = 3;
-/** Only remind about work due inside this window (or already overdue). */
-export const DEFAULT_REMINDER_LOOKAHEAD_DAYS = 7;
+/**
+ * The cron tick: wrangler.jsonc schedules this job every 15 minutes, so a run
+ * *covers* the quarter hour that begins at its scheduled minute.
+ */
+export const CRON_INTERVAL_MINUTES = 15;
+/** Monday, in `Date.getUTCDay()` terms (0 = Sunday). */
+export const TASK_DIGEST_UTC_DAY = 1;
+/** 07:00 UTC — Sessionboard's own digest hour, matched by D-039. */
+export const TASK_DIGEST_UTC_HOUR = 7;
+
+/**
+ * Is `now` inside the one cron tick that covers Monday 07:00 UTC?
+ *
+ * The digest is weekly but the cron fires every 15 minutes, so the schedule
+ * has to be expressed as a *window* rather than an instant: the run at 07:00
+ * owns 07:00–07:15 and every other run of the week does nothing. Six days of
+ * `email_log`-derived cooldown then backs this up, so a redeployed or
+ * retried worker firing twice inside the window still sends one digest.
+ */
+export function isTaskDigestWindow(now: Date): boolean {
+  return (
+    now.getUTCDay() === TASK_DIGEST_UTC_DAY &&
+    now.getUTCHours() === TASK_DIGEST_UTC_HOUR &&
+    now.getUTCMinutes() < CRON_INTERVAL_MINUTES
+  );
+}
+
+/**
+ * A speaker gets at most one scheduled digest per event in this window.
+ *
+ * Six days rather than seven: the Monday window is a week apart, so anything
+ * under seven days lets the next Monday through, and the margin absorbs a
+ * clock skew or a late-firing cron without skipping a week.
+ */
+export const TASK_DIGEST_COOLDOWN_DAYS = 6;
+/**
+ * The admin button's own guard. It bypasses the Monday window on purpose —
+ * that's the point of a manual send — but not this: pressing it twice, or two
+ * admins pressing it at once, must not mail a speaker twice in a day.
+ */
+export const MANUAL_TASK_DIGEST_COOLDOWN_HOURS = 24;
 
 export const REMINDER_SKIP_REASONS = [
   "completed",
+  /** Digests only: this speaker's checklist is clear, so there's nothing to send. */
+  "nothing_outstanding",
   "event_started",
   "not_due",
   "cooldown",
@@ -906,48 +996,51 @@ export type ReminderSkipReason = (typeof REMINDER_SKIP_REASONS)[number];
 /** Why a candidate was passed over, in the words the admin summary shows. */
 export const REMINDER_SKIP_LABELS: Record<ReminderSkipReason, string> = {
   completed: "already done",
+  nothing_outstanding: "nothing outstanding",
   event_started: "event already under way",
   not_due: "not due yet",
-  cooldown: "reminded in the last few days",
+  cooldown: "already emailed recently",
   closed: "submissions already closed",
 };
-
-export interface ReminderDecisionInput {
-  /** The assignment's current state — a finished task is never nudged. */
-  status: TaskAssignmentStatus;
-  /** The task's deadline; null means the task has no date to remind about. */
-  dueAt: Date | null;
-  /** When a `task_reminder` for this exact assignment last went out. */
-  lastRemindedAt: Date | null;
-  /** The event's first day ("YYYY-MM-DD" in `timezone`); null = undated. */
-  eventStartDate: string | null;
-  timezone: string;
-  now: Date;
-  cooldownDays: number;
-  lookaheadDays: number;
-}
 
 export type ReminderDecision = { send: true } | { send: false; reason: ReminderSkipReason };
 
 const SEND: ReminderDecision = { send: true };
 
+export interface TaskDigestDecisionInput {
+  /** How many of this speaker's tasks for the event are still incomplete. */
+  outstandingCount: number;
+  /** The event's first day ("YYYY-MM-DD" in `timezone`); null = undated. */
+  eventStartDate: string | null;
+  timezone: string;
+  /** When this speaker's last digest **for this event** went out. */
+  lastDigestAt: Date | null;
+  now: Date;
+  /** Silence owed since `lastDigestAt` — six days on the cron, 24h manually. */
+  cooldownMs: number;
+}
+
 /**
- * Should this speaker be nudged about this task right now?
+ * Should this speaker get a digest right now?
  *
- * The cadence is questions.md Q4's working assumption, made explicit and
- * pure so it can be tested without a database: **at most one reminder per
- * (task, speaker) every three days, stopping as soon as the task is done or
- * the event has started.** Order matters — the checks run strongest-first, so
- * the reason reported to an admin is the most fundamental one ("already done"
- * beats "reminded recently", which is only true incidentally).
+ * D-039's model, pure so it can be tested without a database: **one email per
+ * speaker per week listing everything still open, stopping as soon as the
+ * checklist is clear or the event has started.** The Monday window is *not*
+ * checked here — `isTaskDigestWindow` decides whether the job runs the digest
+ * pass at all, so the admin's manual button can share this logic while
+ * skipping the schedule.
  *
- * Once the event is under way a reminder is worse than useless: the speaker
- * is on site, the deadline it names has passed, and the mail reads as a bot
- * that didn't notice the event started. Admins keep the manual composer for
+ * Order matters: the reason an admin reads should be the most fundamental one,
+ * so "nothing outstanding" beats "the event started", which beats a cooldown
+ * that is only incidentally true.
+ *
+ * Once the event is under way a nudge is worse than useless: the speaker is on
+ * site, the deadlines it names have passed, and the mail reads as a bot that
+ * didn't notice the event started. Admins keep the manual composer for
  * anything genuinely still needed.
  */
-export function decideReminder(input: ReminderDecisionInput): ReminderDecision {
-  if (input.status === "completed") return { send: false, reason: "completed" };
+export function decideTaskDigest(input: TaskDigestDecisionInput): ReminderDecision {
+  if (input.outstandingCount === 0) return { send: false, reason: "nothing_outstanding" };
 
   if (input.eventStartDate) {
     const eventBegins = zonedWallClockToInstant(input.eventStartDate, "00:00", input.timezone);
@@ -956,13 +1049,8 @@ export function decideReminder(input: ReminderDecisionInput): ReminderDecision {
     }
   }
 
-  // No deadline, or a deadline beyond the lookahead: nothing to nudge about.
-  if (!input.dueAt) return { send: false, reason: "not_due" };
-  const horizon = input.now.getTime() + input.lookaheadDays * DAY_MS;
-  if (input.dueAt.getTime() > horizon) return { send: false, reason: "not_due" };
-
-  if (input.lastRemindedAt) {
-    const cooledDownAt = input.lastRemindedAt.getTime() + input.cooldownDays * DAY_MS;
+  if (input.lastDigestAt) {
+    const cooledDownAt = input.lastDigestAt.getTime() + input.cooldownMs;
     if (input.now.getTime() < cooledDownAt) return { send: false, reason: "cooldown" };
   }
 
@@ -1013,12 +1101,14 @@ export function decideDraftReminder(input: DraftReminderDecisionInput): Reminder
 
 export interface RunReminderJobInput extends Omit<CommsContext, "appUrl"> {
   appUrl?: string;
-  /** Remind about anything due within this many days. Default 7. */
-  lookaheadDays?: number;
-  /** Don't re-remind about the same assignment inside this window. Default 3. */
-  cooldownDays?: number;
-  /** Restrict the run to one event — the admin "send reminders now" button. */
+  /** Restrict the run to one event — the admin "Send task digest now" button. */
   eventId?: string;
+  /**
+   * An admin pressed the button rather than the cron firing: send digests
+   * whatever the day and hour, and fall back to the shorter
+   * `MANUAL_TASK_DIGEST_COOLDOWN_HOURS` guard against a double-click.
+   */
+  manual?: boolean;
 }
 
 export interface RunReminderJobResult {
@@ -1036,34 +1126,37 @@ function emptyResult(): RunReminderJobResult {
     remindersSent: 0,
     remindersFailed: 0,
     skipped: 0,
-    skippedByReason: { completed: 0, event_started: 0, not_due: 0, cooldown: 0, closed: 0 },
+    skippedByReason: {
+      completed: 0,
+      nothing_outstanding: 0,
+      event_started: 0,
+      not_due: 0,
+      cooldown: 0,
+      closed: 0,
+    },
     sentTo: [],
   };
 }
 
 /**
- * Deadline reminders (decisions.md D-013). Runs from custom-worker.ts's
+ * The scheduled mail (decisions.md D-013, D-039). Runs from custom-worker.ts's
  * `scheduled` handler on the wrangler.jsonc cron, and from the admin
- * Communications screen's "Send reminders now" button — the same function
- * either way, so the button can never drift from what the cron does.
+ * Communications screen's "Send task digest now" button — the same function
+ * either way, so the button can never drift from what the cron does. The
+ * button passes `manual: true`, which is the *only* difference between them.
+ *
+ * Two independent pieces of work: the draft-closing nudge (once per draft,
+ * D-038) and the weekly task digest (one per speaker, D-039).
  *
  * Idempotency comes from `email_log` rather than a "reminded" flag: the last
- * recorded `task_reminder` for an assignment is what the cooldown is measured
- * against, so re-running the job — or running it on overlapping schedules —
- * never double-sends. That also means a manual run costs an admin nothing:
- * anything already nudged this week is simply reported as skipped.
- *
- * One `email_log` read per event covers every candidate, rather than one per
- * assignment: the cron runs every 15 minutes and mostly has nothing to do.
+ * recorded send is what each cooldown is measured against, so re-running the
+ * job — or running it on overlapping schedules — never double-sends. That
+ * also means a manual run costs an admin nothing: anything already mailed is
+ * simply reported as skipped.
  */
-export async function runReminderJob(
-  input: RunReminderJobInput,
-): Promise<RunReminderJobResult> {
+export async function runReminderJob(input: RunReminderJobInput): Promise<RunReminderJobResult> {
   const ctx: CommsContext = { ...input, appUrl: input.appUrl ?? "http://localhost:3000" };
   const now = nowOf(ctx);
-  const cooldownDays = input.cooldownDays ?? DEFAULT_REMINDER_COOLDOWN_DAYS;
-  const lookaheadDays = input.lookaheadDays ?? DEFAULT_REMINDER_LOOKAHEAD_DAYS;
-
   const result = emptyResult();
 
   const allEvents = await ctx.repos.events.listAll();
@@ -1072,6 +1165,35 @@ export async function runReminderJob(
     : allEvents;
 
   await remindAboutDrafts(ctx, events, now, result);
+  await sendTaskDigests(ctx, events, now, input.manual ?? false, result);
+
+  return result;
+}
+
+/**
+ * The digest half of the job (D-039): one email per speaker per event,
+ * listing everything still open on their checklist.
+ *
+ * The schedule is checked once, before any read: on all but one cron run a
+ * week this returns immediately, which is what keeps a job firing every 15
+ * minutes almost free. An admin's manual run skips the check entirely and
+ * relies on the 24-hour cooldown instead.
+ *
+ * Reads are per event, not per speaker — two list reads plus one `email_log`
+ * read cover the whole roster.
+ */
+async function sendTaskDigests(
+  ctx: CommsContext,
+  events: Event[],
+  now: Date,
+  manual: boolean,
+  result: RunReminderJobResult,
+): Promise<void> {
+  if (!manual && !isTaskDigestWindow(now)) return;
+
+  const cooldownMs = manual
+    ? MANUAL_TASK_DIGEST_COOLDOWN_HOURS * HOUR_MS
+    : TASK_DIGEST_COOLDOWN_DAYS * DAY_MS;
 
   for (const event of events) {
     const [assignments, tasks] = await Promise.all([
@@ -1080,25 +1202,33 @@ export async function runReminderJob(
     ]);
     if (assignments.length === 0) continue;
 
-    const tasksById = new Map(tasks.map((task) => [task.id, task]));
-    const lastRemindedAt = await lastReminderTimes(
-      ctx,
-      assignments.map((assignment) => assignment.id),
-    );
-
+    // Every speaker with an assignment on this event, including those whose
+    // work is all done — they're reported as "nothing outstanding" rather
+    // than silently dropped, so an admin can see the run considered them.
+    const bySpeaker = new Map<string, TaskAssignment[]>();
     for (const assignment of assignments) {
-      const task = tasksById.get(assignment.taskId);
-      if (!task) continue;
+      const forSpeaker = bySpeaker.get(assignment.speakerId) ?? [];
+      forSpeaker.push(assignment);
+      bySpeaker.set(assignment.speakerId, forSpeaker);
+    }
 
-      const decision = decideReminder({
-        status: assignment.status,
-        dueAt: task.dueAt,
-        lastRemindedAt: lastRemindedAt.get(assignment.id) ?? null,
+    const speakerIds = [...bySpeaker.keys()];
+    const [lastDigestAt, speakers, overrides] = await Promise.all([
+      lastDigestTimes(ctx, event.id, speakerIds),
+      requireUsers(ctx, speakerIds),
+      eventTemplateOverrides(ctx, event.id),
+    ]);
+    const usersById = new Map(speakers.map((user) => [user.id, user]));
+
+    for (const speakerId of speakerIds) {
+      const outstanding = outstandingTasksOf(bySpeaker.get(speakerId) ?? [], tasks);
+      const decision = decideTaskDigest({
+        outstandingCount: outstanding.length,
         eventStartDate: event.startDate,
         timezone: event.timezone,
+        lastDigestAt: lastDigestAt.get(speakerId) ?? null,
         now,
-        cooldownDays,
-        lookaheadDays,
+        cooldownMs,
       });
 
       if (!decision.send) {
@@ -1107,8 +1237,18 @@ export async function runReminderJob(
         continue;
       }
 
-      const [delivery] = await sendTaskReminder(ctx, { assignmentId: assignment.id });
-      if (delivery?.status === "sent") {
+      // A deleted or never-created speaker account isn't a skip an admin can
+      // act on; there's simply no address to send to.
+      const user = usersById.get(speakerId);
+      if (!user) continue;
+
+      const delivery = await deliverTaskDigest(ctx, {
+        event,
+        user,
+        tasks: outstanding,
+        overrides,
+      });
+      if (delivery.status === "sent") {
         result.remindersSent += 1;
         result.sentTo.push(delivery.to);
       } else {
@@ -1116,7 +1256,6 @@ export async function runReminderJob(
       }
     }
   }
-  return result;
 }
 
 /**
@@ -1125,8 +1264,8 @@ export async function runReminderJob(
  *
  * Driven from the drafts rather than from the forms because drafts are the
  * rare thing — most runs read one list, find nothing, and stop. Idempotency
- * is the same email_log-derived trick the task reminders use, so a re-run
- * (or the admin's "send reminders now") can't double-send.
+ * is the same email_log-derived trick the digest uses, so a re-run (or the
+ * admin's manual send) can't double-send.
  */
 async function remindAboutDrafts(
   ctx: CommsContext,
@@ -1176,20 +1315,29 @@ async function remindAboutDrafts(
   }
 }
 
-/** assignment id → when its most recent successful reminder went out. */
-async function lastReminderTimes(
+/**
+ * speaker id → when this event's most recent digest to them went out.
+ *
+ * Failed sends are deliberately ignored: a bounce buys nobody a week of
+ * silence, so the next run tries again.
+ */
+async function lastDigestTimes(
   ctx: CommsContext,
-  assignmentIds: string[],
+  eventId: string,
+  speakerIds: string[],
 ): Promise<Map<string, Date>> {
   const latest = new Map<string, Date>();
-  if (assignmentIds.length === 0) return latest;
+  if (speakerIds.length === 0) return latest;
 
-  const rows = await ctx.repos.emailLog.listByRelatedIds("task_assignment", assignmentIds);
+  const bySpeaker = new Map(speakerIds.map((id) => [taskDigestLogId(eventId, id), id]));
+  const rows = await ctx.repos.emailLog.listByRelatedIds("user", [...bySpeaker.keys()]);
   for (const row of rows) {
-    if (row.kind !== "task_reminder" || row.status !== "sent" || !row.relatedId) continue;
-    const current = latest.get(row.relatedId);
+    if (row.kind !== "task_digest" || row.status !== "sent" || !row.relatedId) continue;
+    const speakerId = bySpeaker.get(row.relatedId);
+    if (!speakerId) continue;
+    const current = latest.get(speakerId);
     if (!current || row.sentAt.getTime() > current.getTime()) {
-      latest.set(row.relatedId, row.sentAt);
+      latest.set(speakerId, row.sentAt);
     }
   }
   return latest;

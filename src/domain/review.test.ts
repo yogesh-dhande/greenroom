@@ -7,7 +7,9 @@ import type {
   Task,
   TaskAssignment,
 } from "@/db/entities";
+import type { Repos } from "@/db/repos";
 import {
+  acceptOnArrival,
   canRecordDecision,
   canRecordReview,
   canViewSubmission,
@@ -185,9 +187,9 @@ describe("routing", () => {
 
   it("narrows a reviewer's list to their own tracks", () => {
     const rows = [
-      { id: "a", status: "submitted" as SubmissionStatus },
-      { id: "b", status: "submitted" as SubmissionStatus },
-      { id: "c", status: "submitted" as SubmissionStatus },
+      { id: "a", formId: "form-1", status: "submitted" as SubmissionStatus },
+      { id: "b", formId: "form-1", status: "submitted" as SubmissionStatus },
+      { id: "c", formId: "form-1", status: "submitted" as SubmissionStatus },
     ];
     const tracks = { a: ["trk-1"], b: ["trk-2"], c: ["trk-2", "trk-3"] };
 
@@ -202,13 +204,30 @@ describe("routing", () => {
     // D-034, D-038: a draft is a proposal nobody has sent yet — reviewing it would
     // be judging work in progress.
     const rows = [
-      { id: "a", status: "draft" as SubmissionStatus },
-      { id: "b", status: "submitted" as SubmissionStatus },
+      { id: "a", formId: "form-1", status: "draft" as SubmissionStatus },
+      { id: "b", formId: "form-1", status: "submitted" as SubmissionStatus },
     ];
     const tracks = { a: ["trk-1"], b: ["trk-1"] };
 
     expect(visibleSubmissions(rows, tracks, "reviewer", ["trk-1"]).map((r) => r.id)).toEqual(["b"]);
     expect(visibleSubmissions(rows, tracks, "admin", ["trk-1"])).toHaveLength(2);
+  });
+
+  it("never shows a reviewer a submission that skipped review", () => {
+    // D-041: a session-type form's proposals are sessions on arrival — accepted,
+    // in a track the reviewer owns, and still none of their business.
+    const rows = [
+      { id: "a", formId: "cfp", status: "approved" as SubmissionStatus },
+      { id: "b", formId: "invited", status: "approved" as SubmissionStatus },
+    ];
+    const tracks = { a: ["trk-1"], b: ["trk-1"] };
+    const options = { directSessionFormIds: new Set(["invited"]) };
+
+    expect(
+      visibleSubmissions(rows, tracks, "reviewer", ["trk-1"], options).map((r) => r.id),
+    ).toEqual(["a"]);
+    // The organizer still sees it — it's their programme.
+    expect(visibleSubmissions(rows, tracks, "admin", ["trk-1"], options)).toHaveLength(2);
   });
 });
 
@@ -367,5 +386,144 @@ describe("planAcceptanceConversion", () => {
 
   it("assigns nothing when the event has no auto-assign tasks", () => {
     expect(planAcceptanceConversion({ ...base, autoAssignTasks: [] }).newAssignments).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session-type forms (decisions.md D-041)
+// ---------------------------------------------------------------------------
+
+/**
+ * An in-memory stand-in for the tables a decision spans, so the real
+ * `acceptOnArrival` runs end to end — the whole point of D-041 is that it goes
+ * through the same conversion an admin's accept does, which is only worth
+ * asserting against the actual code path.
+ */
+function fakeRepos(seed: { submissions: Submission[]; tasks?: Task[] }) {
+  const submissions = [...seed.submissions];
+  const sessions: Session[] = [];
+  const sessionSpeakers: Record<string, string[]> = {};
+  const assignments: TaskAssignment[] = [];
+
+  const repos = {
+    submissions: {
+      getById: async (id: string) => submissions.find((row) => row.id === id) ?? null,
+      update: async (id: string, patch: Partial<Submission>) => {
+        const index = submissions.findIndex((row) => row.id === id);
+        submissions[index] = { ...submissions[index], ...patch };
+        return submissions[index];
+      },
+      listTrackIds: async () => ["trk-1"],
+      listSpeakers: async (submissionId: string) => [
+        // Deliberately co-first, so the primary-speaker ordering is real.
+        { submissionId, userId: "usr-2", role: "co" as const },
+        { submissionId, userId: "usr-1", role: "primary" as const },
+      ],
+    },
+    sessions: {
+      getBySubmission: async (submissionId: string) =>
+        sessions.find((row) => row.submissionId === submissionId) ?? null,
+      create: async (input: Omit<Session, "id" | "createdAt" | "updatedAt">) => {
+        const created: Session = {
+          id: `ses-${sessions.length + 1}`,
+          ...input,
+          createdAt: EPOCH,
+          updatedAt: EPOCH,
+        };
+        sessions.push(created);
+        return created;
+      },
+      update: async (id: string, patch: Partial<Session>) => {
+        const index = sessions.findIndex((row) => row.id === id);
+        sessions[index] = { ...sessions[index], ...patch };
+        return sessions[index];
+      },
+      setSpeakers: async (sessionId: string, speakerIds: string[]) => {
+        sessionSpeakers[sessionId] = speakerIds;
+      },
+    },
+    tasks: {
+      listAutoAssignByEvent: async () => seed.tasks ?? [],
+    },
+    taskAssignments: {
+      listBySpeaker: async (speakerId: string) =>
+        assignments.filter((row) => row.speakerId === speakerId),
+      create: async (input: Omit<TaskAssignment, "id" | "createdAt" | "updatedAt">) => {
+        const created: TaskAssignment = {
+          id: `asg-${assignments.length + 1}`,
+          ...input,
+          createdAt: EPOCH,
+          updatedAt: EPOCH,
+        };
+        assignments.push(created);
+        return created;
+      },
+    },
+  };
+
+  return { repos: repos as unknown as Repos, submissions, sessions, sessionSpeakers, assignments };
+}
+
+describe("acceptOnArrival", () => {
+  const NOW = new Date("2026-05-01T17:00:00.000Z");
+
+  it("lands a submission exactly as an accepted abstract does", async () => {
+    const fake = fakeRepos({
+      submissions: [submission({ id: "sub-1", status: "submitted" })],
+      tasks: [task("tsk-1")],
+    });
+
+    const result = await acceptOnArrival({ repos: fake.repos }, { submissionId: "sub-1", now: NOW });
+
+    // Accepted, timed — and by nobody, which is how "the form decided" is
+    // recorded (D-041).
+    expect(result.submission.status).toBe("approved");
+    expect(result.submission.decidedAt).toEqual(NOW);
+    expect(result.submission.decidedBy).toBeNull();
+
+    // A session that exists but hasn't been placed on the agenda yet.
+    expect(fake.sessions).toHaveLength(1);
+    expect(fake.sessions[0].status).toBe("confirmed");
+    expect(fake.sessions[0].day).toBeNull();
+    expect(fake.sessions[0].startTime).toBeNull();
+    expect(fake.sessions[0].roomId).toBeNull();
+    expect(fake.sessions[0].submissionId).toBe("sub-1");
+
+    // Speakers and onboarding work flow exactly as acceptance does.
+    expect(fake.sessionSpeakers[fake.sessions[0].id]).toEqual(["usr-1", "usr-2"]);
+    expect(fake.assignments.map((a) => `${a.taskId}/${a.speakerId}`)).toEqual([
+      "tsk-1/usr-1",
+      "tsk-1/usr-2",
+    ]);
+  });
+
+  it("sends no decision email — the form's own confirmation already went out", async () => {
+    const fake = fakeRepos({ submissions: [submission({ id: "sub-1", status: "submitted" })] });
+    const result = await acceptOnArrival({ repos: fake.repos }, { submissionId: "sub-1" });
+    expect(result.deliveries).toEqual([]);
+  });
+
+  it("is idempotent: a retry adds no second session", async () => {
+    const fake = fakeRepos({
+      submissions: [submission({ id: "sub-1", status: "submitted" })],
+      tasks: [task("tsk-1")],
+    });
+
+    await acceptOnArrival({ repos: fake.repos }, { submissionId: "sub-1" });
+    const second = await acceptOnArrival({ repos: fake.repos }, { submissionId: "sub-1" });
+
+    expect(fake.sessions).toHaveLength(1);
+    expect(second.sessionCreated).toBe(false);
+    expect(fake.assignments).toHaveLength(2);
+  });
+
+  it("refuses a draft: a proposal nobody sent yet is not a session", async () => {
+    // The conversion happens at submit, never at draft-save (D-041) — and the
+    // domain won't do it even if a caller asks.
+    const fake = fakeRepos({ submissions: [submission({ id: "sub-1", status: "draft" })] });
+    await expect(
+      acceptOnArrival({ repos: fake.repos }, { submissionId: "sub-1" }),
+    ).rejects.toThrow(/cannot be decided/);
+    expect(fake.sessions).toEqual([]);
   });
 });

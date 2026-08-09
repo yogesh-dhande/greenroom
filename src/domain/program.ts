@@ -8,6 +8,7 @@
  */
 import type { Session } from "@/db/entities";
 import { minutesOfDay } from "@/domain/scheduling";
+import type { ItineraryEntry } from "@/lib/ics";
 
 export interface SessionWithSpeakers extends Session {
   speakerIds: string[];
@@ -490,4 +491,109 @@ export function speakerMatchesQuery(
 /** Narrows the gallery, preserving its surname ordering. */
 export function filterSpeakers(speakers: GallerySpeaker[], query: string): GallerySpeaker[] {
   return speakers.filter((speaker) => speakerMatchesQuery(speaker, query));
+}
+
+// ---------------------------------------------------------------------------
+// Public JSON feed (spec.md "embeddable on an external website";
+// decisions.md D-040: the "apps or databases" consumer Sessionboard serves
+// with JSON — XML is deliberately dropped, see D-040's trade-off table).
+// ---------------------------------------------------------------------------
+
+/** One session row in the public feed — resolved names, no internal ids. */
+export interface ProgramFeedSession {
+  title: string;
+  description: string | null;
+  day: string;
+  startTime: string;
+  endTime: string;
+  roomName: string | null;
+  trackName: string | null;
+  speakerNames: string[];
+}
+
+/** One speaker row in the public feed. No email: the public gallery/schedule
+ * this feed mirrors never falls back to a speaker's email address either
+ * (see src/app/p/[eventSlug]/data.ts), so the feed can't leak one either. */
+export interface ProgramFeedSpeaker {
+  name: string;
+  title: string | null;
+  company: string | null;
+  bio: string | null;
+  headshotUrl: string | null;
+}
+
+export interface ProgramFeed {
+  event: { name: string; timezone: string };
+  sessions: ProgramFeedSession[];
+  speakers: ProgramFeedSpeaker[];
+}
+
+/**
+ * Shapes the public program into the public JSON feed. Takes the exact same
+ * `ScheduleDay[]`/`GallerySpeaker[]` the HTML pages render from (built by
+ * `buildSchedule`/`buildGallery`, both already filtered to confirmed —
+ * and, for sessions, scheduled — data per `scheduleSessions`/`gallerySessions`
+ * above), so the feed can never show anything the pages themselves wouldn't:
+ * same visibility rules, same resolved names, no internal ids.
+ */
+export function buildProgramFeed(
+  event: { name: string; timezone: string },
+  days: ScheduleDay[],
+  speakers: GallerySpeaker[],
+): ProgramFeed {
+  return {
+    event: { name: event.name, timezone: event.timezone },
+    sessions: flattenSchedule(days).map((session) => ({
+      title: session.title,
+      description: session.description,
+      day: session.day,
+      startTime: session.startTime,
+      endTime: session.endTime,
+      roomName: session.roomName,
+      trackName: session.trackName,
+      speakerNames: session.speakerNames,
+    })),
+    speakers: speakers.map((speaker) => ({
+      name: speaker.name,
+      title: speaker.title,
+      company: speaker.company,
+      bio: speaker.bio,
+      headshotUrl: speaker.headshotUrl,
+    })),
+  };
+}
+
+/**
+ * Resolves a possibly-relative asset URL (headshots uploaded through the CFP
+ * flow are stored as `/files/<key>` — see src/app/files/[...key]/route.ts —
+ * while seed/demo headshots are already absolute) against the request's
+ * origin, so an external feed consumer always gets a URL it can fetch
+ * without knowing where Greenroom is hosted.
+ */
+export function resolveFeedAssetUrl(origin: string, url: string | null): string | null {
+  if (!url) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
+  return `${origin}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+// ---------------------------------------------------------------------------
+// Public iCal feed (spec.md "embeddable on an external website";
+// decisions.md D-040): every approved, scheduled session as one downloadable
+// calendar, built via src/lib/ics.ts's `buildItineraryCalendar` — see
+// src/app/p/[eventSlug]/feed.ics/route.ts.
+// ---------------------------------------------------------------------------
+
+/** Maps the public schedule to the `ItineraryEntry[]` shape
+ * `buildItineraryCalendar` (src/lib/ics.ts) expects — pulled out of the route
+ * handler so the mapping is testable without a datastore. */
+export function scheduleFeedEntries(days: ScheduleDay[]): ItineraryEntry[] {
+  return flattenSchedule(days).map((session) => ({
+    sessionId: session.id,
+    title: session.title,
+    description: session.description,
+    location: session.roomName,
+    day: session.day,
+    startTime: session.startTime,
+    endTime: session.endTime,
+  }));
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
+import { createsSessionsDirectly } from "@/db/entities";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { emptyValues, publicFields } from "@/domain/forms";
@@ -85,6 +86,8 @@ export default async function NewSubmissionPage({
                   {form.name}
                   <span className="ml-2 font-normal text-muted-foreground">
                     {form.isPublished ? "Published" : "Not published"}
+                    {/* Worth knowing before you pick it (D-041). */}
+                    {createsSessionsDirectly(form) ? " · becomes a session directly" : ""}
                   </span>
                 </Link>
               </li>
@@ -93,6 +96,12 @@ export default async function NewSubmissionPage({
         </div>
       ) : (
         <div className="max-w-2xl">
+          {createsSessionsDirectly(selected) ? (
+            <p className="mb-6 text-sm text-muted-foreground">
+              {selected.name} creates sessions directly — this proposal will be accepted and turned
+              into a confirmed (unscheduled) session as soon as you add it, with no review step.
+            </p>
+          ) : null}
           {forms.length > 1 ? (
             <p className="mb-6 text-sm text-muted-foreground">
               Using the questions from <span className="text-foreground">{selected.name}</span>.{" "}

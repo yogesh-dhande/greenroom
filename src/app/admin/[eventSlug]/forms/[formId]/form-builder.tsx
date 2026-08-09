@@ -4,10 +4,12 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ExternalLinkIcon, PlusIcon, VideoIcon } from "lucide-react";
 import { toast } from "sonner";
-import { RESERVED_FIELD_IDS, type FormField } from "@/db/entities";
+import { RESERVED_FIELD_IDS, type FormField, type FormType } from "@/db/entities";
 import {
   CONFIRMATION_MERGE_FIELDS,
   FORM_STATE_LABELS,
+  FORM_TYPE_DESCRIPTIONS,
+  FORM_TYPE_LABELS,
   VIDEO_LINK_FIELD,
   allowsCoSpeakers,
   checkConfirmationEmail,
@@ -23,6 +25,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -33,6 +42,8 @@ export interface FormDraft {
   id: string;
   name: string;
   slug: string;
+  /** What a submission becomes: review pipeline, or session on arrival (D-041). */
+  type: FormType;
   welcomeCopy: string;
   fields: FormField[];
   /** "YYYY-MM-DDTHH:MM" wall clock in the event's timezone. */
@@ -125,6 +136,7 @@ export function FormBuilder({
     const result = await saveForm(eventSlug, draft.id, {
       name: draft.name,
       slug: draft.slug,
+      type: draft.type,
       welcomeCopy: draft.welcomeCopy,
       fields: draft.fields,
       opensAt: draft.opensAt,
@@ -495,6 +507,35 @@ export function FormBuilder({
                 shared.
               </p>
             </div>
+          </div>
+
+          <Separator />
+
+          {/* What submissions to this form become (decisions.md D-041). */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="form-type">Submissions become</Label>
+            <Select
+              value={draft.type}
+              disabled={responseCount > 0}
+              onValueChange={(value) => patch({ type: value as FormType })}
+            >
+              <SelectTrigger id="form-type" className="max-w-60">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(FORM_TYPE_LABELS) as FormType[]).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {FORM_TYPE_LABELS[value]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {FORM_TYPE_DESCRIPTIONS[draft.type]}
+              {responseCount > 0
+                ? " Locked — proposals have already come in through this form."
+                : ""}
+            </p>
           </div>
 
           <Separator />

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { FormField, FormFieldCondition } from "@/db/entities";
+import { createsSessionsDirectly, type FormField, type FormFieldCondition } from "@/db/entities";
 import {
   acceptsSubmissions,
+  FORM_TYPE_DESCRIPTIONS,
+  FORM_TYPE_LABELS,
   countsTowardSubmissionLimit,
   effectiveMaxLength,
   fieldTakesMaxLength,
@@ -352,6 +354,25 @@ describe("formWindowState", () => {
     expect(acceptsSubmissions(published, new Date("2026-03-15T00:00:00Z"))).toBe(true);
     expect(acceptsSubmissions(published, new Date("2026-02-01T00:00:00Z"))).toBe(false);
     expect(acceptsSubmissions(published, new Date("2026-05-01T00:00:00Z"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Submission type (decisions.md D-041)
+// ---------------------------------------------------------------------------
+
+describe("form types", () => {
+  it("only treats a session-type form as direct-to-session", () => {
+    expect(createsSessionsDirectly({ type: "session" })).toBe(true);
+    expect(createsSessionsDirectly({ type: "abstract" })).toBe(false);
+  });
+
+  it("has organizer-facing wording for both types", () => {
+    // The switch is meaningless without the sentence that explains it.
+    expect(FORM_TYPE_LABELS.abstract).toBe("Abstract");
+    expect(FORM_TYPE_LABELS.session).toBe("Session");
+    expect(FORM_TYPE_DESCRIPTIONS.abstract).toMatch(/review/i);
+    expect(FORM_TYPE_DESCRIPTIONS.session).toMatch(/directly/i);
   });
 });
 

@@ -15,19 +15,28 @@ import type { EmailSender } from "@/lib/email";
 import {
   buildCommunicationLog,
   decideDraftReminder,
-  decideReminder,
-  DEFAULT_REMINDER_COOLDOWN_DAYS,
+  decideTaskDigest,
   DRAFT_REMINDER_WINDOW_HOURS,
   filterCommunicationLog,
   inviteBlocker,
+  isTaskDigestWindow,
+  MANUAL_TASK_DIGEST_COOLDOWN_HOURS,
   runReminderJob,
   summarizeSessionInvites,
+  TASK_DIGEST_COOLDOWN_DAYS,
+  taskDigestLogId,
   type DraftReminderDecisionInput,
-  type ReminderDecisionInput,
+  type TaskDigestDecisionInput,
 } from "@/domain/comms";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date("2026-05-01T17:00:00.000Z");
+/**
+ * The one cron tick a week the digest goes out: Monday 2026-05-04, 07:00 UTC
+ * (D-039). Every scheduled-digest test runs at this instant, because every
+ * other instant is a no-op by design.
+ */
+const MONDAY = new Date("2026-05-04T07:05:00.000Z");
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -107,6 +116,8 @@ function logEntry(overrides: Partial<EmailLog> = {}): EmailLog {
     id: "log-1",
     to: "priya@example.test",
     subject: "Reminder: Upload your headshot",
+    // `task_reminder` is the retired per-task nudge (D-039). Its rows are
+    // still in everyone's history, so the log helpers have to keep reading it.
     kind: "task_reminder",
     relatedType: "task_assignment",
     relatedId: "assignment-1",
@@ -117,6 +128,25 @@ function logEntry(overrides: Partial<EmailLog> = {}): EmailLog {
   };
 }
 
+/**
+ * A digest that already went out, with an **explicit** `sentAt`.
+ *
+ * The logging sender stamps rows with the wall clock rather than the job's
+ * simulated `now` (docs/learnings.md), so anything testing the cooldown has to
+ * seed its own history rather than send twice and hope.
+ */
+function digestLog(sentAt: Date, overrides: Partial<EmailLog> = {}): EmailLog {
+  return logEntry({
+    id: `digest-${sentAt.getTime()}`,
+    subject: "Still on your AI Engineer Summit 2026 speaker checklist",
+    kind: "task_digest",
+    relatedType: "user",
+    relatedId: taskDigestLogId("event-1", "user-1"),
+    sentAt,
+    ...overrides,
+  });
+}
+
 const HOUR = 60 * 60 * 1000;
 
 function form(overrides: Partial<Form> = {}): Form {
@@ -125,6 +155,7 @@ function form(overrides: Partial<Form> = {}): Form {
     eventId: "event-1",
     name: "Call for Speakers",
     slug: "aie-2026-cfp",
+    type: "abstract",
     welcomeCopy: null,
     fields: [],
     opensAt: null,
@@ -169,16 +200,14 @@ function draftReminderInput(
   };
 }
 
-function reminderInput(overrides: Partial<ReminderDecisionInput> = {}): ReminderDecisionInput {
+function digestInput(overrides: Partial<TaskDigestDecisionInput> = {}): TaskDigestDecisionInput {
   return {
-    status: "pending",
-    dueAt: new Date(NOW.getTime() + 2 * DAY),
-    lastRemindedAt: null,
+    outstandingCount: 2,
     eventStartDate: "2026-06-16",
     timezone: "America/Los_Angeles",
-    now: NOW,
-    cooldownDays: DEFAULT_REMINDER_COOLDOWN_DAYS,
-    lookaheadDays: 7,
+    lastDigestAt: null,
+    now: MONDAY,
+    cooldownMs: TASK_DIGEST_COOLDOWN_DAYS * DAY,
     ...overrides,
   };
 }
@@ -271,11 +300,11 @@ function fakeRepos(seed: {
 
 /** Records what it was asked to send instead of sending it. */
 function fakeSender() {
-  const sent: Array<{ to: string; subject: string }> = [];
+  const sent: Array<{ to: string; subject: string; text: string }> = [];
   const sender: EmailSender = {
     from: { name: "Greenroom", email: "hello@greenroom.test" },
     async send(message) {
-      sent.push({ to: message.to, subject: message.subject });
+      sent.push({ to: message.to, subject: message.subject, text: message.text });
       return { id: `msg-${sent.length}` };
     },
   };
@@ -283,89 +312,117 @@ function fakeSender() {
 }
 
 // ---------------------------------------------------------------------------
-// decideReminder — questions.md Q4's cadence
+// isTaskDigestWindow — the weekly schedule on a 15-minute cron (D-039)
 // ---------------------------------------------------------------------------
 
-describe("decideReminder", () => {
-  it("sends for a pending task due inside the lookahead window", () => {
-    expect(decideReminder(reminderInput())).toEqual({ send: true });
+describe("isTaskDigestWindow", () => {
+  it("opens for the run scheduled at Monday 07:00 UTC", () => {
+    expect(isTaskDigestWindow(new Date("2026-05-04T07:00:00.000Z"))).toBe(true);
   });
 
-  it("never nags about a task that's done", () => {
-    expect(decideReminder(reminderInput({ status: "completed" }))).toEqual({
+  it("stays open for a run that fires late inside the same quarter hour", () => {
+    // Cron ticks aren't punctual; a run at 07:14 is still *the* 07:00 run.
+    expect(isTaskDigestWindow(new Date("2026-05-04T07:14:59.000Z"))).toBe(true);
+  });
+
+  it("closes for the next tick", () => {
+    // 07:15 must not send a second digest — otherwise the four runs of the
+    // hour would each mail the whole roster.
+    expect(isTaskDigestWindow(new Date("2026-05-04T07:15:00.000Z"))).toBe(false);
+    expect(isTaskDigestWindow(new Date("2026-05-04T06:59:59.000Z"))).toBe(false);
+  });
+
+  it("stays shut every other day of the week", () => {
+    // Same hour, wrong day: Sunday, Tuesday, and the Friday `NOW`.
+    expect(isTaskDigestWindow(new Date("2026-05-03T07:05:00.000Z"))).toBe(false);
+    expect(isTaskDigestWindow(new Date("2026-05-05T07:05:00.000Z"))).toBe(false);
+    expect(isTaskDigestWindow(NOW)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decideTaskDigest — who gets this week's digest (decisions.md D-039)
+// ---------------------------------------------------------------------------
+
+describe("decideTaskDigest", () => {
+  it("sends to a speaker with work still open", () => {
+    expect(decideTaskDigest(digestInput())).toEqual({ send: true });
+  });
+
+  it("says nothing at all to a speaker whose checklist is clear", () => {
+    expect(decideTaskDigest(digestInput({ outstandingCount: 0 }))).toEqual({
       send: false,
-      reason: "completed",
+      reason: "nothing_outstanding",
     });
   });
 
   it("stops once the event has started", () => {
     // The event begins on 2026-06-16 in Los Angeles; "now" is the day after.
-    expect(
-      decideReminder(reminderInput({ now: new Date("2026-06-17T12:00:00.000Z") })),
-    ).toEqual({ send: false, reason: "event_started" });
+    expect(decideTaskDigest(digestInput({ now: new Date("2026-06-17T12:00:00.000Z") }))).toEqual({
+      send: false,
+      reason: "event_started",
+    });
   });
 
   it("treats the event's start as midnight in the event's own timezone", () => {
     // 2026-06-16T05:00Z is 10pm on the 15th in Los Angeles — still before the
     // event begins, even though UTC has already ticked over to the 16th.
-    expect(
-      decideReminder(reminderInput({ now: new Date("2026-06-16T05:00:00.000Z") })).send,
-    ).toBe(true);
-    expect(
-      decideReminder(reminderInput({ now: new Date("2026-06-16T08:00:00.000Z") })),
-    ).toEqual({ send: false, reason: "event_started" });
-  });
-
-  it("still sends for an event with no start date on the calendar", () => {
-    expect(decideReminder(reminderInput({ eventStartDate: null })).send).toBe(true);
-  });
-
-  it("stays quiet about a task with no deadline", () => {
-    expect(decideReminder(reminderInput({ dueAt: null }))).toEqual({
+    expect(decideTaskDigest(digestInput({ now: new Date("2026-06-16T05:00:00.000Z") })).send).toBe(
+      true,
+    );
+    expect(decideTaskDigest(digestInput({ now: new Date("2026-06-16T08:00:00.000Z") }))).toEqual({
       send: false,
-      reason: "not_due",
+      reason: "event_started",
     });
   });
 
-  it("stays quiet about a deadline beyond the lookahead window", () => {
-    expect(
-      decideReminder(reminderInput({ dueAt: new Date(NOW.getTime() + 30 * DAY) })),
-    ).toEqual({ send: false, reason: "not_due" });
+  it("still sends for an event with no start date on the calendar", () => {
+    expect(decideTaskDigest(digestInput({ eventStartDate: null })).send).toBe(true);
   });
 
-  it("still chases an overdue task", () => {
-    expect(decideReminder(reminderInput({ dueAt: new Date(NOW.getTime() - 5 * DAY) })).send).toBe(
-      true,
-    );
-  });
-
-  it("holds off for three days after the last reminder", () => {
+  it("holds off while the last digest is still recent", () => {
     expect(
-      decideReminder(reminderInput({ lastRemindedAt: new Date(NOW.getTime() - 1 * DAY) })),
+      decideTaskDigest(digestInput({ lastDigestAt: new Date(MONDAY.getTime() - 1 * DAY) })),
     ).toEqual({ send: false, reason: "cooldown" });
     expect(
-      decideReminder(reminderInput({ lastRemindedAt: new Date(NOW.getTime() - 2.9 * DAY) })),
+      decideTaskDigest(digestInput({ lastDigestAt: new Date(MONDAY.getTime() - 5.9 * DAY) })),
     ).toEqual({ send: false, reason: "cooldown" });
   });
 
-  it("sends again once the cooldown has elapsed", () => {
+  it("lets the next Monday through", () => {
+    // The point of a six-day cooldown on a seven-day cadence: a week later is
+    // comfortably outside it, even if the cron drifts by an hour.
     expect(
-      decideReminder(reminderInput({ lastRemindedAt: new Date(NOW.getTime() - 3 * DAY) })).send,
+      decideTaskDigest(digestInput({ lastDigestAt: new Date(MONDAY.getTime() - 7 * DAY) })).send,
     ).toBe(true);
   });
 
-  it("reports 'done' ahead of every other reason", () => {
-    // A completed task inside its cooldown after the event started is still
-    // reported as done — that's the reason an organizer would want to read.
+  it("lets a manual send through after a day, on the shorter cooldown", () => {
+    const yesterday = new Date(MONDAY.getTime() - 25 * 60 * 60 * 1000);
+    const manual = MANUAL_TASK_DIGEST_COOLDOWN_HOURS * 60 * 60 * 1000;
+
+    expect(decideTaskDigest(digestInput({ lastDigestAt: yesterday, cooldownMs: manual })).send).toBe(
+      true,
+    );
+    // The same history on the scheduled cooldown is still inside it.
+    expect(decideTaskDigest(digestInput({ lastDigestAt: yesterday }))).toEqual({
+      send: false,
+      reason: "cooldown",
+    });
+  });
+
+  it("reports 'nothing outstanding' ahead of every other reason", () => {
+    // A cleared checklist after the event started, inside a cooldown, is still
+    // reported as clear — that's the reason an organizer would want to read.
     expect(
-      decideReminder(
-        reminderInput({
-          status: "completed",
+      decideTaskDigest(
+        digestInput({
+          outstandingCount: 0,
           now: new Date("2026-06-20T12:00:00.000Z"),
-          lastRemindedAt: NOW,
+          lastDigestAt: NOW,
         }),
       ),
-    ).toEqual({ send: false, reason: "completed" });
+    ).toEqual({ send: false, reason: "nothing_outstanding" });
   });
 });
 
@@ -480,73 +537,184 @@ describe("runReminderJob", () => {
     expect(result.skippedByReason.not_due).toBe(1);
   });
 
-  it("emails the pending task and skips the finished one", async () => {
-    const { repos } = fakeRepos(baseSeed());
+  it("sends one digest listing everything still open, not one email per task", async () => {
+    // The whole point of D-039: three outstanding tasks used to mean three
+    // emails, and now means one that names all three.
+    const { repos, emails } = fakeRepos({
+      ...baseSeed(),
+      tasks: [
+        task(),
+        task({ id: "task-2", title: "Sign the speaker agreement" }),
+        task({
+          id: "task-3",
+          title: "Book your hotel",
+          dueAt: new Date(NOW.getTime() + 20 * DAY),
+        }),
+      ],
+      assignments: [
+        assignment(),
+        assignment({ id: "assignment-2", taskId: "task-2" }),
+        assignment({ id: "assignment-3", taskId: "task-3" }),
+      ],
+    });
     const { sender, sent } = fakeSender();
 
-    const result = await runReminderJob({ repos, sender, now: NOW });
+    const result = await runReminderJob({ repos, sender, now: MONDAY });
 
     expect(result.remindersSent).toBe(1);
     expect(result.remindersFailed).toBe(0);
-    expect(result.skipped).toBe(1);
-    expect(result.skippedByReason.completed).toBe(1);
+    expect(result.skipped).toBe(0);
     expect(result.sentTo).toEqual(["priya@example.test"]);
     expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("Upload your headshot");
+    expect(sent[0].text).toContain("Sign the speaker agreement");
+    expect(sent[0].text).toContain("Book your hotel");
+
+    // The log row is what the next run's cooldown reads back, so its shape
+    // matters as much as the email: one row, keyed on event + speaker.
+    expect(emails).toHaveLength(1);
+    expect(emails[0].kind).toBe("task_digest");
+    expect(emails[0].relatedType).toBe("user");
+    expect(emails[0].relatedId).toBe(taskDigestLogId("event-1", "user-1"));
   });
 
-  it("sends nothing on an immediate second run", async () => {
-    // The cooldown is what makes the cron safe to run every 15 minutes, and
-    // what makes the admin's "Send reminders now" button harmless to press
-    // twice: the first run's own `email_log` row suppresses the second.
+  it("leaves finished work off the list", async () => {
     const { repos } = fakeRepos(baseSeed());
     const { sender, sent } = fakeSender();
 
-    await runReminderJob({ repos, sender, now: NOW });
-    const second = await runReminderJob({ repos, sender, now: NOW });
+    const result = await runReminderJob({ repos, sender, now: MONDAY });
 
-    expect(second.remindersSent).toBe(0);
-    expect(second.skippedByReason.cooldown).toBe(1);
+    expect(result.remindersSent).toBe(1);
     expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("Upload your headshot");
+    expect(sent[0].text).not.toContain("Sign the speaker agreement");
   });
 
-  it("holds off while yesterday's reminder is still fresh", async () => {
+  it("says nothing to a speaker whose checklist is clear", async () => {
+    const seed = baseSeed();
     const { repos } = fakeRepos({
-      ...baseSeed(),
-      emailLog: [logEntry({ sentAt: new Date(NOW.getTime() - 1 * DAY) })],
+      ...seed,
+      assignments: seed.assignments.map((row) => ({ ...row, status: "completed" as const })),
     });
+    const { sender, sent } = fakeSender();
+
+    const result = await runReminderJob({ repos, sender, now: MONDAY });
+
+    expect(sent).toHaveLength(0);
+    expect(result.remindersSent).toBe(0);
+    // One speaker considered and passed over, not two tasks — the digest
+    // counts people, which is what the admin summary now reports.
+    expect(result.skipped).toBe(1);
+    expect(result.skippedByReason.nothing_outstanding).toBe(1);
+  });
+
+  it("does no digest work at all outside the Monday window", async () => {
+    // NOW is a Friday afternoon: 671 of the week's 672 cron runs look like
+    // this one, and they must not even read the roster.
+    const { repos } = fakeRepos(baseSeed());
     const { sender, sent } = fakeSender();
 
     const result = await runReminderJob({ repos, sender, now: NOW });
 
     expect(sent).toHaveLength(0);
-    expect(result.skippedByReason.cooldown).toBe(1);
+    expect(result.skipped).toBe(0);
   });
 
-  it("sends again once three days have passed", async () => {
+  it("skips a speaker who already had a digest inside the cooldown", async () => {
     const { repos } = fakeRepos({
       ...baseSeed(),
-      emailLog: [logEntry({ sentAt: new Date(NOW.getTime() - 3 * DAY) })],
+      emailLog: [digestLog(new Date(MONDAY.getTime() - 2 * DAY))],
     });
     const { sender, sent } = fakeSender();
 
-    await runReminderJob({ repos, sender, now: NOW });
+    const result = await runReminderJob({ repos, sender, now: MONDAY });
+
+    expect(sent).toHaveLength(0);
+    expect(result.skippedByReason.cooldown).toBe(1);
+  });
+
+  it("sends again the following Monday", async () => {
+    const { repos } = fakeRepos({
+      ...baseSeed(),
+      emailLog: [digestLog(new Date(MONDAY.getTime() - 7 * DAY))],
+    });
+    const { sender, sent } = fakeSender();
+
+    await runReminderJob({ repos, sender, now: MONDAY });
+
+    expect(sent).toHaveLength(1);
+  });
+
+  it("keeps two events' digests independent", async () => {
+    // A speaker on two programmes gets one digest per event. Keying the
+    // cooldown on the speaker alone would let event A's Monday send silence
+    // event B's forever.
+    const { repos } = fakeRepos({
+      events: [event(), event({ id: "event-2", slug: "other", name: "Other Conf" })],
+      tasks: [task(), task({ id: "task-2", eventId: "event-2", title: "Send us your slides" })],
+      assignments: [assignment(), assignment({ id: "assignment-2", taskId: "task-2" })],
+      users: [user()],
+      emailLog: [digestLog(new Date(MONDAY.getTime() - 2 * DAY))],
+    });
+    const { sender, sent } = fakeSender();
+
+    const result = await runReminderJob({ repos, sender, now: MONDAY });
+
+    expect(result.skippedByReason.cooldown).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("Send us your slides");
+  });
+
+  it("sends on demand outside the window when an admin asks", async () => {
+    // The "Send task digest now" button: same function, `manual: true`.
+    const { repos } = fakeRepos(baseSeed());
+    const { sender, sent } = fakeSender();
+
+    const result = await runReminderJob({ repos, sender, now: NOW, manual: true });
+
+    expect(result.remindersSent).toBe(1);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("won't let a double-click on the button mail a speaker twice", async () => {
+    const { repos } = fakeRepos({
+      ...baseSeed(),
+      emailLog: [digestLog(new Date(NOW.getTime() - 1 * 60 * 60 * 1000))],
+    });
+    const { sender, sent } = fakeSender();
+
+    const result = await runReminderJob({ repos, sender, now: NOW, manual: true });
+
+    expect(sent).toHaveLength(0);
+    expect(result.skippedByReason.cooldown).toBe(1);
+  });
+
+  it("lets an admin re-send a day later, without waiting out the weekly cooldown", async () => {
+    const { repos } = fakeRepos({
+      ...baseSeed(),
+      emailLog: [digestLog(new Date(NOW.getTime() - 25 * 60 * 60 * 1000))],
+    });
+    const { sender, sent } = fakeSender();
+
+    await runReminderJob({ repos, sender, now: NOW, manual: true });
 
     expect(sent).toHaveLength(1);
   });
 
   it("goes quiet altogether once the event has started", async () => {
+    // Monday 2026-06-22, 07:05 UTC — the digest's own window, six days after
+    // the event opened.
     const { repos } = fakeRepos(baseSeed());
     const { sender, sent } = fakeSender();
 
     const result = await runReminderJob({
       repos,
       sender,
-      now: new Date("2026-06-17T12:00:00.000Z"),
+      now: new Date("2026-06-22T07:05:00.000Z"),
     });
 
     expect(sent).toHaveLength(0);
     expect(result.skippedByReason.event_started).toBe(1);
-    expect(result.skippedByReason.completed).toBe(1);
   });
 
   it("only touches the named event when one is given", async () => {
@@ -557,7 +725,7 @@ describe("runReminderJob", () => {
     });
     const { sender } = fakeSender();
 
-    const result = await runReminderJob({ repos, sender, now: NOW, eventId: "event-2" });
+    const result = await runReminderJob({ repos, sender, now: MONDAY, eventId: "event-2" });
 
     expect(result.remindersSent).toBe(0);
     expect(result.skipped).toBe(0);
@@ -572,23 +740,28 @@ describe("runReminderJob", () => {
       },
     };
 
-    const result = await runReminderJob({ repos, sender, now: NOW });
+    const result = await runReminderJob({ repos, sender, now: MONDAY });
 
     expect(result.remindersSent).toBe(0);
     expect(result.remindersFailed).toBe(1);
     expect(result.sentTo).toEqual([]);
   });
 
-  it("retries after a failure rather than treating it as a reminder sent", async () => {
+  it("retries after a failure rather than treating it as a digest sent", async () => {
     // The cooldown keys off successful sends only, so a bounced attempt
-    // doesn't buy the task three days of silence.
+    // doesn't buy the speaker a week of silence.
     const { repos } = fakeRepos({
       ...baseSeed(),
-      emailLog: [logEntry({ status: "failed", error: "transport is down" })],
+      emailLog: [
+        digestLog(new Date(MONDAY.getTime() - 1 * DAY), {
+          status: "failed",
+          error: "transport is down",
+        }),
+      ],
     });
     const { sender, sent } = fakeSender();
 
-    await runReminderJob({ repos, sender, now: NOW });
+    await runReminderJob({ repos, sender, now: MONDAY });
 
     expect(sent).toHaveLength(1);
   });

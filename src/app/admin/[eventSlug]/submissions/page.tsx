@@ -8,6 +8,8 @@ import { formatDate } from "@/components/date-format";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
+import { Badge } from "@/components/ui/badge";
+import { DIRECT_TO_SESSION_LABEL } from "@/domain/forms";
 import {
   Table,
   TableBody,
@@ -125,7 +127,13 @@ export default async function SubmissionsPage({
                       {trackNames.length === 0 ? "—" : trackNames.join(", ")}
                     </TableCell>
                     <TableCell>
-                      <SubmissionStatusBadge status={submission.status} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <SubmissionStatusBadge status={submission.status} />
+                        {/* Why this one never queued for review (D-041). */}
+                        {queue.directSessionFormIds.has(submission.formId) ? (
+                          <Badge variant="outline">{DIRECT_TO_SESSION_LABEL}</Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {summarizeTally(tally) || "—"}

@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createsSessionsDirectly } from "@/db/entities";
 import type { FormValues } from "@/domain/forms";
+import { acceptOnArrival } from "@/domain/review";
 import { saveSubmission } from "@/domain/submissions";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
@@ -48,12 +50,24 @@ export async function createSubmissionOnBehalf(
   );
   if (!result.ok) return result;
 
+  // Entered against a session-type form, it becomes a confirmed session right
+  // away — same conversion an accept runs (decisions.md D-041).
+  const converted = createsSessionsDirectly(form);
+  if (converted) {
+    await acceptOnArrival({ repos }, { submissionId: result.submission.id });
+  }
+
   revalidatePath(`/admin/${eventSlug}/submissions`);
   revalidatePath(`/admin/${eventSlug}/forms`);
+  if (converted) {
+    revalidatePath(`/admin/${eventSlug}/agenda`);
+    revalidatePath(`/admin/${eventSlug}/speakers`);
+    revalidatePath(`/admin/${eventSlug}/tasks`);
+  }
 
   return {
     ok: true,
-    message: "Proposal added.",
+    message: converted ? "Proposal added — it's now a confirmed session." : "Proposal added.",
     redirectTo: `/admin/${eventSlug}/submissions/${result.submission.id}`,
   };
 }

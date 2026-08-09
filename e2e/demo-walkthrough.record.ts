@@ -1131,25 +1131,25 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       await say(page, "Three things here that conferences actually pay for.");
 
       // (a) reminders that don't spam ----------------------------------------
-      await say(page, "First: deadline reminders that don't spam.");
-      await page.getByRole("button", { name: "Send reminders now" }).click();
-      const firstRun = page.getByText(/Sent \d+ reminder|No reminders needed/);
+      await say(page, "First: task reminders that don't spam.");
+      await page.getByRole("button", { name: "Send task digest now" }).click();
+      const firstRun = page.getByText(/Sent \d+ email|Nothing to send/);
       await expect(firstRun).toBeVisible({ timeout: 60_000 });
       await say(
         page,
-        "The toast reports what it did and what it deliberately didn't:",
-        "so many sent, and a breakdown of every skip — already done, not due yet,",
-        "reminded in the last few days.",
-        "Every skip has a reason. That's the difference between a cron job you trust",
+        "Each speaker gets one email a week listing everything still open on",
+        "their checklist — not one message per task. The toast reports what it",
+        "did and what it deliberately didn't: so many sent, and a reason for",
+        "every skip. That's the difference between a cron job you trust",
         "and one you turn off.",
       );
 
-      await page.getByRole("button", { name: "Send reminders now" }).click();
-      await expect(page.getByText("No reminders needed")).toBeVisible({ timeout: 60_000 });
+      await page.getByRole("button", { name: "Send task digest now" }).click();
+      await expect(page.getByText("Nothing to send")).toBeVisible({ timeout: 60_000 });
       await say(
         page,
-        "Press it again: no reminders needed.",
-        "Three-day cooldown per task. Press the button as often as you like;",
+        "Press it again: nothing to send.",
+        "Everyone was just emailed. Press the button as often as you like;",
         "nobody gets nagged twice.",
       );
 
@@ -1159,9 +1159,9 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       await point(
         page,
         page.getByRole("navigation", { name: "Message templates" }),
-        "Seven built-in messages, from Submission received to Calendar invitation.",
+        "Nine built-in messages, from Submission received to Calendar invitation.",
       );
-      await page.getByRole("button", { name: "Task / deadline reminder" }).click();
+      await page.getByRole("button", { name: "Weekly task digest" }).click();
       const body = page.locator("textarea[id^='body-']");
       const original = await body.inputValue();
 
@@ -1182,7 +1182,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
 
       await body.fill(`${original}\n\n${GOOD_TEMPLATE_LINE}`);
       await page.getByRole("button", { name: "Save wording" }).click();
-      await expect(page.getByText("Saved “Task / deadline reminder”")).toBeVisible({
+      await expect(page.getByText("Saved “Weekly task digest”")).toBeVisible({
         timeout: 30_000,
       });
       await say(

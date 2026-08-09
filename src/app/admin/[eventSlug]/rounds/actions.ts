@@ -13,6 +13,7 @@ import {
 } from "@/domain/rounds";
 import { getRepos } from "@/lib/db";
 import { requireAdmin, requireAdminOrReviewer } from "@/lib/session";
+import { directSessionFormIds } from "../submissions/queue";
 
 /**
  * Server actions for multi-round scored evaluations (spec.md "Important",
@@ -184,8 +185,14 @@ export async function assignSubmissions(
 
   // Only submissions on this event may be assigned — the ids arrive from a
   // form and are never trusted on their own.
-  const submissions = await repos.submissions.listByEvent(event.id);
-  const allowed = submissions.filter((submission) => wanted.has(submission.id));
+  const [submissions, directFormIds] = await Promise.all([
+    repos.submissions.listByEvent(event.id),
+    directSessionFormIds(repos, event.id),
+  ]);
+  const allowed = submissions.filter(
+    // Session-type submissions are never review work (decisions.md D-041).
+    (submission) => wanted.has(submission.id) && !directFormIds.has(submission.formId),
+  );
   if (allowed.length === 0) return fail("Those submissions aren't part of this event");
 
   try {
@@ -216,8 +223,16 @@ export async function assignTrack(
   if (!context.ok) return context;
   const { repos, event } = context;
 
-  const submissions = (await repos.submissions.listByEvent(event.id)).filter(
-    (submission) => submission.status !== "draft" && submission.status !== "withdrawn",
+  const [all, directFormIds] = await Promise.all([
+    repos.submissions.listByEvent(event.id),
+    directSessionFormIds(repos, event.id),
+  ]);
+  const submissions = all.filter(
+    (submission) =>
+      submission.status !== "draft" &&
+      submission.status !== "withdrawn" &&
+      // Sessions on arrival were never reviewable (decisions.md D-041).
+      !directFormIds.has(submission.formId),
   );
   let targets = submissions;
   if (trackId) {

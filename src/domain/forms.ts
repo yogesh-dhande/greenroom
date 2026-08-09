@@ -25,6 +25,7 @@ import {
   type FormField,
   type FormFieldCondition,
   type FormFieldType,
+  type FormType,
   type SubmissionStatus,
 } from "@/db/entities";
 import {
@@ -424,6 +425,30 @@ export const FORM_STATE_LABELS: Record<FormWindowState, string> = {
   open: "Open",
   closed: "Closed",
 };
+
+// ---------------------------------------------------------------------------
+// Submission type (decisions.md D-041)
+// ---------------------------------------------------------------------------
+
+/** What the two form types are called wherever an organizer picks one. */
+export const FORM_TYPE_LABELS: Record<FormType, string> = {
+  abstract: "Abstract",
+  session: "Session",
+};
+
+/**
+ * The guidance next to the switch, paraphrasing Sessionboard's own wording
+ * ("Choose Session if you are collecting proposals that will become sessions
+ * directly", with invited proposals as the worked example — D-041).
+ */
+export const FORM_TYPE_DESCRIPTIONS: Record<FormType, string> = {
+  abstract: "Proposals that go through review before becoming sessions.",
+  session: "Proposals that become sessions directly — e.g. invited or sponsor slots.",
+};
+
+/** The badge an organizer reads on a session-type submission, so it's obvious
+ * why it never queued for review. */
+export const DIRECT_TO_SESSION_LABEL = "Direct to session";
 
 // ---------------------------------------------------------------------------
 // Datetime <-> `datetime-local` in the event's timezone

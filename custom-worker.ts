@@ -30,10 +30,12 @@ export default {
     const sender = getEmailSender(env);
     const appUrl = env.APP_URL ?? env.BETTER_AUTH_URL ?? "http://localhost:3000";
 
-    // The cadence itself lives in runReminderJob (questions.md Q4: at most one
-    // nudge per task every three days, stopping once the task is done or the
+    // The schedule itself lives in runReminderJob (decisions.md D-039: one
+    // digest per speaker listing everything still open, sent in the tick that
+    // covers Monday 07:00 UTC and stopping once the checklist is clear or the
     // event has started), so this handler stays a wiring shim — the admin
-    // "Send reminders now" button calls the identical function.
+    // "Send task digest now" button calls the identical function, passing
+    // `manual: true` to bypass the weekly window.
     //
     // The run is summarised to the log because a cron firing every 15 minutes
     // is otherwise invisible: `wrangler tail` should show why a quiet run was

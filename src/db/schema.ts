@@ -180,6 +180,11 @@ export const forms = sqliteTable("forms", {
   /** Public URL segment: /submit/{slug}. Globally unique so the public
    * route doesn't need an event in the path. */
   slug: text("slug").notNull().unique(),
+  /** FormType (src/db/entities.ts, decisions.md D-041): "abstract" queues
+   * submissions for review, "session" turns them straight into confirmed
+   * sessions. Defaulted so every form that predates the switch stays a
+   * review-pipeline form. */
+  type: text("type").notNull().default("abstract"),
   /** Welcome/explanatory copy shown above the form (spec.md §2). */
   welcomeCopy: text("welcome_copy"),
   /** JSON-serialized FormField[] (src/db/entities.ts, decisions.md D-009). */
@@ -535,7 +540,9 @@ export const emailLog = sqliteTable(
         "submission_confirmation",
         "decision",
         "change_request",
+        // Retired in favour of "task_digest" (D-039); still readable history.
         "task_reminder",
+        "task_digest",
         "draft_saved",
         "draft_reminder",
         "calendar_invite",

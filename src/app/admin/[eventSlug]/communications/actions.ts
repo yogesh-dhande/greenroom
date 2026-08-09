@@ -248,12 +248,14 @@ export async function sendSessionInvite(eventSlug: string, sessionId: string) {
 // ---------------------------------------------------------------------------
 
 /**
- * Runs the deadline-reminder job for this event on demand — the same
- * `runReminderJob` the cron calls (decisions.md D-013), so the button can
- * never send something the schedule wouldn't.
+ * Sends this event's task digests on demand — the same `runReminderJob` the
+ * cron calls (decisions.md D-013, D-039), so the button can never send
+ * something the schedule wouldn't.
  *
- * The cadence rules do the protecting: pressing it twice in a row sends
- * nothing the second time, because everything is inside its cooldown.
+ * `manual: true` is the only difference: it lifts the Monday 07:00 UTC window
+ * (an admin pressing a button means "now"), and swaps the six-day cooldown for
+ * a 24-hour one. Everything else still protects the speaker — a double-click
+ * sends nothing the second time, and a cleared checklist sends nothing at all.
  */
 export async function sendRemindersNow(eventSlug: string) {
   const auth = await authorize(eventSlug);
@@ -263,9 +265,9 @@ export async function sendRemindersNow(eventSlug: string) {
 
   let result;
   try {
-    result = await runReminderJob({ ...comms, eventId: auth.event.id });
+    result = await runReminderJob({ ...comms, eventId: auth.event.id, manual: true });
   } catch {
-    return fail("Couldn't run the reminders — try again");
+    return fail("Couldn't send the digests — try again");
   }
 
   revalidatePath(`/admin/${eventSlug}/communications`);
@@ -280,7 +282,7 @@ export async function sendRemindersNow(eventSlug: string) {
       sent: result.remindersSent,
       failed: result.remindersFailed,
       skipped: result.skipped,
-      /** "3 already done, 2 reminded in the last few days" */
+      /** "3 nothing outstanding, 2 already emailed recently" */
       skipSummary: skipNotes.join(", "),
       recipients: result.sentTo,
     },

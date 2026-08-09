@@ -25,6 +25,12 @@ const LIGHTNING_SLUG = "ai-engineer-summit-2026-lightning";
 const LIGHTNING_DRAFT_TOKEN = "seed-draft-resume-lightning";
 const DRAFT_EMAIL = "e2e.drafter@example.com";
 
+/** Seeded session-type form: submissions become confirmed sessions on arrival
+ * with no review step (decisions.md D-041). */
+const INVITED_SLUG = "ai-engineer-summit-2026-invited";
+const INVITED_TITLE = "The sponsor session we agreed in April";
+const INVITED_EMAIL = "e2e.sponsor@example.com";
+
 /** Set by the submission test, used by the edit test (one worker, in order). */
 let submissionUrl = "";
 
@@ -320,9 +326,12 @@ test("a draft is not offered to reviewers but is visible to admins", async ({ pa
   await expect(page.getByText("Draft", { exact: true }).first()).toBeVisible();
 
   // A reviewer's queue is what goes in front of the committee; an unfinished
-  // proposal has not been offered to anyone yet.
-  await signIn(page, "reviewer@greenroom.dev");
+  // proposal has not been offered to anyone yet. Dana is a real seeded
+  // reviewer — the queue must actually render for her (positive control, so
+  // the absence check below can't pass vacuously on an access refusal).
+  await signIn(page, "dana@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
+  await expect(page.getByRole("heading", { name: "Submissions" })).toBeVisible();
   await expect(page.getByText("Untitled draft — five things that broke in prod")).toHaveCount(0);
 });
 
@@ -411,6 +420,56 @@ test("an admin enters a proposal on a speaker's behalf", async ({ page }) => {
 
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
   await expect(page.getByText("The keynote we agreed in the hallway")).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Session-type forms (decisions.md D-041)
+// ---------------------------------------------------------------------------
+
+test("a session-type form turns a submission straight into a confirmed session", async ({
+  page,
+}) => {
+  // No sign-in: the invited/sponsor form is public like any other CFP.
+  await page.goto(`/submit/${INVITED_SLUG}`);
+  await expect(page.getByRole("heading", { name: "Invited & Sponsor Sessions" })).toBeVisible();
+
+  await page.getByLabel("Session title").fill(INVITED_TITLE);
+  await page
+    .getByLabel("Session description")
+    .fill("The sponsor slot we agreed in April, written the way it should be printed.");
+  await page.getByLabel("AI Engineering").check();
+  await page.getByLabel("Session format").click();
+  await page.getByRole("option", { name: "30-minute talk" }).click();
+  await page.getByLabel("Your name").fill("E2E Invited Speaker");
+  await page.getByLabel("Your email").fill(INVITED_EMAIL);
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+
+  // The speaker sees the ordinary confirmation — nothing about review.
+  await expect(page).toHaveURL(/\/submit\/.+\/thanks\/.+/);
+  await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: INVITED_TITLE })).toBeVisible();
+
+  // For the organizer it is already accepted, and says why it skipped review.
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/submissions?status=approved`);
+  const row = page.getByRole("row").filter({ hasText: INVITED_TITLE });
+  await expect(row).toBeVisible();
+  await expect(row.getByText("Approved")).toBeVisible();
+  await expect(row.getByText("Direct to session")).toBeVisible();
+
+  // And it exists as a real session, confirmed but not yet placed on a day.
+  await page.goto(`/admin/${EVENT_SLUG}/agenda`);
+  await expect(
+    page.getByTestId("unscheduled-tray").getByText(INVITED_TITLE),
+  ).toBeVisible();
+
+  // A reviewer never sees it: it was a session before anyone could vote on it.
+  // Dana reviews the AI Engineering track, which is exactly where it landed —
+  // and the seeded abstract in that track proves her queue really is loading.
+  await signIn(page, "dana@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/submissions`);
+  await expect(page.getByText("Retrieval that survives production traffic")).toBeVisible();
+  await expect(page.getByText(INVITED_TITLE)).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------------------

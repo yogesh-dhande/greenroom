@@ -224,17 +224,17 @@ Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Un
 
 **(a) Deadline reminders that don't spam.**
 
-2. Click **Send reminders now**. The toast reports what it did *and what it deliberately didn't* — e.g. **Sent 8 reminders**, *"Skipped 58: 31 already done, 23 not due yet, 4 reminded in the last few days."*
-   > "Every skip has a reason. That breakdown is the difference between a cron job you trust and one you turn off."
-3. Click it again. **No reminders needed** — *"Nothing was due: … reminded in the last few days."*
-   > "Three-day cooldown per task. Press the button as often as you like; nobody gets nagged twice."
+2. Click **Send task digest now**. The toast reports what it did *and what it deliberately didn't* — e.g. **Sent 5 emails**, *"Skipped 3: nothing outstanding, already emailed recently."*
+   > "One email per speaker, listing everything still open on their checklist — not one email per task. Every skip has a reason, and that breakdown is the difference between a cron job you trust and one you turn off."
+3. Click it again. **Nothing to send** — *"No digest was due: … already emailed recently."*
+   > "It goes out on its own every Monday morning, and nobody gets two in a day. Press the button as often as you like."
 
 **(b) The wording is yours.**
 
-4. Open the **Templates** tab — seven built-in messages, from **Submission received** to **Calendar invitation**. Click **Task / deadline reminder**.
+4. Open the **Templates** tab — seven built-in messages, from **Submission received** to **Calendar invitation**. Click **Weekly task digest**.
 5. Type `See you in {{sessionRoom}}.` at the end of the body. It's refused: the merge field is real but a reminder can't fill it, and **Save wording** goes disabled.
    > "It would have arrived as a blank space in someone's inbox. Nobody re-reads sent mail, so we catch it here."
-6. Replace it with `Our team is around all week if you're stuck, {{speakerFirstName}}.` and click **Save wording**. Toast: **Saved "Task / deadline reminder"**. An **Edited** badge appears next to it.
+6. Replace it with `Our team is around all week if you're stuck, {{speakerFirstName}}.` and click **Save wording**. Toast: **Saved "Weekly task digest"**. An **Edited** badge appears next to it.
    > "That's this event's wording now — an override, not a fork. Every other event keeps the default."
 7. Click **Use Greenroom's wording**. Toast: **Back to Greenroom's wording**, and the built-in copy returns.
    > "One click back. You can never paint yourself into a corner."
@@ -324,6 +324,6 @@ Congratulations — we'd love this on the Evals & Reliability track. Aim for 45 
 **If something goes sideways mid-take:**
 
 - *The drag doesn't stick* — dnd-kit needs a real pointer path. Press and hold, move ~20px first, then travel to the target; drop only once the slot is highlighted. Fallback: click the tray card and set day/room/time in the dialog instead.
-- *"Send reminders now" says "No reminders needed" on the first press* — a previous run is inside the three-day cooldown. Re-seed.
+- *"Send task digest now" says "Nothing to send" on the first press* — a previous run is inside the 24-hour manual cooldown. Re-seed.
 - *Numbers in the reminder toast differ from the script* — expected; they depend on the exact hour you seeded. Only the shape matters: a sent count plus a per-reason skip breakdown.
 - *Accept reports 6 tasks across 1 speaker, not 12 across 2* — you skipped the co-speaker in Act 2. Harmless; adjust the line you say.

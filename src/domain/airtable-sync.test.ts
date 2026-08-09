@@ -76,6 +76,7 @@ function form(overrides: Partial<Form> = {}): Form {
     eventId: "event-1",
     name: "Call for Speakers",
     slug: "aie-2026-cfp",
+    type: "abstract",
     welcomeCopy: null,
     fields: [],
     opensAt: null,

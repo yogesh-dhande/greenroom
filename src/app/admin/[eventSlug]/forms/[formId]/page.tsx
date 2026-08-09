@@ -48,6 +48,7 @@ export default async function FormBuilderPage({
           id: form.id,
           name: form.name,
           slug: form.slug,
+          type: form.type,
           welcomeCopy: form.welcomeCopy ?? "",
           fields: form.fields,
           opensAt: toZonedInputValue(form.opensAt, event.timezone),

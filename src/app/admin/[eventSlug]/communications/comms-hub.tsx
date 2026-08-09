@@ -41,7 +41,7 @@ export function CommsHub({
   const [tab, setTab] = useState("log");
   const [running, startRun] = useTransition();
 
-  function runReminders() {
+  function sendDigestsNow() {
     startRun(async () => {
       const result = await sendRemindersNow(eventSlug);
       if (!result.ok) {
@@ -51,16 +51,16 @@ export function CommsHub({
       const { sent, failed, skipped, skipSummary } = result.data;
       if (sent === 0) {
         // A quiet run is the normal outcome, not a failure — say *why* it was
-        // quiet so the button doesn't look broken (questions.md Q4).
-        toast.success("No reminders needed", {
+        // quiet so the button doesn't look broken (D-039).
+        toast.success("Nothing to send", {
           description:
             skipped > 0
-              ? `Nothing was due: ${skipSummary}.`
-              : "Every task is either done or not due yet.",
+              ? `No digest was due: ${skipSummary}.`
+              : "Every speaker's checklist is already clear.",
         });
         return;
       }
-      toast.success(`Sent ${sent} reminder${sent === 1 ? "" : "s"}`, {
+      toast.success(`Sent ${sent} email${sent === 1 ? "" : "s"}`, {
         description: [
           failed > 0 ? `${failed} failed to send.` : null,
           skipped > 0 ? `Skipped ${skipped}: ${skipSummary}.` : null,
@@ -82,9 +82,9 @@ export function CommsHub({
           <TabsTrigger value="invites">Calendar invites</TabsTrigger>
         </TabsList>
 
-        <Button variant="outline" onClick={runReminders} disabled={running}>
+        <Button variant="outline" onClick={sendDigestsNow} disabled={running}>
           <BellRingIcon />
-          {running ? "Running…" : "Send reminders now"}
+          {running ? "Sending…" : "Send task digest now"}
         </Button>
       </div>
 

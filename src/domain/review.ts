@@ -143,17 +143,27 @@ export function canViewSubmission(
  * something nobody submitted is both unfair and confusing. Admins still see
  * drafts — they run the call, and an unfinished proposal on a closing form is
  * something they may want to chase.
+ *
+ * A submission to a **session-type form** is kept off a reviewer's queue for
+ * the mirror-image reason (D-041): it was accepted the moment it arrived, so
+ * there is no decision left for the committee to influence. Admins still see
+ * it, badged, because it's part of their programme.
  */
-export function visibleSubmissions<T extends { id: string; status: SubmissionStatus }>(
+export function visibleSubmissions<
+  T extends { id: string; formId: string; status: SubmissionStatus },
+>(
   submissions: T[],
   trackIdsBySubmission: Record<string, string[]>,
   role: Role,
   reviewerTrackIds: string[],
+  options: { directSessionFormIds?: ReadonlySet<string> } = {},
 ): T[] {
   if (role === "admin") return submissions;
+  const direct = options.directSessionFormIds;
   return submissions.filter(
     (submission) =>
       submission.status !== "draft" &&
+      !direct?.has(submission.formId) &&
       canViewSubmission(role, reviewerTrackIds, trackIdsBySubmission[submission.id] ?? []),
   );
 }
@@ -239,7 +249,7 @@ export interface DecisionPlan {
 export function planDecision(
   submission: Submission,
   decision: SubmissionDecision,
-  decidedBy: string,
+  decidedBy: string | null,
   options: { note?: string | null; notify?: boolean; now?: Date } = {},
 ): DecisionPlan {
   const patch = decide(submission, decision, decidedBy, {
@@ -364,8 +374,8 @@ export interface ReviewContext {
 export interface RecordDecisionInput {
   submissionId: string;
   decision: SubmissionDecision;
-  /** The admin recording it. */
-  decidedBy: string;
+  /** The admin recording it, or null when the form decided (D-041). */
+  decidedBy: string | null;
   note?: string | null;
   /** Default true; false records the decision silently. */
   notify?: boolean;
@@ -474,6 +484,38 @@ export async function recordDecision(
   }
 
   return { submission, sessionId, sessionCreated, assignmentsCreated, deliveries };
+}
+
+/**
+ * Accepts a submission the instant it arrives, because its form creates
+ * sessions directly rather than collecting proposals for review
+ * (decisions.md D-041).
+ *
+ * Deliberately a thin call into `recordDecision` rather than its own
+ * conversion: a session-type submission has to land *exactly* like an accepted
+ * abstract — same status transition, same session (confirmed, unscheduled),
+ * same speaker links, same auto-assigned onboarding tasks — and the only way
+ * to guarantee that stays true is for there to be one implementation.
+ *
+ * Two arguments carry the difference:
+ *  - `decidedBy: null` — nobody decided this; the form did. That is how an
+ *    automatic acceptance is recorded (see `decide` in
+ *    src/domain/evaluation.ts): a `decidedAt` with no decider.
+ *  - `notify: false` — the speaker already gets this form's own confirmation
+ *    email on submit (spec.md §2). A second "your talk was accepted" mail for
+ *    a slot that was agreed before the form was ever sent would be noise.
+ */
+export async function acceptOnArrival(
+  ctx: ReviewContext,
+  input: { submissionId: string; now?: Date },
+): Promise<RecordDecisionResult> {
+  return recordDecision(ctx, {
+    submissionId: input.submissionId,
+    decision: "approved",
+    decidedBy: null,
+    notify: false,
+    now: input.now,
+  });
 }
 
 // ---------------------------------------------------------------------------

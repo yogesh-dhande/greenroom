@@ -17,7 +17,7 @@ export default async function PublicSpeakersPage({
       <PageHeader
         title="Speakers"
         description="The confirmed lineup — updated as talks are accepted."
-        action={<EmbedSnippet embedPath={`/embed/${eventSlug}/speakers`} />}
+        action={<EmbedSnippet eventSlug={eventSlug} view="speakers" />}
       />
       <SpeakerGallery speakers={speakers} timezone={event.timezone} />
     </div>

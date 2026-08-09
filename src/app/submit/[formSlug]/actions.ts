@@ -1,9 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { RESERVED_FIELD_IDS, type Event, type Form, type Track } from "@/db/entities";
+import {
+  createsSessionsDirectly,
+  RESERVED_FIELD_IDS,
+  type Event,
+  type Form,
+  type Track,
+} from "@/db/entities";
 import { sendDraftSavedLink, sendSubmissionConfirmation } from "@/domain/comms";
 import { acceptsSubmissions, submissionLimitMessage, type FormValues } from "@/domain/forms";
+import { acceptOnArrival } from "@/domain/review";
 import { saveSubmission, speakerLimitState } from "@/domain/submissions";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
@@ -116,6 +123,22 @@ export async function submitProposal(
   );
   if (!result.ok) return result;
 
+  // A session-type form has no review step: the proposal is accepted the moment
+  // it arrives and becomes a confirmed (but unscheduled) session, through the
+  // same code path an admin's accept uses (decisions.md D-041). Run before the
+  // confirmation email, so a speaker is never told about a slot that failed to
+  // materialise; a failure here leaves an ordinary submitted proposal an
+  // organizer can accept by hand rather than losing the proposal.
+  let converted = false;
+  if (createsSessionsDirectly(ctx.form)) {
+    try {
+      await acceptOnArrival({ repos: ctx.repos }, { submissionId: result.submission.id });
+      converted = true;
+    } catch (error) {
+      console.error("direct-to-session conversion failed", error);
+    }
+  }
+
   // A confirmation email that fails to send must not lose the proposal — it's
   // saved, and the speaker is looking at the confirmation page either way
   // (the failure is visible in the server log, and successful sends land in
@@ -131,6 +154,12 @@ export async function submitProposal(
 
   revalidatePath(`/admin/${ctx.event.slug}/submissions`);
   revalidatePath(`/admin/${ctx.event.slug}/forms`);
+  if (converted) {
+    // The new session and its speaker's onboarding work show up immediately.
+    revalidatePath(`/admin/${ctx.event.slug}/agenda`);
+    revalidatePath(`/admin/${ctx.event.slug}/speakers`);
+    revalidatePath(`/admin/${ctx.event.slug}/tasks`);
+  }
 
   return {
     ok: true,

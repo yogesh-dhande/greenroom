@@ -10,7 +10,7 @@ import type { Repos } from "@/db/repos";
 import { summarizeRound, type ResultRow } from "@/domain/rounds";
 import { submissionStatusLabel } from "@/components/submission-status-badge";
 import { formatShortDate } from "@/lib/event-time";
-import { personName } from "../submissions/queue";
+import { directSessionFormIds, personName } from "../submissions/queue";
 
 /**
  * Reads for the review-rounds screens (spec.md "Important" — multi-round
@@ -66,11 +66,18 @@ export async function loadRoundSubmissions(
   repos: Repos,
   eventId: string,
 ): Promise<RoundSubmissionRow[]> {
-  const [all, tracks] = await Promise.all([
+  const [all, tracks, directFormIds] = await Promise.all([
     repos.submissions.listByEvent(eventId),
     repos.tracks.listByEvent(eventId),
+    directSessionFormIds(repos, eventId),
   ]);
-  const submissions = all.filter((submission) => REVIEWABLE_STATUSES.has(submission.status));
+  const submissions = all.filter(
+    (submission) =>
+      REVIEWABLE_STATUSES.has(submission.status) &&
+      // Session-type forms skip review entirely (decisions.md D-041), so their
+      // submissions are never round work — accepted though they are.
+      !directFormIds.has(submission.formId),
+  );
   const ids = submissions.map((submission) => submission.id);
 
   const [trackLinks, speakerLinks] = await Promise.all([

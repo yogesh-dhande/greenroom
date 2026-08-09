@@ -30,11 +30,17 @@ export type DecisionPatch = Pick<
  * onboarding — the caller creates the speaker/session/task records
  * afterwards (src/domain/onboarding.ts), which is why this returns a patch
  * rather than persisting anything itself.
+ *
+ * `decidedBy` is null when nobody decided: a submission to a session-type form
+ * is accepted by the form itself the moment it arrives (decisions.md D-041).
+ * "Decided, with a time, by no one" is exactly what happened, and it keeps the
+ * automatic acceptances distinguishable from an admin's without a second
+ * column to keep in step.
  */
 export function decide(
   submission: Submission,
   decision: SubmissionDecision,
-  decidedBy: string,
+  decidedBy: string | null,
   options: { note?: string | null; now?: Date } = {},
 ): DecisionPatch {
   if (!canDecide(submission)) {

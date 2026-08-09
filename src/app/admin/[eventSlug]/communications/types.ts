@@ -90,7 +90,9 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
   submission_confirmation: "Submission received",
   decision: "Decision",
   change_request: "Change request",
+  /** Retired with D-039, but its history still shows in the log. */
   task_reminder: "Task reminder",
+  task_digest: "Weekly task digest",
   draft_saved: "Draft link",
   draft_reminder: "Draft closing soon",
   calendar_invite: "Calendar invite",
@@ -101,6 +103,7 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
 export const LOG_KIND_ORDER: EmailKind[] = [
   "decision",
   "change_request",
+  "task_digest",
   "task_reminder",
   "draft_reminder",
   "calendar_invite",

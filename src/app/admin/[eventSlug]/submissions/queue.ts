@@ -1,4 +1,4 @@
-import type { Event, Submission, Track, User } from "@/db/entities";
+import { createsSessionsDirectly, type Event, type Submission, type Track, type User } from "@/db/entities";
 import type { Repos } from "@/db/repos";
 import { tallyReviewsBySubmission, visibleSubmissions, type ReviewTally } from "@/domain/review";
 import type { SessionUser } from "@/lib/session";
@@ -26,6 +26,19 @@ export interface SubmissionQueue {
   tracks: Track[];
   /** The reviewer's own tracks; empty for an admin (who sees everything). */
   reviewerTrackIds: string[];
+  /** Forms whose submissions became sessions on arrival (decisions.md D-041) —
+   * what the admin table badges "Direct to session". */
+  directSessionFormIds: Set<string>;
+}
+
+/**
+ * The event's session-type forms (decisions.md D-041). One read, shared by
+ * every screen that has to tell review work apart from a proposal that was
+ * never review work in the first place.
+ */
+export async function directSessionFormIds(repos: Repos, eventId: string): Promise<Set<string>> {
+  const forms = await repos.forms.listByEvent(eventId);
+  return new Set(forms.filter(createsSessionsDirectly).map((form) => form.id));
 }
 
 /** The tracks a reviewer owns *on this event*; admins get an empty list and
@@ -50,10 +63,11 @@ export async function loadSubmissionQueue(
   event: Event,
   viewer: SessionUser,
 ): Promise<SubmissionQueue> {
-  const [all, tracks, reviewerTrackIds] = await Promise.all([
+  const [all, tracks, reviewerTrackIds, directFormIds] = await Promise.all([
     repos.submissions.listByEvent(event.id),
     repos.tracks.listByEvent(event.id),
     reviewerTrackIdsFor(repos, viewer, event.id),
+    directSessionFormIds(repos, event.id),
   ]);
 
   const trackLinks = await repos.submissions.listTracksBySubmissionIds(all.map((s) => s.id));
@@ -70,6 +84,7 @@ export async function loadSubmissionQueue(
     trackIdsBySubmission,
     viewer.role,
     reviewerTrackIds,
+    { directSessionFormIds: directFormIds },
   );
 
   const [speakerLinks, reviews] = await Promise.all([
@@ -116,7 +131,7 @@ export async function loadSubmissionQueue(
     };
   });
 
-  return { rows, tracks, reviewerTrackIds };
+  return { rows, tracks, reviewerTrackIds, directSessionFormIds: directFormIds };
 }
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { formFieldsSchema, type FormField } from "@/db/entities";
+import { formFieldsSchema, formTypeSchema, type FormField, type FormType } from "@/db/entities";
 import {
   defaultFormDraft,
   fieldSchemaProblems,
@@ -43,11 +43,13 @@ async function uniqueSlug(
  * questions, confirmation copy — rather than a blank canvas an organizer has
  * to assemble from nothing.
  */
-export async function createForm(eventSlug: string, name: string) {
+export async function createForm(eventSlug: string, name: string, type: FormType = "abstract") {
   await requireAdmin(`/admin/${eventSlug}/forms`);
 
   const trimmed = name.trim();
   if (!trimmed) return fail("Give the form a name");
+  const parsedType = formTypeSchema.safeParse(type);
+  if (!parsedType.success) return fail("Pick what submissions to this form become");
 
   const repos = await getRepos();
   const event = await repos.events.getBySlug(eventSlug);
@@ -59,6 +61,7 @@ export async function createForm(eventSlug: string, name: string) {
       eventId: event.id,
       name: draft.name,
       slug: await uniqueSlug(repos, trimmed),
+      type: parsedType.data,
       welcomeCopy: draft.welcomeCopy,
       fields: draft.fields,
       opensAt: null,
@@ -88,6 +91,8 @@ const saveFormInputSchema = z.object({
     .toLowerCase()
     .min(1, "The public link needs a slug")
     .regex(SLUG_PATTERN, "Lowercase letters, numbers, and hyphens only"),
+  /** Review pipeline or direct-to-session (decisions.md D-041). */
+  type: formTypeSchema,
   welcomeCopy: z.string(),
   fields: formFieldsSchema,
   /** "YYYY-MM-DDTHH:MM" wall-clock in the event's timezone, or "". */
@@ -136,6 +141,16 @@ export async function saveForm(eventSlug: string, formId: string, input: SaveFor
     if (clash && clash.id !== form.id) return fail("That link is already used by another form");
   }
 
+  // Switching type once proposals exist would retroactively change what they
+  // are — accepted sessions back into review work, or reviewed abstracts out of
+  // the queue without a decision (decisions.md D-041).
+  if (v.type !== form.type) {
+    const counts = await repos.submissions.countByForms([form.id]);
+    if ((counts[form.id] ?? 0) > 0) {
+      return fail("This form already has submissions — its type can't change now");
+    }
+  }
+
   // Wall-clock in, instant out: an organizer types "5:00 PM" meaning 5pm where
   // the conference is, not 5pm wherever their laptop thinks it is.
   const opensAt = fromZonedInputValue(v.opensAt, event.timezone);
@@ -148,6 +163,7 @@ export async function saveForm(eventSlug: string, formId: string, input: SaveFor
     await repos.forms.update(form.id, {
       name: v.name,
       slug: v.slug,
+      type: v.type,
       welcomeCopy: v.welcomeCopy.trim() || null,
       fields,
       opensAt,

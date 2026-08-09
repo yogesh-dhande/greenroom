@@ -1,0 +1,1 @@
+ALTER TABLE `forms` ADD `type` text DEFAULT 'abstract' NOT NULL;

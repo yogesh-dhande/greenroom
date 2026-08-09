@@ -4,9 +4,18 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PlusIcon } from "lucide-react";
 import { toast } from "sonner";
+import type { FormType } from "@/db/entities";
+import { FORM_TYPE_DESCRIPTIONS, FORM_TYPE_LABELS } from "@/domain/forms";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +33,7 @@ export function NewFormButton({ eventSlug }: { eventSlug: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("Call for Speakers");
+  const [type, setType] = useState<FormType>("abstract");
   const [isPending, startTransition] = useTransition();
 
   return (
@@ -39,7 +49,7 @@ export function NewFormButton({ eventSlug }: { eventSlug: string }) {
           onSubmit={(event) => {
             event.preventDefault();
             startTransition(async () => {
-              const result = await createForm(eventSlug, name);
+              const result = await createForm(eventSlug, name, type);
               if (!result.ok) {
                 toast.error(result.error);
                 return;
@@ -67,6 +77,25 @@ export function NewFormButton({ eventSlug }: { eventSlug: string }) {
             <p className="text-sm text-muted-foreground">
               Speakers see this at the top of the form.
             </p>
+
+            {/* What submissions become (decisions.md D-041) — chosen up front
+             * because it decides whether this form feeds the review queue. */}
+            <Label htmlFor="new-form-type" className="mt-2">
+              Submissions become
+            </Label>
+            <Select value={type} onValueChange={(value) => setType(value as FormType)}>
+              <SelectTrigger id="new-form-type" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(FORM_TYPE_LABELS) as FormType[]).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {FORM_TYPE_LABELS[value]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">{FORM_TYPE_DESCRIPTIONS[type]}</p>
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isPending || !name.trim()}>

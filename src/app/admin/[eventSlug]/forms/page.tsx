@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ExternalLinkIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
-import { FORM_STATE_LABELS, formWindowState } from "@/domain/forms";
+import { FORM_STATE_LABELS, FORM_TYPE_LABELS, formWindowState } from "@/domain/forms";
 import { formatDeadline } from "@/lib/event-time";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -47,6 +47,7 @@ export default async function FormsPage({
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Window</TableHead>
               <TableHead className="text-right">Responses</TableHead>
@@ -66,6 +67,10 @@ export default async function FormsPage({
                       {form.name}
                     </Link>
                     <p className="text-xs text-muted-foreground">/submit/{form.slug}</p>
+                  </TableCell>
+                  <TableCell>
+                    {/* Whether these become sessions on arrival (D-041). */}
+                    <Badge variant="secondary">{FORM_TYPE_LABELS[form.type]}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge

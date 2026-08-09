@@ -198,12 +198,26 @@ export const RESERVED_FIELD_IDS = {
   coSpeakers: "co_speakers",
 } as const;
 
+/**
+ * What a submission to this form becomes (decisions.md D-041).
+ *
+ * `abstract` is the review pipeline every form used before this existed: a
+ * proposal queues for the committee and becomes a session only if it's
+ * accepted. `session` skips all of that — the proposal *is* the session, for
+ * invited talks and sponsor slots that were agreed before the form was sent.
+ */
+export const formTypeSchema = z.enum(["abstract", "session"]);
+export type FormType = z.infer<typeof formTypeSchema>;
+
 export const formSchema = z.object({
   id: z.string(),
   eventId: z.string(),
   name: z.string().min(1),
   /** Public URL segment: /submit/{slug}. */
   slug: z.string().min(1),
+  /** Review pipeline or direct-to-session (D-041). Existing forms are
+   * `abstract`, which is what every form did before the switch existed. */
+  type: formTypeSchema,
   welcomeCopy: z.string().nullable(),
   fields: formFieldsSchema,
   opensAt: z.coerce.date().nullable(),
@@ -223,6 +237,14 @@ export const formSchema = z.object({
 export type Form = z.infer<typeof formSchema>;
 export const newFormSchema = formSchema.omit(omitManaged);
 export type NewForm = z.infer<typeof newFormSchema>;
+
+/**
+ * True when a submission to this form becomes a confirmed session the moment
+ * it arrives, with no review step (decisions.md D-041).
+ */
+export function createsSessionsDirectly(form: Pick<Form, "type">): boolean {
+  return form.type === "session";
+}
 
 /** Whether the public form accepts submissions right now (spec.md §2). */
 export function isFormOpen(form: Form, now: Date = new Date()): boolean {
@@ -521,7 +543,15 @@ export const emailKindSchema = z.enum([
   "decision",
   /** "We need something from you before review continues" (decisions.md D-023). */
   "change_request",
+  /**
+   * The retired per-task nudge (one email per outstanding task, every three
+   * days). Superseded by `task_digest` (D-039) but kept as a kind so the
+   * `email_log` history it wrote still renders in the communication log.
+   */
   "task_reminder",
+  /** "Everything still open on your speaker checklist" — the weekly
+   * per-speaker digest sent Mondays 07:00 UTC (D-039). */
+  "task_digest",
   /** "Here's the link back to your unfinished proposal" (D-034, D-038). */
   "draft_saved",
   /** "Your draft proposal — this form closes soon" (D-034, D-038). */

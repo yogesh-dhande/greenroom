@@ -19,6 +19,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 2. Call-for-speakers forms
 - Multiple configurable public submission forms per event: welcome/explanatory copy, abstract fields (title, description, custom fields), one-or-more track selection, speaker **and co-speaker** info (multi-speaker supported, never required), bio/headshot/supporting-file fields, required-field validation.
+- Each form has a **submission type** (D-041): *abstract* forms collect proposals that go through review before becoming sessions; *session* forms collect proposals that become confirmed (unscheduled) sessions the moment they arrive, skipping review entirely — invited speakers and sponsor slots. Existing forms are abstract forms.
 - **Basic conditional logic** — no arbitrary rules engine.
 - Field-level validation beyond required-flags: length limits on text fields (walkthrough calls out Sessionboard failing its own "standard validation rules", D-034).
 - Proposals may be **abstracts or videos** — a video is just a URL/file field, but the form builder should name the option so it's discoverable (D-034).
@@ -42,7 +43,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 5. Acceptance conversion
 - Accepting a submission **automatically creates/confirms the speaker record(s), the session record, and the onboarding tasks** — no manual re-entry.
-- Direct session entry for guaranteed speakers (e.g. sponsors) without a submission.
+- Direct session entry for guaranteed speakers (e.g. sponsors) without a submission — also reachable through a session-type form, whose submissions run the same conversion automatically on arrival (D-041).
 
 ### 6. Speaker portal & onboarding
 - Speaker sees their submissions/sessions, acceptance state, and incomplete tasks; edits their own profile (name, title, company, bio, social/web links) and headshot, which feed the admin roster and public gallery.
@@ -51,6 +52,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ### 7. Communications — must actually work (no stubs)
 - Real email delivery: submission confirmation, accept/deny messages, change/missing-info requests, task & deadline reminders.
+- Task reminders are a **weekly per-speaker digest** of everything still outstanding (sent Mondays 07:00 UTC), not a per-task cadence; it stops when the checklist is clear or the event starts, and admins can send it on demand (D-039).
 - **Working calendar invitations** compatible with Gmail, Outlook, iCal (`.ics`, D-003). No video-meeting links; include room when known; support sending initially without a room and updating the invite after room assignment.
 - Templated messages with merge fields (important tier); communication log per speaker.
 
@@ -68,7 +70,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 - Submission close dates and deadline reminders; draft/incomplete submission handling.
 - Templated communications; supporting-document and slide uploads.
 - Public, mobile-friendly **speaker gallery** and **schedule**, embeddable on an external website.
-- **Airtable sync** (competition bonus; clarified expectation): app-created records land in Airtable so the customer's existing new-row automations run; the app periodically (or on page load) reads back Airtable-side changes. No real-time two-way sync. Exact tables/fields/source-of-truth: open question (see context doc).
+- **Airtable sync** (competition bonus): app-created records land in Airtable so the customer's existing new-row automations run — implemented as a one-way periodic push (events, speakers, submissions, sessions, tasks) against a real owner-provided base; Greenroom creates and maintains the tables itself (D-036). Read-back of Airtable-side edits is not built; the app remains the source of truth.
 - Submission table UX: filters, sorting, columns, statuses.
 - Portal resource/wiki pages for speaker guidance, with HTML embeds for existing reference material.
 - **Multi-round scored evaluations** — *built* (promoted from enhancement tier by the evaluator rubric, D-031; design in D-035): two or more named review rounds, each with its own open/close dates, scorecard (numeric, dropdown, free-text criteria; numeric criteria carry weights), and reviewer pool. Organizers assign submissions to a named reviewer individually or a whole track at once; each reviewer's queue contains exactly their assignments and nothing else, and they may recuse themselves from one with a reason the organizer sees. Per-submission aggregate score in a table sortable by score, per-reviewer progress counts, and CSV export of scores and statuses. Rounds sit alongside the §4 recommendation flow rather than replacing it; the binding decision stays admin-only (D-025, D-029).

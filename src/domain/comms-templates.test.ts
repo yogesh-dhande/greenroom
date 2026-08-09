@@ -254,7 +254,7 @@ describe("the built-in templates", () => {
     expect(getCommsTemplate("submission_confirmation").kind).toBe("submission_confirmation");
     expect(getCommsTemplate("submission_accepted").kind).toBe("decision");
     expect(getCommsTemplate("submission_declined").kind).toBe("decision");
-    expect(getCommsTemplate("task_reminder").kind).toBe("task_reminder");
+    expect(getCommsTemplate("task_digest").kind).toBe("task_digest");
     expect(getCommsTemplate("calendar_invite").kind).toBe("calendar_invite");
   });
 
@@ -303,17 +303,17 @@ describe("the built-in templates", () => {
 
 describe("resolveCommsTemplate", () => {
   it("uses Greenroom's copy when the event hasn't edited anything", () => {
-    const resolved = resolveCommsTemplate("task_reminder");
-    expect(resolved.subject).toBe(COMMS_TEMPLATES.task_reminder.subject);
+    const resolved = resolveCommsTemplate("task_digest");
+    expect(resolved.subject).toBe(COMMS_TEMPLATES.task_digest.subject);
     expect(resolved.isOverride).toBe(false);
     expect(resolved.overrideId).toBeNull();
   });
 
   it("prefers the event's own wording", () => {
-    const resolved = resolveCommsTemplate("task_reminder", [
+    const resolved = resolveCommsTemplate("task_digest", [
       {
         id: "row-1",
-        name: "task_reminder",
+        name: "task_digest",
         subject: "Nudge: {{taskTitle}}",
         body: "Hi {{speakerFirstName}}",
       },
@@ -326,23 +326,23 @@ describe("resolveCommsTemplate", () => {
   it("ignores rows belonging to other templates", () => {
     // The override's `name` is the join key back to the built-in id, so a
     // row for a different template must not leak into this one.
-    const resolved = resolveCommsTemplate("task_reminder", [
+    const resolved = resolveCommsTemplate("task_digest", [
       { id: "row-1", name: "submission_accepted", subject: "Other", body: "Other" },
     ]);
     expect(resolved.isOverride).toBe(false);
   });
 
   it("ignores a free-text row that isn't overriding anything", () => {
-    const resolved = resolveCommsTemplate("task_reminder", [
+    const resolved = resolveCommsTemplate("task_digest", [
       { id: "row-1", name: "Sponsor thank-you", subject: "Thanks", body: "Thanks" },
     ]);
     expect(resolved.isOverride).toBe(false);
   });
 
   it("takes the last write when an event somehow holds two rows for one template", () => {
-    const resolved = resolveCommsTemplate("task_reminder", [
-      { id: "row-1", name: "task_reminder", subject: "First", body: "First" },
-      { id: "row-2", name: "task_reminder", subject: "Second", body: "Second" },
+    const resolved = resolveCommsTemplate("task_digest", [
+      { id: "row-1", name: "task_digest", subject: "First", body: "First" },
+      { id: "row-2", name: "task_digest", subject: "Second", body: "Second" },
     ]);
     expect(resolved.overrideId).toBe("row-2");
   });
@@ -363,7 +363,7 @@ describe("resolveCommsTemplate", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkTemplateDraft", () => {
-  const available = TEMPLATE_MERGE_FIELDS.task_reminder;
+  const available = TEMPLATE_MERGE_FIELDS.task_digest;
 
   it("passes the built-in copy it will be editing", () => {
     for (const id of COMMS_TEMPLATE_IDS) {
@@ -405,18 +405,22 @@ describe("checkTemplateDraft", () => {
   });
 
   it("returns a filled-in preview alongside the verdict", () => {
-    const check = checkTemplateDraft("Hi {{speakerFirstName}}", "About {{taskTitle}}", available);
+    const check = checkTemplateDraft(
+      "Hi {{speakerFirstName}}",
+      "Still open:\n\n{{outstandingTasks}}",
+      available,
+    );
     expect(check.errors).toEqual([]);
     expect(check.preview.subject).toBe("Hi Priya");
     expect(check.preview.text).toContain("Upload your headshot");
   });
 
   it("flags a valid field with no value as blank rather than as an error", () => {
-    const check = checkTemplateDraft("Subject", "Due {{taskDueDate}}", available, {
-      taskDueDate: "",
+    const check = checkTemplateDraft("Subject", "Still open: {{outstandingTasks}}", available, {
+      outstandingTasks: "",
     });
     expect(check.errors).toEqual([]);
-    expect(check.blank).toEqual(["taskDueDate"]);
+    expect(check.blank).toEqual(["outstandingTasks"]);
   });
 
   it("keeps every template's field list inside the merge-field vocabulary", () => {

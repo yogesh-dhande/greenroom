@@ -222,7 +222,7 @@ export const COMMS_TEMPLATE_IDS = [
   "submission_waitlisted",
   "submission_declined",
   "change_request",
-  "task_reminder",
+  "task_digest",
   "calendar_invite",
 ] as const;
 
@@ -426,32 +426,27 @@ If anything is unclear, just reply to this email and we'll sort it out.
 {{eventName}}`,
   },
   {
-    id: "task_reminder",
-    name: "Task / deadline reminder",
-    description: "Nudge for an outstanding onboarding task; sent by the reminder cron (D-013).",
-    kind: "task_reminder",
-    subject: "Reminder: {{taskTitle}}",
+    id: "task_digest",
+    name: "Weekly task digest",
+    description:
+      "One email a week per speaker, listing everything still open on their checklist. Sent by the reminder cron in the Monday 07:00 UTC window (D-039).",
+    kind: "task_digest",
+    subject: "Still on your {{eventName}} speaker checklist",
     body: `Hi {{speakerFirstName}},
 
-One item on your {{eventName}} speaker checklist is still open:
-
-{{taskTitle}}{{#taskDueDate}} — due {{taskDueDate}}{{/taskDueDate}}
-
-{{#taskInstructions}}
-{{taskInstructions}}
-
-{{/taskInstructions}}
-It should take a couple of minutes:
-
-{{portalUrl}}
+Here's where your {{eventName}} speaker checklist stands this week.
 
 {{#outstandingTasks}}
-While you're there, these are also still open:
+Still to do:
 
 {{outstandingTasks}}
 
 {{/outstandingTasks}}
-If something is blocking you, reply and tell us — we'd rather know early.
+Everything lives in your speaker portal, and you can work through it in any order:
+
+{{portalUrl}}
+
+We send this once a week while something is outstanding, and stop as soon as your list is clear. If anything is blocking you, reply and tell us — we'd rather know early.
 
 {{organizerName}}
 {{eventName}}`,
@@ -547,7 +542,7 @@ export const TEMPLATE_TRIGGERS: Record<CommsTemplateId, EmailTrigger> = {
   submission_waitlisted: "manual",
   submission_declined: "on_denial",
   change_request: "manual",
-  task_reminder: "deadline_reminder",
+  task_digest: "deadline_reminder",
   calendar_invite: "manual",
 };
 
@@ -650,13 +645,9 @@ export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
     "changeRequest",
     "changeDueDate",
   ],
-  task_reminder: [
-    ...COMMON_MERGE_FIELDS,
-    "taskTitle",
-    "taskInstructions",
-    "taskDueDate",
-    "outstandingTasks",
-  ],
+  // The digest speaks about the whole checklist, so it has the task *list*
+  // (`outstandingTasks`) but no single task's title, instructions or due date.
+  task_digest: [...COMMON_MERGE_FIELDS, "outstandingTasks"],
   calendar_invite: [...COMMON_MERGE_FIELDS, ...SESSION_MERGE_FIELDS],
 };
 

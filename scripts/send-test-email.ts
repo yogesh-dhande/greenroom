@@ -38,7 +38,7 @@ import {
   sendChangeRequest,
   sendDecisionEmail,
   sendSubmissionConfirmation,
-  sendTaskReminder,
+  sendTaskDigest,
 } from "@/domain/comms";
 import { createDevEmailSender, DEV_EMAIL_DIR } from "@/lib/email";
 import { inspectIcs, unfoldIcs } from "@/lib/ics";
@@ -208,11 +208,17 @@ async function exerciseDomain(ctx: CommsContext, fixtures: Fixtures): Promise<vo
     }),
   );
 
+  // The weekly digest (D-039): one email per speaker, not one per task, so
+  // the fixture is a speaker with anything still open rather than an
+  // assignment.
   const [pending] = await ctx.repos.taskAssignments.listPendingByEvent(fixtures.event.id);
   if (pending) {
-    reportDeliveries("task reminder", await sendTaskReminder(ctx, { assignmentId: pending.id }));
+    reportDeliveries(
+      "task digest",
+      await sendTaskDigest(ctx, { eventId: fixtures.event.id, speakerId: pending.speakerId }),
+    );
   } else {
-    fail("no pending task assignment to remind about");
+    fail("no pending task assignment to build a digest from");
   }
 }
 
