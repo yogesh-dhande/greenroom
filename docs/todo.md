@@ -6,6 +6,10 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 - [ ] **(Optional, for local dev only)** add `AIRTABLE_API_KEY=…` to `.dev.vars` yourself in an editor — don't paste the token into chat or a terminal command. Not needed for the deployed sync (the secret is already set in the worker); it only lets a local dev server hit the base.
 
+## Deploy headroom
+
+- [ ] **(Recommended) Upgrade Cloudflare Workers to the $5/mo paid plan** (dash.cloudflare.com → Workers & Pages → Plans). The free plan caps the Worker at 3 MiB gzipped and the app now sits right at it — a deploy on 2026-08-09 was rejected at 3101 KiB and only fit after dropping esbuild's `keep_names` (see wrangler.jsonc). The paid plan's 10 MiB cap removes this cliff for the rest of the competition window.
+
 ## Evaluator prep (after the deploy is verified)
 
 - [ ] **`npm install` in the evals repo.** The judging harness now lives at `~/projects/killmysaas-evals` (moved out of the session temp dir); dependencies weren't copied, so run `npm install` there once.

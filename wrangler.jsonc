@@ -28,6 +28,11 @@
   // Required to fit the free plan's 3 MiB gzipped Worker cap — the unminified
   // bundle is 3.38 MiB gzipped and gets rejected (see learnings.md).
   "minify": true,
+  // esbuild's keepNames injects a __name() call at every function/class
+  // definition to preserve runtime .name; that overhead alone pushed the
+  // bundle past the 3 MiB cap (3101 KiB gzipped). Nothing here dispatches on
+  // function .name, so trade it away for the headroom.
+  "keep_names": false,
   // Primary datastore (decisions.md D-002), created in region WNAM (D-033).
   "d1_databases": [
     {
