@@ -1,4 +1,4 @@
-import { getGallery } from "../data";
+import { getGallery, getPublicEvent } from "../data";
 import { EmbedSnippet } from "../embed-snippet";
 import { PageHeader } from "@/components/page-header";
 import { SpeakerGallery } from "./speaker-gallery";
@@ -10,7 +10,7 @@ export default async function PublicSpeakersPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const speakers = await getGallery(eventSlug);
+  const [event, speakers] = await Promise.all([getPublicEvent(eventSlug), getGallery(eventSlug)]);
 
   return (
     <div>
@@ -19,7 +19,7 @@ export default async function PublicSpeakersPage({
         description="The confirmed lineup — updated as talks are accepted."
         action={<EmbedSnippet embedPath={`/embed/${eventSlug}/speakers`} />}
       />
-      <SpeakerGallery speakers={speakers} />
+      <SpeakerGallery speakers={speakers} timezone={event.timezone} />
     </div>
   );
 }

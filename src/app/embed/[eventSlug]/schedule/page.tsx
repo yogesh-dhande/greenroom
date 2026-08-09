@@ -14,5 +14,8 @@ export default async function EmbedSchedulePage({
     getPublicEvent(eventSlug),
     getSchedule(eventSlug),
   ]);
-  return <ScheduleView days={days} timezone={event.timezone} />;
+  // No itinerary here: starring belongs to the attendee's own visit to
+  // /p/[eventSlug], not to a third-party page that iframes the programme.
+  // Search, facets and the session detail view all work unchanged.
+  return <ScheduleView days={days} timezone={event.timezone} eventSlug={eventSlug} />;
 }

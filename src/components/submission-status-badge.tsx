@@ -20,6 +20,11 @@ const STATUS_PRESENTATION: Record<SubmissionStatus, { label: string; variant: Ba
   withdrawn: { label: "Withdrawn", variant: "outline" },
 };
 
+/** The same wording as the badge, for places that need plain text (CSV). */
+export function submissionStatusLabel(status: SubmissionStatus): string {
+  return STATUS_PRESENTATION[status].label;
+}
+
 export function SubmissionStatusBadge({ status }: { status: SubmissionStatus }) {
   const { label, variant } = STATUS_PRESENTATION[status];
   return <Badge variant={variant}>{label}</Badge>;

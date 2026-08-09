@@ -298,6 +298,95 @@ export const newReviewSchema = reviewSchema.omit(omitManaged);
 export type NewReview = z.infer<typeof newReviewSchema>;
 
 // ---------------------------------------------------------------------------
+// Review rounds (spec.md "Important" — multi-round scored evaluations,
+// decisions.md D-031). A parallel structure to the single-layer reviewer
+// recommendation above: rounds have their own dates, their own scorecard, and
+// their own per-reviewer assignments. Nothing in the accept/decline flow
+// depends on them.
+// ---------------------------------------------------------------------------
+
+/** The three question types a scorecard can ask (D-031). */
+export const scorecardCriterionTypeSchema = z.enum(["number", "select", "text"]);
+export type ScorecardCriterionType = z.infer<typeof scorecardCriterionTypeSchema>;
+
+/**
+ * One line on a round's scorecard. Same "questions are data" model as the CFP
+ * form fields (D-009): changing a scorecard is an edit to JSON, not a
+ * migration.
+ */
+export const scorecardCriterionSchema = z.object({
+  /** Stable key; also the key used in `RoundScore.values`. */
+  id: z.string().min(1),
+  label: z.string().min(1),
+  type: scorecardCriterionTypeSchema,
+  helpText: z.string().optional(),
+  /** Inclusive rating range for a `number` criterion (e.g. 1–5). */
+  min: z.number().optional(),
+  max: z.number().optional(),
+  /** Choices for a `select` criterion. */
+  options: z.array(z.string()).optional(),
+  /**
+   * Relative importance of a `number` criterion in the aggregate; defaults to
+   * 1. Ignored for dropdown/free-text criteria, which carry judgement rather
+   * than a measurement (src/domain/rounds.ts).
+   */
+  weight: z.number().optional(),
+});
+export type ScorecardCriterion = z.infer<typeof scorecardCriterionSchema>;
+
+export const scorecardSchema = z.array(scorecardCriterionSchema);
+
+export const reviewRoundSchema = z.object({
+  id: z.string(),
+  eventId: z.string(),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  /** Null means "no boundary on that side" — same convention as `forms`. */
+  opensAt: z.coerce.date().nullable(),
+  closesAt: z.coerce.date().nullable(),
+  criteria: scorecardSchema,
+  ...timestamps,
+});
+export type ReviewRound = z.infer<typeof reviewRoundSchema>;
+export const newReviewRoundSchema = reviewRoundSchema.omit(omitManaged);
+export type NewReviewRound = z.infer<typeof newReviewRoundSchema>;
+
+/**
+ * `recused` is a conflict of interest the reviewer declared: the submission
+ * stays on their queue, marked, but drops out of the work they still owe and
+ * out of the aggregate.
+ */
+export const roundAssignmentStatusSchema = z.enum(["pending", "done", "recused"]);
+export type RoundAssignmentStatus = z.infer<typeof roundAssignmentStatusSchema>;
+
+/** One unit of review work: this reviewer, this submission, in this round. */
+export const roundAssignmentSchema = z.object({
+  id: z.string(),
+  roundId: z.string(),
+  submissionId: z.string(),
+  reviewerId: z.string(),
+  status: roundAssignmentStatusSchema,
+  /** Why the reviewer stepped back, when they did. */
+  recusalReason: z.string().nullable(),
+  ...timestamps,
+});
+export type RoundAssignment = z.infer<typeof roundAssignmentSchema>;
+export const newRoundAssignmentSchema = roundAssignmentSchema.omit(omitManaged);
+export type NewRoundAssignment = z.infer<typeof newRoundAssignmentSchema>;
+
+/** A filled-in scorecard, keyed by `ScorecardCriterion.id`. One per assignment. */
+export const roundScoreSchema = z.object({
+  id: z.string(),
+  assignmentId: z.string(),
+  values: z.record(z.string(), z.unknown()),
+  submittedAt: z.coerce.date(),
+  ...timestamps,
+});
+export type RoundScore = z.infer<typeof roundScoreSchema>;
+export const newRoundScoreSchema = roundScoreSchema.omit(omitManaged);
+export type NewRoundScore = z.infer<typeof newRoundScoreSchema>;
+
+// ---------------------------------------------------------------------------
 // Session (scheduled agenda item — spec.md §5, §9). Not an auth session;
 // those live in src/db/schema.ts as `authSessions`.
 // ---------------------------------------------------------------------------

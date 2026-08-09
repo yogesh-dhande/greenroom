@@ -31,7 +31,7 @@
  * addressed to ORGANIZER, so src/domain/comms.ts always passes the sender
  * identity through.
  */
-import { createEvent, type DateArray, type EventAttributes } from "ics";
+import { createEvent, createEvents, type DateArray, type EventAttributes } from "ics";
 import {
   formatEventWhen,
   wallClockDurationMinutes,
@@ -193,6 +193,120 @@ export function buildCalendarInvite(input: CalendarInviteInput): CalendarInvite 
     contentType: calendarContentType(input.method),
     startsAt,
     endsAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Personal itinerary export — a *calendar file*, not an invitation.
+//
+// `buildCalendarInvite` above is deliberately iTIP-shaped: one VEVENT with
+// METHOD:REQUEST, an ORGANIZER and ATTENDEEs, because it is a scheduling
+// request addressed to a named speaker. An attendee downloading their starred
+// sessions wants the opposite: several VEVENTs, no organizer to RSVP to, no
+// attendee list, and METHOD:PUBLISH — RFC 5546 §3.2.1's "here is an event",
+// which is what `ics` emits when no method is given. Sharing the invite
+// builder would mean threading "not a request, no organizer, no attendees"
+// through every field of it, so this is a second entry point over the same
+// `ics` package instead — which keeps this file the only module that imports
+// it (decisions.md D-003, D-008).
+// ---------------------------------------------------------------------------
+
+export interface ItineraryEntry {
+  /** The session id — the UID is derived from it, so re-downloading after
+   * starring one more talk updates the existing entries rather than
+   * duplicating them. */
+  sessionId: string;
+  title: string;
+  description?: string | null;
+  /** Room name, or null while the room is still unassigned. */
+  location?: string | null;
+  /** "YYYY-MM-DD" in `timeZone`. */
+  day: string;
+  /** "HH:MM" in `timeZone`. */
+  startTime: string;
+  endTime: string;
+}
+
+export interface ItineraryCalendarInput {
+  /** IANA zone of the event — the frame the day/times live in. */
+  timeZone: string;
+  entries: ItineraryEntry[];
+  /** Shown as the calendar's name in clients that honour X-WR-CALNAME. */
+  calendarName?: string;
+  /** Basename of the downloaded file, without the extension. */
+  filenameBase?: string;
+  productId?: string;
+  /** Overrides DTSTAMP — only for deterministic tests/fixtures. */
+  stamp?: Date;
+}
+
+export interface ItineraryCalendar {
+  content: string;
+  filename: string;
+  /** No `method=` parameter: this is a plain calendar file, not an iTIP part. */
+  contentType: string;
+}
+
+const ITINERARY_PRODUCT_ID = "-//Greenroom//Personal Schedule//EN";
+
+/** UID for one starred session in an attendee's personal calendar. Distinct
+ * from `calendarUidForSession` so importing your itinerary never collides
+ * with the speaker invite already sitting in the same calendar. */
+export function itineraryUidForSession(sessionId: string, domain = "greenroom.dev"): string {
+  return `itinerary-${sessionId}@${domain}`;
+}
+
+/**
+ * Builds a single .ics holding one VEVENT per starred session. Times are
+ * emitted in UTC for exactly the reason documented at the top of this file:
+ * `ics@3` writes no VTIMEZONE, so a TZID would be unresolvable and Outlook
+ * would silently reinterpret it in the reader's own zone.
+ */
+export function buildItineraryCalendar(input: ItineraryCalendarInput): ItineraryCalendar {
+  if (input.entries.length === 0) {
+    throw new Error("Cannot build an itinerary calendar with no sessions");
+  }
+
+  const events: EventAttributes[] = input.entries.map((entry) => {
+    const startsAt = zonedWallClockToInstant(entry.day, entry.startTime, input.timeZone);
+    const endsAt = new Date(
+      startsAt.getTime() + wallClockDurationMinutes(entry.startTime, entry.endTime) * 60_000,
+    );
+    const when = formatEventWhen(entry.day, entry.startTime, entry.endTime, input.timeZone);
+    const attributes: EventAttributes = {
+      uid: itineraryUidForSession(entry.sessionId),
+      title: entry.title,
+      description: [entry.description?.trim(), when].filter(Boolean).join("\n\n"),
+      start: toUtcDateArray(startsAt),
+      startInputType: "utc",
+      startOutputType: "utc",
+      end: toUtcDateArray(endsAt),
+      endInputType: "utc",
+      endOutputType: "utc",
+      status: "CONFIRMED",
+      busyStatus: "BUSY",
+      transp: "OPAQUE",
+    };
+    if (entry.location) attributes.location = entry.location;
+    return attributes;
+  });
+
+  const { error, value } = createEvents(events, {
+    productId: input.productId ?? ITINERARY_PRODUCT_ID,
+    ...(input.calendarName ? { calName: input.calendarName } : {}),
+  });
+  if (error || !value) {
+    throw new Error(`Could not build itinerary calendar: ${error?.message}`);
+  }
+
+  const content = input.stamp
+    ? value.replace(/^DTSTAMP:.*$/gm, `DTSTAMP:${formatStamp(input.stamp)}`)
+    : value;
+
+  return {
+    content,
+    filename: `${input.filenameBase ?? "my-schedule"}.ics`,
+    contentType: "text/calendar; charset=utf-8",
   };
 }
 

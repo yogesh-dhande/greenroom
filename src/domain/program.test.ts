@@ -1,11 +1,31 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANY_FACET,
   buildGallery,
   buildSchedule,
+  compareBySurname,
+  countScheduleSessions,
+  filterScheduleDays,
+  filterSpeakers,
+  flattenSchedule,
+  foldText,
   gallerySessions,
   isPubliclyVisible,
+  itinerarySessions,
+  itineraryStorageKey,
+  parseStarredIds,
+  scheduleFacetOptions,
   scheduleSessions,
+  sessionFormatLabel,
+  sessionMatchesFilters,
+  sessionMatchesQuery,
+  speakerMatchesQuery,
+  surnameKey,
+  toggleStarred,
+  type GallerySpeaker,
   type ProgramPerson,
+  type ScheduleDay,
+  type ScheduleSessionView,
   type SessionWithSpeakers,
 } from "@/domain/program";
 
@@ -78,17 +98,66 @@ describe("isPubliclyVisible / gallerySessions / scheduleSessions", () => {
 });
 
 describe("buildGallery", () => {
-  it("dedups a speaker across multiple accepted talks onto one card", () => {
+  it("dedups a speaker across multiple accepted talks onto one card, in running order", () => {
     const priya = person({ id: "u1", name: "Priya Raman" });
     const sessions = [
+      // Deliberately out of order, and the later one listed first.
+      session({ id: "s2", title: "A second talk", speakerIds: ["u1"], startTime: "14:00", endTime: "14:30" }),
       session({ id: "s1", title: "Retrieval at scale", speakerIds: ["u1"] }),
-      session({ id: "s2", title: "A second talk", speakerIds: ["u1"] }),
     ];
 
     const gallery = buildGallery(sessions, new Map([["u1", priya]]));
 
     expect(gallery).toHaveLength(1);
     expect(gallery[0].talks.map((t) => t.title)).toEqual(["Retrieval at scale", "A second talk"]);
+  });
+
+  it("puts a speaker's unscheduled talks after their placed ones", () => {
+    const priya = person({ id: "u1", name: "Priya Raman" });
+    const sessions = [
+      session({
+        id: "s-parked",
+        title: "Still in the parking lot",
+        speakerIds: ["u1"],
+        day: null,
+        startTime: null,
+        endTime: null,
+      }),
+      session({ id: "s-placed", title: "On the grid", speakerIds: ["u1"] }),
+    ];
+
+    const gallery = buildGallery(sessions, new Map([["u1", priya]]));
+
+    expect(gallery[0].talks.map((t) => t.title)).toEqual([
+      "On the grid",
+      "Still in the parking lot",
+    ]);
+  });
+
+  it("carries each talk's day, time, room and track for the speaker detail view", () => {
+    const luis = person({ id: "u1", name: "Luis Fernández" });
+    const sessions = [
+      session({
+        id: "s1",
+        title: "Shipping an agent into a hospital",
+        speakerIds: ["u1"],
+        trackId: "t1",
+        roomId: "r1",
+      }),
+    ];
+
+    const [speaker] = buildGallery(sessions, new Map([["u1", luis]]), {
+      trackById: new Map([["t1", { name: "Agents & Tool Use" }]]),
+      roomById: new Map([["r1", { name: "Main Stage" }]]),
+    });
+
+    expect(speaker.talks[0]).toMatchObject({
+      day: "2026-06-16",
+      startTime: "10:00",
+      endTime: "10:30",
+      roomName: "Main Stage",
+      trackName: "Agents & Tool Use",
+    });
   });
 
   it("excludes speakers whose only sessions are cancelled or unscheduled per scope, keeps unscheduled", () => {
@@ -121,7 +190,7 @@ describe("buildGallery", () => {
     expect(gallery.map((g) => g.name)).toEqual(["Hannah Kim"]);
   });
 
-  it("sorts speakers by name and skips ids missing from the people map", () => {
+  it("sorts speakers by surname and skips ids missing from the people map", () => {
     const zed = person({ id: "u-z", name: "Zed Ng" });
     const sessions = [
       session({ id: "s5", title: "Talk Z", speakerIds: ["u-z"] }),
@@ -206,5 +275,258 @@ describe("buildSchedule", () => {
     const days = buildSchedule(sessions, lookups);
     const allIds = days.flatMap((d) => d.slots.flatMap((slot) => slot.sessions.map((s) => s.id)));
     expect(allIds).toEqual(["s1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Public program depth (spec.md "Public program depth", decisions.md D-031)
+// ---------------------------------------------------------------------------
+
+/** A schedule row with sensible defaults — the built view, not the entity. */
+function view(overrides: Partial<ScheduleSessionView> & { id: string }): ScheduleSessionView {
+  return {
+    title: overrides.id,
+    description: null,
+    day: "2026-06-16",
+    startTime: "10:00",
+    endTime: "10:30",
+    trackName: null,
+    trackColor: null,
+    roomName: null,
+    formatLabel: "30-minute talk",
+    speakerNames: [],
+    ...overrides,
+  };
+}
+
+const RETRIEVAL = view({
+  id: "s1",
+  title: "Retrieval that survives production traffic",
+  day: "2026-06-16",
+  startTime: "10:00",
+  endTime: "10:45",
+  trackName: "AI Engineering",
+  roomName: "Main Stage",
+  formatLabel: "45-minute talk",
+  speakerNames: ["Priya Raman"],
+});
+const INFERENCE = view({
+  id: "s2",
+  title: "Cutting inference spend by 80%",
+  day: "2026-06-16",
+  startTime: "11:00",
+  endTime: "11:30",
+  trackName: "AI Engineering",
+  roomName: "Community Hall",
+  speakerNames: ["Tom Beckett"],
+});
+const HOSPITAL = view({
+  id: "s3",
+  title: "Shipping an agent into a hospital",
+  day: "2026-06-17",
+  startTime: "14:00",
+  endTime: "14:45",
+  trackName: "Agents & Tool Use",
+  roomName: "Main Stage",
+  formatLabel: "45-minute talk",
+  speakerNames: ["Aisha Nwosu", "Luis Fernández"],
+});
+
+/** Two days, three sessions, mixed tracks/rooms/formats. */
+const DAYS: ScheduleDay[] = [
+  {
+    day: "2026-06-16",
+    slots: [
+      { startTime: "10:00", endTime: "10:45", sessions: [RETRIEVAL] },
+      { startTime: "11:00", endTime: "11:30", sessions: [INFERENCE] },
+    ],
+  },
+  {
+    day: "2026-06-17",
+    slots: [{ startTime: "14:00", endTime: "14:45", sessions: [HOSPITAL] }],
+  },
+];
+
+describe("foldText / surnameKey / compareBySurname", () => {
+  it("folds case and accents so an ASCII query still matches", () => {
+    expect(foldText("Luis Fernández")).toBe("luis fernandez");
+    expect(foldText("  Jae-won PARK ")).toBe("jae-won park");
+  });
+
+  it("takes the last name part as the sort key, ignoring honorifics", () => {
+    expect(surnameKey("Priya Raman")).toBe("raman");
+    expect(surnameKey("Jae-won Park")).toBe("park");
+    expect(surnameKey("Luis Fernández")).toBe("fernandez");
+    expect(surnameKey("Ada Lovelace Jr.")).toBe("lovelace");
+    expect(surnameKey("Cher")).toBe("cher");
+  });
+
+  it("orders a directory alphabetically by surname, not by first name", () => {
+    const names = ["Priya Raman", "Tom Beckett", "Luis Fernández", "Jae-won Park", "Sofia Rossi"];
+    const sorted = names.map((name) => ({ name })).sort(compareBySurname);
+    expect(sorted.map((s) => s.name)).toEqual([
+      "Tom Beckett",
+      "Luis Fernández",
+      "Jae-won Park",
+      "Priya Raman",
+      "Sofia Rossi",
+    ]);
+  });
+});
+
+describe("sessionFormatLabel", () => {
+  it("names the format from the placed duration, in the CFP's own vocabulary", () => {
+    expect(sessionFormatLabel("10:00", "10:30")).toBe("30-minute talk");
+    expect(sessionFormatLabel("10:00", "10:45")).toBe("45-minute talk");
+    expect(sessionFormatLabel("13:00", "14:30")).toBe("90-minute workshop");
+  });
+});
+
+describe("sessionMatchesQuery", () => {
+  it("matches session titles", () => {
+    expect(sessionMatchesQuery(RETRIEVAL, "retrieval")).toBe(true);
+    expect(sessionMatchesQuery(RETRIEVAL, "hospital")).toBe(false);
+  });
+
+  it("matches speaker names, which is the whole point of a programme search", () => {
+    expect(sessionMatchesQuery(RETRIEVAL, "priya")).toBe(true);
+    expect(sessionMatchesQuery(RETRIEVAL, "Raman")).toBe(true);
+    expect(sessionMatchesQuery(HOSPITAL, "nwosu")).toBe(true);
+    // A co-presenter counts too.
+    expect(sessionMatchesQuery(HOSPITAL, "luis")).toBe(true);
+  });
+
+  it("ignores accents so 'Fernandez' finds 'Fernández'", () => {
+    expect(sessionMatchesQuery(HOSPITAL, "fernandez")).toBe(true);
+  });
+
+  it("ANDs multiple terms without requiring them to be adjacent", () => {
+    expect(sessionMatchesQuery(RETRIEVAL, "priya retrieval")).toBe(true);
+    expect(sessionMatchesQuery(RETRIEVAL, "priya hospital")).toBe(false);
+  });
+
+  it("an empty or whitespace query matches everything", () => {
+    expect(sessionMatchesQuery(RETRIEVAL, "")).toBe(true);
+    expect(sessionMatchesQuery(RETRIEVAL, "   ")).toBe(true);
+  });
+});
+
+describe("sessionMatchesFilters / filterScheduleDays", () => {
+  it("an unset facet never narrows anything", () => {
+    expect(sessionMatchesFilters(RETRIEVAL, {})).toBe(true);
+    expect(
+      sessionMatchesFilters(RETRIEVAL, { track: ANY_FACET, room: ANY_FACET, format: ANY_FACET }),
+    ).toBe(true);
+  });
+
+  it("filters by track, room and format", () => {
+    expect(sessionMatchesFilters(RETRIEVAL, { track: "AI Engineering" })).toBe(true);
+    expect(sessionMatchesFilters(RETRIEVAL, { track: "Agents & Tool Use" })).toBe(false);
+    expect(sessionMatchesFilters(INFERENCE, { room: "Community Hall" })).toBe(true);
+    expect(sessionMatchesFilters(INFERENCE, { room: "Main Stage" })).toBe(false);
+    expect(sessionMatchesFilters(INFERENCE, { format: "30-minute talk" })).toBe(true);
+    expect(sessionMatchesFilters(RETRIEVAL, { format: "30-minute talk" })).toBe(false);
+  });
+
+  it("drops slots and whole days that no longer hold anything", () => {
+    const narrowed = filterScheduleDays(DAYS, { track: "Agents & Tool Use" });
+    expect(narrowed.map((d) => d.day)).toEqual(["2026-06-17"]);
+    expect(countScheduleSessions(narrowed)).toBe(1);
+  });
+
+  it("a speaker-name search narrows the schedule and the count with it", () => {
+    expect(countScheduleSessions(DAYS)).toBe(3);
+    const narrowed = filterScheduleDays(DAYS, { query: "beckett" });
+    expect(flattenSchedule(narrowed).map((s) => s.id)).toEqual(["s2"]);
+    expect(countScheduleSessions(narrowed)).toBe(1);
+  });
+
+  it("a query matching nothing leaves no days at all", () => {
+    expect(filterScheduleDays(DAYS, { query: "quantum" })).toEqual([]);
+  });
+});
+
+describe("scheduleFacetOptions", () => {
+  it("offers only the values actually on the schedule", () => {
+    expect(scheduleFacetOptions(DAYS)).toEqual({
+      tracks: ["Agents & Tool Use", "AI Engineering"],
+      rooms: ["Community Hall", "Main Stage"],
+      formats: ["30-minute talk", "45-minute talk"],
+    });
+  });
+});
+
+describe("personal itinerary", () => {
+  it("namespaces stored selections per event", () => {
+    expect(itineraryStorageKey("ai-engineer-summit-2026")).toBe(
+      "greenroom:itinerary:ai-engineer-summit-2026",
+    );
+  });
+
+  it("lists exactly the starred sessions, in the order they happen", () => {
+    // Starred out of order, and across two days.
+    const mine = itinerarySessions(DAYS, ["s3", "s2"]);
+    expect(mine.map((s) => s.id)).toEqual(["s2", "s3"]);
+  });
+
+  it("silently drops ids that are no longer on the public schedule", () => {
+    expect(itinerarySessions(DAYS, ["s1", "cancelled-since"]).map((s) => s.id)).toEqual(["s1"]);
+    expect(itinerarySessions(DAYS, [])).toEqual([]);
+  });
+
+  it("toggling adds then removes, leaving the input untouched", () => {
+    const empty: string[] = [];
+    const one = toggleStarred(empty, "s1");
+    expect(one).toEqual(["s1"]);
+    expect(empty).toEqual([]);
+    expect(toggleStarred(one, "s2")).toEqual(["s1", "s2"]);
+    expect(toggleStarred(one, "s1")).toEqual([]);
+  });
+
+  it("survives a missing, corrupt or hand-edited stored value", () => {
+    expect(parseStarredIds(null)).toEqual([]);
+    expect(parseStarredIds("")).toEqual([]);
+    expect(parseStarredIds("not json")).toEqual([]);
+    expect(parseStarredIds('{"s1":true}')).toEqual([]);
+    expect(parseStarredIds('["s1", 7, null, "s2"]')).toEqual(["s1", "s2"]);
+  });
+});
+
+describe("speakerMatchesQuery / filterSpeakers", () => {
+  const speaker = (overrides: Partial<GallerySpeaker> & { id: string; name: string }) =>
+    ({
+      title: null,
+      company: null,
+      bio: null,
+      headshotUrl: null,
+      talks: [],
+      ...overrides,
+    }) as GallerySpeaker;
+
+  const lineup = [
+    speaker({ id: "u1", name: "Tom Beckett", company: "Northwind" }),
+    speaker({ id: "u2", name: "Luis Fernández", title: "Staff Engineer" }),
+    speaker({ id: "u3", name: "Priya Raman" }),
+  ];
+
+  it("matches on name, including accents typed as plain ASCII", () => {
+    expect(speakerMatchesQuery(lineup[1], "fernandez")).toBe(true);
+    expect(speakerMatchesQuery(lineup[1], "luis")).toBe(true);
+    expect(speakerMatchesQuery(lineup[1], "raman")).toBe(false);
+  });
+
+  it("also matches title and company, and a speaker missing both still searches by name", () => {
+    expect(speakerMatchesQuery(lineup[0], "northwind")).toBe(true);
+    expect(speakerMatchesQuery(lineup[1], "staff")).toBe(true);
+    expect(speakerMatchesQuery(lineup[2], "priya")).toBe(true);
+  });
+
+  it("narrows the gallery, preserving its order", () => {
+    expect(filterSpeakers(lineup, "an").map((s) => s.name)).toEqual([
+      "Luis Fernández",
+      "Priya Raman",
+    ]);
+    expect(filterSpeakers(lineup, "")).toEqual(lineup);
+    expect(filterSpeakers(lineup, "nobody")).toEqual([]);
   });
 });

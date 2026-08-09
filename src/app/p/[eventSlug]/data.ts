@@ -51,7 +51,11 @@ const getSessionsWithSpeakers = cache(async (eventId: string): Promise<SessionWi
 export const getGallery = cache(async (eventSlug: string): Promise<GallerySpeaker[]> => {
   const event = await getPublicEvent(eventSlug);
   const repos = await getRepos();
-  const sessions = await getSessionsWithSpeakers(event.id);
+  const [sessions, tracks, rooms] = await Promise.all([
+    getSessionsWithSpeakers(event.id),
+    repos.tracks.listByEvent(event.id),
+    repos.rooms.listByEvent(event.id),
+  ]);
 
   const speakerIds = [...new Set(sessions.flatMap((s) => s.speakerIds))];
   const speakers = await repos.users.listByIds(speakerIds);
@@ -74,7 +78,13 @@ export const getGallery = cache(async (eventSlug: string): Promise<GallerySpeake
     ]),
   );
 
-  return buildGallery(sessions, people);
+  // Track/room names let a speaker's detail view answer "when and where is
+  // their talk?" from the same payload the grid already ships (EMB-05/EMB-13
+  // in the evaluator rubric, decisions.md D-031).
+  return buildGallery(sessions, people, {
+    trackById: new Map(tracks.map((t) => [t.id, { name: t.name }])),
+    roomById: new Map(rooms.map((r) => [r.id, { name: r.name }])),
+  });
 });
 
 export const getSchedule = cache(async (eventSlug: string): Promise<ScheduleDay[]> => {

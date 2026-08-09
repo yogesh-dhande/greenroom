@@ -1,15 +1,20 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { cn } from "@/lib/utils";
 
 /** Initials fallback for a missing or broken headshot — client-only because
  * it needs the image's `onError` to decide whether to fall back. */
 export function SpeakerHeadshot({
   name,
   headshotUrl,
+  className,
 }: {
   name: string;
   headshotUrl: string | null;
+  /** Size override — the gallery card uses the default, the detail view a
+   * larger portrait. */
+  className?: string;
 }) {
   const [failed, setFailed] = useState(false);
 
@@ -37,7 +42,10 @@ export function SpeakerHeadshot({
     return (
       <div
         aria-hidden
-        className="flex size-12 shrink-0 items-center justify-center rounded-full bg-accent font-heading text-sm font-semibold text-accent-foreground"
+        className={cn(
+          "flex size-12 shrink-0 items-center justify-center rounded-full bg-accent font-heading text-sm font-semibold text-accent-foreground",
+          className,
+        )}
       >
         {initials || "?"}
       </div>
@@ -53,7 +61,7 @@ export function SpeakerHeadshot({
       ref={checkAlreadyBroken}
       src={headshotUrl}
       alt={name}
-      className="size-12 shrink-0 rounded-full object-cover"
+      className={cn("size-12 shrink-0 rounded-full object-cover", className)}
       onError={() => setFailed(true)}
     />
   );

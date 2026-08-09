@@ -4,6 +4,7 @@ import { createEmailLogRepo } from "./email-log";
 import { createEmailTemplatesRepo } from "./email-templates";
 import { createEventsRepo } from "./events";
 import { createFormsRepo } from "./forms";
+import { createReviewRoundsRepo } from "./review-rounds";
 import { createReviewsRepo } from "./reviews";
 import { createRoomsRepo } from "./rooms";
 import { createSessionsRepo } from "./sessions";
@@ -27,6 +28,7 @@ export function createD1Repos(d1: D1Database): Repos {
     forms: createFormsRepo(db),
     submissions: createSubmissionsRepo(db),
     reviews: createReviewsRepo(db),
+    reviewRounds: createReviewRoundsRepo(db),
     tracks: createTracksRepo(db),
     rooms: createRoomsRepo(db),
     sessions: createSessionsRepo(db),

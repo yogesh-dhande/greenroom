@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { label: "Overview", href: "" },
   { label: "Submissions", href: "/submissions" },
+  { label: "Review rounds", href: "/rounds" },
   { label: "Agenda", href: "/agenda" },
   { label: "Speakers", href: "/speakers" },
   { label: "Tasks", href: "/tasks" },

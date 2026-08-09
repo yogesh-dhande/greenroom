@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCalendarInvite,
+  buildItineraryCalendar,
   calendarContentType,
   calendarUidForSession,
   inspectIcs,
+  itineraryUidForSession,
   unfoldIcs,
   type CalendarInviteInput,
 } from "@/lib/ics";
@@ -223,5 +225,108 @@ describe("unfoldIcs", () => {
     for (const line of invite.content.split("\r\n")) {
       expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
     }
+  });
+});
+
+describe("buildItineraryCalendar", () => {
+  const entries = [
+    {
+      sessionId: "sess-1",
+      title: "Retrieval that survives production traffic",
+      description: "A practical pattern for retrieval under load.",
+      location: "Main Stage",
+      day: "2026-06-16",
+      startTime: "10:00",
+      endTime: "10:45",
+    },
+    {
+      sessionId: "sess-2",
+      title: "Shipping an agent into a hospital",
+      description: null,
+      location: null,
+      day: "2026-06-17",
+      startTime: "14:00",
+      endTime: "14:45",
+    },
+  ];
+
+  function build(overrides: Partial<Parameters<typeof buildItineraryCalendar>[0]> = {}) {
+    return buildItineraryCalendar({
+      timeZone: "America/Los_Angeles",
+      entries,
+      calendarName: "AI Engineer Summit 2026 — my schedule",
+      filenameBase: "ai-engineer-summit-2026-my-schedule",
+      stamp: STAMP,
+      ...overrides,
+    });
+  }
+
+  it("wraps every starred session in one calendar object", () => {
+    const { content } = build();
+    const unfolded = unfoldIcs(content);
+
+    expect(unfolded[0]).toBe("BEGIN:VCALENDAR");
+    expect(unfolded[unfolded.length - 1]).toBe("END:VCALENDAR");
+    expect(unfolded.filter((line) => line === "BEGIN:VEVENT")).toHaveLength(2);
+    expect(values(content, "SUMMARY")).toEqual([
+      "Retrieval that survives production traffic",
+      "Shipping an agent into a hospital",
+    ]);
+    expect(values(content, "VERSION")).toEqual(["2.0"]);
+  });
+
+  it("is a plain calendar file, not an iTIP message", () => {
+    const { content, contentType, filename } = build();
+
+    // PUBLISH, not REQUEST: RFC 5546 §3.2.1 is exactly "here is an event",
+    // with no organizer to RSVP to and no attendee list.
+    expect(values(content, "METHOD")).toEqual(["PUBLISH"]);
+    expect(values(content, "ORGANIZER")).toEqual([]);
+    expect(values(content, "ATTENDEE")).toEqual([]);
+    expect(contentType).toBe("text/calendar; charset=utf-8");
+    expect(contentType).not.toContain("method=");
+    expect(filename).toBe("ai-engineer-summit-2026-my-schedule.ics");
+  });
+
+  it("emits UTC instants derived from the event's zone, never a bare TZID", () => {
+    const { content } = build();
+
+    // 10:00 PDT (UTC-7) on June 16 is 17:00Z.
+    expect(lines(content, "DTSTART")).toEqual(["DTSTART:20260616T170000Z", "DTSTART:20260617T210000Z"]);
+    expect(lines(content, "DTEND")).toEqual(["DTEND:20260616T174500Z", "DTEND:20260617T214500Z"]);
+    expect(inspectIcs(content).errors).not.toContain(
+      "DTSTART is floating local time (no Z, no TZID) — it will render in the reader's zone",
+    );
+  });
+
+  it("keeps the room as LOCATION and repeats the local time in the description", () => {
+    const { content } = build();
+
+    expect(values(content, "LOCATION")).toEqual(["Main Stage"]);
+    expect(values(content, "DESCRIPTION")[0]).toContain("A practical pattern for retrieval");
+    expect(values(content, "DESCRIPTION")[0]).toContain("10:00 AM");
+    // The second session has no abstract — the description is just the when.
+    expect(values(content, "DESCRIPTION")[1]).toContain("2:00 PM");
+  });
+
+  it("uses itinerary UIDs, so importing never collides with a speaker invite", () => {
+    const { content } = build();
+
+    expect(values(content, "UID")).toEqual([
+      "itinerary-sess-1@greenroom.dev",
+      "itinerary-sess-2@greenroom.dev",
+    ]);
+    expect(itineraryUidForSession("sess-1")).not.toBe(calendarUidForSession("sess-1"));
+  });
+
+  it("re-exporting the same session addresses the same calendar entry", () => {
+    const first = build({ entries: [entries[0]] });
+    const second = build();
+
+    expect(values(second.content, "UID")[0]).toBe(values(first.content, "UID")[0]);
+  });
+
+  it("refuses to build an empty calendar", () => {
+    expect(() => build({ entries: [] })).toThrow(/no sessions/i);
   });
 });

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./helpers";
 
 /**
@@ -190,4 +190,224 @@ test("the public program works on a mobile viewport", async ({ page }) => {
 
   await page.goto(SCHEDULE);
   await expect(page.getByText(RETRIEVAL)).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Public program depth (spec.md "Public program depth", decisions.md D-031):
+// search, facets, detail views, and the personal itinerary. Everything below
+// is unauthenticated — no signIn() anywhere.
+//
+// Counts are asserted relatively ("3 of 5"), never absolutely: agenda.spec.ts
+// runs first on the shared worker and places two more seeded talks on the
+// grid, so the programme's size is not fixed. Session identity is asserted by
+// title, and ordering by relative index.
+// ---------------------------------------------------------------------------
+
+/** Aisha Nwosu co-presents HOSPITAL and nothing else — a speaker name that
+ * appears in no session title, so matching it can only come from the speaker
+ * index. */
+const AISHA_SURNAME = "Nwosu";
+
+/** Picks an option in the shadcn/Radix facet selects by their accessible name. */
+async function chooseFacet(page: Page, label: string, option: string): Promise<void> {
+  await page.getByLabel(label).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+}
+
+test("schedule search matches speaker names, not just session titles", async ({ page }) => {
+  await page.goto(SCHEDULE);
+  await expect(page.getByText(RETRIEVAL)).toBeVisible();
+
+  await page.getByLabel("Search sessions by title or speaker").fill(AISHA_SURNAME);
+
+  // One match, and it is the talk she co-presents — on day 2, so the day tabs
+  // follow the search rather than stranding the attendee on an empty day 1.
+  await expect(page.getByTestId("session-count")).toContainText("1 of");
+  await expect(page.getByText(HOSPITAL)).toBeVisible();
+  await expect(page.getByText(RETRIEVAL)).toHaveCount(0);
+  await expect(page.getByText(INFERENCE)).toHaveCount(0);
+
+  // A term that matches nothing at all says so rather than showing an empty
+  // grid.
+  await page.getByLabel("Search sessions by title or speaker").fill("zzzznotathing");
+  await expect(page.getByTestId("session-count")).toContainText("0 of");
+  await expect(page.getByText("No sessions match")).toBeVisible();
+
+  await page.getByRole("button", { name: "Clear filters" }).first().click();
+  await expect(page.getByText(RETRIEVAL)).toBeVisible();
+  await expect(page.getByTestId("session-count")).toHaveText(/^\d+ sessions$/);
+});
+
+test("the track facet narrows the schedule to one track", async ({ page }) => {
+  await page.goto(SCHEDULE);
+
+  await chooseFacet(page, "Filter by track", "AI Engineering");
+
+  // Both AI Engineering talks survive; the Agents & Tool Use one on day 2
+  // leaves the programme entirely, as does anything another spec placed on
+  // day 1 under a different track.
+  await expect(page.getByText(RETRIEVAL)).toBeVisible();
+  await expect(page.getByText(INFERENCE)).toBeVisible();
+  await expect(page.getByText(HOSPITAL)).toHaveCount(0);
+  await expect(page.getByText("Evals you'll actually keep running")).toHaveCount(0);
+  await expect(page.getByTestId("session-count")).toContainText(" of ");
+
+  await page.getByRole("button", { name: "Clear filters" }).first().click();
+  await expect(page.getByTestId("session-count")).toHaveText(/^\d+ sessions$/);
+});
+
+test("a schedule session opens a detail view and closes back to the schedule", async ({ page }) => {
+  await page.goto(SCHEDULE);
+
+  await page.getByRole("button", { name: RETRIEVAL, exact: true }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(RETRIEVAL);
+  await expect(dialog).toContainText(PRIYA);
+  // Full start–end time (in the event's own timezone), room, track, format.
+  await expect(dialog).toContainText("10:00 AM");
+  await expect(dialog).toContainText("10:45 AM");
+  await expect(dialog).toContainText("Main Stage");
+  await expect(dialog).toContainText("AI Engineering");
+  await expect(dialog).toContainText("45-minute talk");
+  // ...and the abstract itself.
+  await expect(dialog).toContainText("Most RAG demos fall over");
+
+  await dialog.getByRole("button", { name: "Back to schedule" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByText(RETRIEVAL)).toBeVisible();
+  await expect(page.getByText(INFERENCE)).toBeVisible();
+});
+
+test("the speaker directory is ordered by surname and searchable by name", async ({ page }) => {
+  await page.goto(SPEAKERS);
+
+  const names = await page.getByRole("heading", { level: 3 }).allTextContents();
+  const position = (name: string) => names.indexOf(name);
+  expect(position(PRIYA)).toBeGreaterThan(-1);
+  // Both pairs would come out the other way round under a first-name sort:
+  // Beckett before Raman (Tom after Priya), Fernández before Kim (Luis after
+  // Hannah).
+  expect(position("Tom Beckett")).toBeLessThan(position(PRIYA));
+  expect(position("Luis Fernández")).toBeLessThan(position("Hannah Kim"));
+
+  await page.getByLabel("Search speakers by name").fill("Beckett");
+  await expect(page.getByTestId("speaker-count")).toContainText("1 of");
+  await expect(page.getByRole("heading", { name: "Tom Beckett" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: PRIYA })).toHaveCount(0);
+
+  await page.getByLabel("Search speakers by name").fill("zzzznotathing");
+  await expect(page.getByText("No speakers match")).toBeVisible();
+});
+
+test("a gallery card opens the speaker's profile and closes back to the grid", async ({ page }) => {
+  await page.goto(SPEAKERS);
+
+  // Tom, not Priya: portal.spec.ts runs first and rewrites Priya's title and
+  // bio through the profile editor, so her seeded values are already gone by
+  // the time this file runs. Tom's profile is mutated by no other spec.
+  await page.getByRole("button", { name: "Tom Beckett", exact: true }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Tom Beckett");
+  await expect(dialog).toContainText("Principal Engineer");
+  await expect(dialog).toContainText("Halyard");
+  await expect(dialog).toContainText("batch inference cheap enough to be boring");
+  // His session, with when and where.
+  await expect(dialog).toContainText(INFERENCE);
+  await expect(dialog).toContainText("11:00 AM");
+  await expect(dialog).toContainText("Community Hall");
+
+  await dialog.getByRole("button", { name: "Back to speakers" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: PRIYA })).toBeVisible();
+  await expect(page.getByRole("heading", { name: DAMOLA })).toBeVisible();
+
+  // A speaker seeded with no bio and no headshot still gets a complete
+  // profile rather than a broken one.
+  await page.getByRole("button", { name: "Luis Fernández", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("No biography yet.");
+  await page.getByRole("dialog").getByRole("button", { name: "Back to speakers" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("starring sessions builds a personal schedule that survives a reload", async ({ page }) => {
+  await page.goto(SCHEDULE);
+
+  await page.getByRole("button", { name: `Add to my schedule: ${RETRIEVAL}` }).click();
+  await page.getByRole("button", { name: `Add to my schedule: ${INFERENCE}` }).click();
+
+  const myScheduleTab = page.getByRole("tab", { name: /My schedule/ });
+  await expect(myScheduleTab).toContainText("(2)");
+  await myScheduleTab.click();
+
+  const list = page.getByTestId("itinerary-list");
+  await expect(page.getByTestId("itinerary-count")).toHaveText("2 starred sessions");
+  await expect(list).toContainText(RETRIEVAL);
+  await expect(list).toContainText(INFERENCE);
+  await expect(list).not.toContainText(HOSPITAL);
+  // Time order, not click order: the 10:00 talk sits above the 11:00 one.
+  await expect(list.locator("li").first()).toContainText(RETRIEVAL);
+
+  // localStorage, so it outlives a full reload with no account anywhere.
+  await page.reload();
+  await page.getByRole("tab", { name: /My schedule/ }).click();
+  await expect(page.getByTestId("itinerary-count")).toHaveText("2 starred sessions");
+
+  // Unstarring from the personal view updates it immediately.
+  await page
+    .getByTestId("itinerary-list")
+    .getByRole("button", { name: `Remove from my schedule: ${INFERENCE}` })
+    .click();
+  await expect(page.getByTestId("itinerary-count")).toHaveText("1 starred session");
+  await expect(page.getByTestId("itinerary-list")).toContainText(RETRIEVAL);
+  await expect(page.getByTestId("itinerary-list")).not.toContainText(INFERENCE);
+});
+
+test("the personal schedule exports a calendar file of exactly the starred sessions", async ({
+  page,
+}) => {
+  await page.goto(SCHEDULE);
+  await page.getByRole("button", { name: `Add to my schedule: ${RETRIEVAL}` }).click();
+
+  await page.getByRole("tab", { name: /My schedule/ }).click();
+  const href = await page.getByRole("link", { name: /Add to calendar/ }).getAttribute("href");
+  expect(href).toBeTruthy();
+
+  // Fetched rather than downloaded: the file is written by a route handler
+  // (src/app/p/[eventSlug]/itinerary.ics), so there is a real response to
+  // assert on — headers included.
+  const response = await page.request.get(href!);
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("text/calendar");
+  expect(response.headers()["content-disposition"]).toContain(".ics");
+
+  const body = await response.text();
+  expect(body).toContain("BEGIN:VCALENDAR");
+  expect(body).toContain("BEGIN:VEVENT");
+  expect(body).toContain(RETRIEVAL);
+  expect(body).toContain("Main Stage");
+  expect(body).toContain("END:VCALENDAR");
+  // Only what was starred.
+  expect(body).not.toContain(INFERENCE);
+});
+
+test("the embed schedule keeps search and filters but no personal itinerary", async ({ page }) => {
+  await page.goto(EMBED_SCHEDULE);
+
+  // A starred list belongs to the attendee's own visit, not to a third-party
+  // page that iframes the programme.
+  await expect(page.getByRole("tab", { name: /My schedule/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Add to my schedule/ })).toHaveCount(0);
+
+  await page.getByLabel("Search sessions by title or speaker").fill(AISHA_SURNAME);
+  await expect(page.getByTestId("session-count")).toContainText("1 of");
+  await expect(page.getByText(HOSPITAL)).toBeVisible();
+
+  await page.goto(EMBED_SPEAKERS);
+  await page.getByLabel("Search speakers by name").fill("Beckett");
+  await expect(page.getByTestId("speaker-count")).toContainText("1 of");
 });

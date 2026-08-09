@@ -1,4 +1,4 @@
-import { getGallery } from "@/app/p/[eventSlug]/data";
+import { getGallery, getPublicEvent } from "@/app/p/[eventSlug]/data";
 import { SpeakerGallery } from "@/app/p/[eventSlug]/speakers/speaker-gallery";
 
 /** Chrome-less speaker gallery for iframing (spec.md "Important / strongly
@@ -10,6 +10,6 @@ export default async function EmbedSpeakersPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const speakers = await getGallery(eventSlug);
-  return <SpeakerGallery speakers={speakers} />;
+  const [event, speakers] = await Promise.all([getPublicEvent(eventSlug), getGallery(eventSlug)]);
+  return <SpeakerGallery speakers={speakers} timezone={event.timezone} />;
 }

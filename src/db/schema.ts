@@ -312,6 +312,77 @@ export const reviews = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Review rounds (spec.md "Important": multi-round scored evaluations,
+// decisions.md D-031). Parallel to `reviews` above, not a replacement: the
+// accept/decline flow never reads these tables.
+// ---------------------------------------------------------------------------
+
+export const reviewRounds = sqliteTable(
+  "review_rounds",
+  {
+    id: id(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    opensAt: integer("opens_at", { mode: "timestamp" }),
+    closesAt: integer("closes_at", { mode: "timestamp" }),
+    /** JSON-serialized ScorecardCriterion[] (src/db/entities.ts). Each round
+     * carries its own scorecard — that is what makes rounds independent. */
+    criteria: text("criteria", { mode: "json" }).notNull(),
+    ...timestamps,
+  },
+  (t) => [index("review_rounds_event_idx").on(t.eventId)],
+);
+
+/**
+ * Who reviews what, per round. A reviewer's queue *is* this table — there is
+ * no round-level track fallback, so a reviewer in round 1 is not
+ * automatically in round 2.
+ */
+export const roundAssignments = sqliteTable(
+  "round_assignments",
+  {
+    id: id(),
+    roundId: text("round_id")
+      .notNull()
+      .references(() => reviewRounds.id, { onDelete: "cascade" }),
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => submissions.id, { onDelete: "cascade" }),
+    reviewerId: text("reviewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["pending", "done", "recused"] })
+      .notNull()
+      .default("pending"),
+    recusalReason: text("recusal_reason"),
+    ...timestamps,
+  },
+  (t) => [
+    unique("round_assignments_unq").on(t.roundId, t.submissionId, t.reviewerId),
+    index("round_assignments_round_idx").on(t.roundId),
+    index("round_assignments_reviewer_idx").on(t.reviewerId),
+  ],
+);
+
+/** One submitted scorecard per assignment; re-submitting replaces it. */
+export const roundScores = sqliteTable("round_scores", {
+  id: id(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .unique()
+    .references(() => roundAssignments.id, { onDelete: "cascade" }),
+  /** JSON object keyed by ScorecardCriterion.id. */
+  values: text("values", { mode: "json" }).notNull(),
+  submittedAt: integer("submitted_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
 // Sessions (spec.md §5, §9) — confirmed agenda items
 // ---------------------------------------------------------------------------
 

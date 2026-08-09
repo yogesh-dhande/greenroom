@@ -24,7 +24,7 @@ export default async function PublicSchedulePage({
         description={`All times in ${event.timezone.replace("_", " ")}.`}
         action={<EmbedSnippet embedPath={`/embed/${eventSlug}/schedule`} />}
       />
-      <ScheduleView days={days} timezone={event.timezone} />
+      <ScheduleView days={days} timezone={event.timezone} eventSlug={eventSlug} itinerary />
     </div>
   );
 }

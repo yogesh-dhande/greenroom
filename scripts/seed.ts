@@ -671,6 +671,131 @@ async function seed(repos: Repos): Promise<void> {
   ];
   for (const review of reviewSeeds) await repos.reviews.create(review);
 
+  // --- review rounds (spec.md "Important" — multi-round scored evaluations) --
+  // Round one is mid-flight, so progress and aggregate scores render non-empty;
+  // round two is configured with a different scorecard and a different reviewer
+  // pool but hasn't opened yet — which is what makes the plan visibly *multi*
+  // round rather than one global review setup.
+  const firstPass = await repos.reviewRounds.create({
+    eventId: event.id,
+    name: "First-pass review",
+    description: "Screening pass — anything plausible goes through to the committee round.",
+    opensAt: daysFromNow(-14),
+    closesAt: daysFromNow(14),
+    criteria: [
+      {
+        id: "originality",
+        label: "Originality",
+        type: "number",
+        min: 1,
+        max: 5,
+        weight: 2,
+        helpText: "Have we heard this talk three times already?",
+      },
+      { id: "relevance", label: "Relevance", type: "number", min: 1, max: 5, weight: 1 },
+      {
+        id: "recommendation",
+        label: "Recommendation",
+        type: "select",
+        options: ["Accept", "Maybe", "Decline"],
+      },
+      { id: "comments", label: "Comments", type: "text" },
+    ],
+  });
+
+  const finalRound = await repos.reviewRounds.create({
+    eventId: event.id,
+    name: "Committee final round",
+    description: "The shortlist, scored on one number by the program committee.",
+    opensAt: daysFromNow(21),
+    closesAt: daysFromNow(45),
+    criteria: [
+      { id: "final_score", label: "Final score", type: "number", min: 1, max: 10, weight: 1 },
+      { id: "comments", label: "Comments", type: "text" },
+    ],
+  });
+
+  interface RoundWorkSeed {
+    title: string;
+    reviewer: User;
+    values?: Record<string, unknown>;
+    recusalReason?: string;
+  }
+
+  const firstPassWork: RoundWorkSeed[] = [
+    {
+      title: "Retrieval that survives production traffic",
+      reviewer: reviewers[0],
+      values: {
+        originality: 4,
+        relevance: 5,
+        recommendation: "Accept",
+        comments: "Strongest retrieval submission this year — would open the track with it.",
+      },
+    },
+    {
+      title: "Shipping an agent into a hospital",
+      reviewer: reviewers[0],
+      values: {
+        originality: 5,
+        relevance: 4,
+        recommendation: "Accept",
+        comments: "Co-presented and genuinely novel. Confirm both speakers can travel.",
+      },
+    },
+    { title: "Evals you'll actually keep running", reviewer: reviewers[0] },
+    {
+      title: "Multi-agent systems: when they help and when they're theatre",
+      reviewer: reviewers[1],
+      values: {
+        originality: 3,
+        relevance: 4,
+        recommendation: "Maybe",
+        comments: "Refreshingly sceptical; want the six-month data before confirming.",
+      },
+    },
+    {
+      title: "Introducing our AI platform",
+      reviewer: reviewers[1],
+      recusalReason: "I consult for this company.",
+    },
+    { title: "Streaming UIs that don't lie to the user", reviewer: reviewers[1] },
+  ];
+
+  for (const work of firstPassWork) {
+    const submissionId = submissionByTitle.get(work.title);
+    if (!submissionId) continue;
+    const roundAssignment = await repos.reviewRounds.assign(
+      firstPass.id,
+      submissionId,
+      work.reviewer.id,
+    );
+    if (work.values) {
+      await repos.reviewRounds.saveScore(roundAssignment.id, work.values, daysFromNow(-3));
+      await repos.reviewRounds.setAssignmentStatus(roundAssignment.id, "done", null);
+    }
+    if (work.recusalReason) {
+      await repos.reviewRounds.setAssignmentStatus(
+        roundAssignment.id,
+        "recused",
+        work.recusalReason,
+      );
+    }
+  }
+
+  // A different pool for round two: Marco alone, nothing scored yet.
+  for (const title of [
+    "Retrieval that survives production traffic",
+    "Shipping an agent into a hospital",
+  ]) {
+    const submissionId = submissionByTitle.get(title);
+    if (submissionId) await repos.reviewRounds.assign(finalRound.id, submissionId, reviewers[1].id);
+  }
+
+  console.log(
+    `rounds     2 (${firstPass.name} — open with ${firstPassWork.length} assignments; ${finalRound.name} — not open yet)`,
+  );
+
   // --- sessions (accepted submissions become agenda items) ------------------
   const sessionIds: string[] = [];
   for (const [index, { submissionId, seedRow }] of approved.entries()) {
