@@ -1,6 +1,6 @@
 import type { TaskAssignment } from "@/db/entities";
 import { getRepos } from "@/lib/db";
-import { requireEventAccess } from "@/lib/session";
+import { requireEventAdmin } from "@/lib/session";
 import { buildSpeakerRollups, sortSpeakerRollups, TASK_STATE_LABEL, type TaskState } from "@/domain/onboarding";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -39,6 +39,9 @@ function missingProfileParts(speaker: { bio: string | null; headshotUrl: string 
  * auto-creates the session record (even before it's scheduled), so having any
  * session row for this event is what confirmed means — that also covers a
  * speaker entered directly (e.g. a sponsor) with no CFP submission at all.
+ *
+ * Admin-only (decisions.md D-047) — the onboarding dashboard isn't part of a
+ * reviewer's event workspace.
  */
 export default async function SpeakersPage({
   params,
@@ -46,7 +49,7 @@ export default async function SpeakersPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const { event } = await requireEventAccess(eventSlug);
+  const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
   const [sessions, tasks, assignments] = await Promise.all([

@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ExternalLinkIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
-import { requireAdmin } from "@/lib/session";
+import { requireEventAdmin } from "@/lib/session";
 import { FORM_STATE_LABELS, FORM_TYPE_LABELS, formWindowState } from "@/domain/forms";
 import { formatDeadline } from "@/lib/event-time";
 import { PageHeader } from "@/components/page-header";
@@ -17,14 +16,11 @@ export default async function FormsPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  // Building a CFP is an organizer job — reviewers land back on their queue,
-  // the same guard event settings uses.
-  await requireAdmin(`/admin/${eventSlug}/forms`);
+  // Building a CFP is an organizer job — reviewers land back on their queue
+  // (decisions.md D-047).
+  const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
-
   const forms = await repos.forms.listByEvent(event.id);
   const counts = await repos.submissions.countByForms(forms.map((form) => form.id));
 

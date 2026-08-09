@@ -95,6 +95,27 @@ export async function requireEventAccess(
   return { user, event };
 }
 
+/**
+ * Guard for an event's admin-only pages (decisions.md D-047): Agenda,
+ * Speakers, Tasks, Forms, Communications, Team, and Settings. `requireAdmin`
+ * handles the role check and redirect; this adds the event lookup those
+ * pages need, the same shape `requireEventAccess` returns.
+ *
+ * A reviewer who reaches for one of these is bounced to /admin like any
+ * other `requireAdmin` call — the event-scoped layout already let them into
+ * the event via `requireEventAccess`, but that only grants the three pages
+ * D-047 names as reviewer-visible, not this one.
+ */
+export async function requireEventAdmin(eventSlug: string, next?: string): Promise<EventAccess> {
+  const user = await requireAdmin(next ?? `/admin/${eventSlug}`);
+
+  const repos = await getRepos();
+  const event = await repos.events.getBySlug(eventSlug);
+  if (!event) notFound();
+
+  return { user, event };
+}
+
 /** Every event this viewer may open — the switcher and the /admin index. */
 export async function listAccessibleEvents(user: SessionUser): Promise<Event[]> {
   const repos = await getRepos();

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { changeTeamRole } from "./actions";
+import { EditNameDialog } from "./edit-name-dialog";
 import { ReviewerTracksDialog } from "./reviewer-tracks-dialog";
 import type { TeamMemberRow, TrackOption } from "./types";
 
@@ -112,19 +113,26 @@ export function TeamTable({
             return (
               <TableRow key={member.id}>
                 <TableCell className="font-medium text-foreground">
-                  {/* People added by email have no name until they sign in
-                    * and fill in a profile. */}
-                  {member.name ?? <span className="text-muted-foreground">—</span>}
-                  {member.isViewer && (
-                    <Badge variant="outline" className="ml-2">
-                      You
-                    </Badge>
-                  )}
-                  {!member.hasSignedIn && (
-                    <Badge variant="secondary" className="ml-2">
-                      Not signed in yet
-                    </Badge>
-                  )}
+                  <span className="inline-flex items-center gap-1.5">
+                    {/* People added by email have no name until they sign in
+                      * and fill in a profile. */}
+                    {member.name ?? <span className="text-muted-foreground">—</span>}
+                    {member.isViewer && (
+                      <Badge variant="outline">You</Badge>
+                    )}
+                    {!member.hasSignedIn && (
+                      <Badge variant="secondary">Not signed in yet</Badge>
+                    )}
+                    <EditNameDialog
+                      eventSlug={eventSlug}
+                      member={member}
+                      trigger={
+                        <Button size="xs" variant="ghost">
+                          Edit
+                        </Button>
+                      }
+                    />
+                  </span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{member.email}</TableCell>
                 <TableCell>

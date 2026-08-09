@@ -209,7 +209,10 @@ const SPEAKER_SEEDS: Array<{
   },
 ];
 
-/** ~8 fields including one conditional field and the track multiselect. */
+/**
+ * ~12 fields, including one conditional field, the track multiselect, and a
+ * custom "Choose one" question (`audience_level`, D-046).
+ */
 function cfpFields(trackNames: string[]): FormField[] {
   return [
     {
@@ -279,6 +282,20 @@ function cfpFields(trackNames: string[]): FormField[] {
       type: "url",
       label: "Link to a previous talk",
       helpText: "Optional, but it helps the review committee a lot.",
+    },
+    {
+      // A custom "Choose one" question (spec.md "Demo credibility", D-046):
+      // the live CFP form needs at least one non-text custom question, or
+      // the builder's select/multiselect field types read as untested.
+      // Optional on purpose — most custom questions organizers add aren't
+      // gates, and existing seeded submissions (which predate this field)
+      // simply have no key for it, which `renderAnswer`/`buildFormValidator`
+      // both already treat as "unanswered", not invalid.
+      id: "audience_level",
+      type: "select",
+      label: "Audience level",
+      helpText: "Helps reviewers match difficulty to track expectations.",
+      options: ["Beginner", "Intermediate", "Advanced"],
     },
     // The video-proposal preset (spec.md §2 "abstracts or videos", D-034).
     { ...VIDEO_LINK_FIELD },
@@ -628,9 +645,10 @@ async function seed(repos: Repos): Promise<void> {
     confirmationEmailSubject: "We received your talk proposal — {{submissionTitle}}",
     confirmationEmailBody:
       'Hi {{speakerFirstName}},\n\nThanks for proposing "{{submissionTitle}}" for {{eventName}}. Our program committee reviews submissions by track, and you\'ll hear from us by 15 April.\n\nYou can edit your proposal any time before submissions close:\n\n{{portalUrl}}\n\n— The AI Engineer Summit team',
-    // Two proposals per speaker (D-034, D-038) — enough to exercise the cap
-    // without making the demo feel restrictive.
-    maxSubmissionsPerSpeaker: 2,
+    // Five proposals per speaker (D-034, D-038, D-046) — enough headroom that
+    // a demo visitor can actually submit and still see the cap in action,
+    // rather than tripping over it on their first try.
+    maxSubmissionsPerSpeaker: 5,
     isPublished: true,
   });
 
@@ -725,7 +743,7 @@ async function seed(repos: Repos): Promise<void> {
   console.log(`submissions ${SUBMISSION_SEEDS.length} across all six statuses`);
 
   // --- a second CFP that closes tomorrow, with an unfinished draft on it ----
-  // Exercises two D-034 features that the main CFP can't: the one-proposal
+  // Exercises two D-034 features that the main CFP can't: the low per-speaker
   // cap, and the reminder the cron sends when a form with a saved draft is
   // inside its final 48 hours.
   const lightning = await repos.forms.create({
@@ -734,7 +752,7 @@ async function seed(repos: Repos): Promise<void> {
     slug: "ai-engineer-summit-2026-lightning",
     type: "abstract",
     welcomeCopy:
-      "Five minutes, one idea, no slides required. One proposal per speaker — pick your best one.",
+      "Five minutes, one idea, no slides required. Up to two proposals per speaker — pick your best ones.",
     fields: [
       {
         id: "title",
@@ -760,7 +778,10 @@ async function seed(repos: Repos): Promise<void> {
     confirmationPageContent: "Got it — five minutes are yours if we can fit you in.",
     confirmationEmailSubject: null,
     confirmationEmailBody: null,
-    maxSubmissionsPerSpeaker: 1,
+    // D-046: headroom for a demo visitor to submit a second lightning talk
+    // and still see the cap bite on a third — one slot leaves no room to
+    // demonstrate anything.
+    maxSubmissionsPerSpeaker: 2,
     isPublished: true,
   });
 

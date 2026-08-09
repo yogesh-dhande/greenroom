@@ -19,6 +19,8 @@ import {
   pickScorecardValues,
   progressByReviewer,
   progressLabel,
+  rollupProgressLabel,
+  rollupRoundsBySubmission,
   roundResultsCsv,
   roundState,
   scorecardScore,
@@ -428,6 +430,57 @@ describe("summarizeRound", () => {
     expect(flat.find((s) => s.submissionId === "bold")!.score).toBe(
       flat.find((s) => s.submissionId === "safe")!.score,
     );
+  });
+});
+
+describe("rollupRoundsBySubmission", () => {
+  const rounds = [
+    round(),
+    round({ id: "round-2", name: "Final Review" }),
+  ];
+  const assignments = [
+    assignment({ id: "a1", submissionId: "sub-1", reviewerId: "dana" }),
+    assignment({ id: "a2", submissionId: "sub-1", reviewerId: "marco" }),
+    assignment({ id: "a3", roundId: "round-2", submissionId: "sub-1", reviewerId: "dana" }),
+    assignment({ id: "a4", submissionId: "sub-2", reviewerId: "dana" }),
+  ];
+  const scores = [
+    score("a1", { originality: 5, relevance: 3 }),
+    score("a3", { originality: 4, relevance: 4 }),
+  ];
+
+  it("counts filed scorecards across every round the submission sits in", () => {
+    const rollups = rollupRoundsBySubmission(rounds, assignments, scores);
+    expect(rollups["sub-1"].scorecards).toBe(2);
+    expect(rollups["sub-1"].rounds.map((r) => r.roundName)).toEqual([
+      "Initial Review",
+      "Final Review",
+    ]);
+  });
+
+  it("carries each round's own aggregate and progress", () => {
+    const [initial, final] = rollupRoundsBySubmission(rounds, assignments, scores)["sub-1"].rounds;
+    // One of two scorecards in on the first round: (100·2 + 50)/3 = 83.3.
+    expect(initial).toMatchObject({ roundId: "round-1", scored: 1, required: 2 });
+    expect(initial.score).toBeCloseTo(83.3, 1);
+    expect(final).toMatchObject({ roundId: "round-2", scored: 1, required: 1 });
+  });
+
+  it("keeps an assigned-but-unscored submission at zero rather than absent", () => {
+    const rollups = rollupRoundsBySubmission(rounds, assignments, scores);
+    expect(rollups["sub-2"]).toMatchObject({ scorecards: 0 });
+    expect(rollups["sub-2"].rounds).toHaveLength(1);
+    expect(rollups["sub-2"].rounds[0].score).toBeNull();
+  });
+
+  it("leaves a submission no round holds out of the rollup entirely", () => {
+    expect(rollupRoundsBySubmission(rounds, assignments, scores)["sub-9"]).toBeUndefined();
+    expect(rollupRoundsBySubmission(rounds, [], [])).toEqual({});
+  });
+
+  it("labels progress the way the submission record reads it", () => {
+    expect(rollupProgressLabel({ scored: 1, required: 2 })).toBe("1 of 2 scorecards");
+    expect(rollupProgressLabel({ scored: 1, required: 1 })).toBe("1 of 1 scorecard");
   });
 });
 

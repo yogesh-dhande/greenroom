@@ -86,6 +86,51 @@ export async function changeTeamRole(eventSlug: string, input: ChangeRoleInput) 
 }
 
 // ---------------------------------------------------------------------------
+// Display name
+// ---------------------------------------------------------------------------
+
+const renameTeammateInputSchema = z.object({
+  userId: z.string().min(1),
+  name: z.string().trim().min(1, "Enter a name").max(120, "Keep this under 120 characters"),
+});
+export type RenameTeammateInput = z.infer<typeof renameTeammateInputSchema>;
+
+/**
+ * Corrects a teammate's display name — the one profile field an admin can
+ * fix on someone else's behalf (everything else on `users` is theirs to set
+ * from their own portal profile).
+ *
+ * Empty is rejected rather than accepted as "clear to null": `src/domain/
+ * profile.ts` treats name as the one required field on a person's own
+ * profile ("a speaker with no bio is a normal state, an anonymous card on
+ * the public gallery is not"), and the rest of the app falls back to email
+ * or a placeholder specifically for people who haven't signed in yet to set
+ * one — not for someone whose name an admin just wiped by accident.
+ */
+export async function renameTeammate(eventSlug: string, input: RenameTeammateInput) {
+  await requireAdmin(teamPath(eventSlug));
+
+  const parsed = renameTeammateInputSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid name");
+
+  const repos = await getRepos();
+  const target = await repos.users.getById(parsed.data.userId);
+  if (!target) return fail("That account no longer exists");
+
+  try {
+    await repos.users.update(target.id, { name: parsed.data.name });
+  } catch {
+    return fail("Couldn't save that name — try again");
+  }
+
+  revalidatePath(teamPath(eventSlug));
+  return {
+    ok: true as const,
+    data: { message: `Name updated to ${parsed.data.name}` },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Reviewer track assignment
 // ---------------------------------------------------------------------------
 

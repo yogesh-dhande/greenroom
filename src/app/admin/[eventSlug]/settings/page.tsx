@@ -1,8 +1,7 @@
-import { notFound } from "next/navigation";
 import { getRepos } from "@/lib/db";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { requireAdmin } from "@/lib/session";
+import { requireEventAdmin } from "@/lib/session";
 import { AirtableSyncCard } from "./airtable-sync-card";
 import { EventDetailsForm } from "./event-details-form";
 import { TracksManager } from "./tracks-manager";
@@ -14,12 +13,10 @@ export default async function SettingsPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  // Event configuration is organizer-only: reviewers get the rest of /admin
-  // but are bounced back to the overview here.
-  await requireAdmin(`/admin/${eventSlug}/settings`);
+  // Event configuration is organizer-only (decisions.md D-047): reviewers get
+  // the rest of /admin but are bounced back to the overview here.
+  const { event } = await requireEventAdmin(eventSlug);
   const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
 
   const [tracks, rooms] = await Promise.all([
     repos.tracks.listByEvent(event.id),

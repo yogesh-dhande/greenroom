@@ -108,12 +108,19 @@ export default async function SubmissionsPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map(({ submission, trackNames, speakers, tally }) => (
-                  <TableRow key={submission.id}>
+                {rows.map(({ submission, trackNames, speakers, tally, rollup }) => (
+                  <TableRow key={submission.id} className="relative">
                     <TableCell className="max-w-96 font-medium whitespace-normal text-foreground">
+                      {/* Whole-row click target: the title link's overlay
+                          pseudo-element stretches across the positioned
+                          `TableRow` (same overlay-link pattern as the public
+                          schedule's SessionCard), so a pointer anywhere on
+                          the row navigates while the accessible name and the
+                          real `href` stay on the title itself — genuine
+                          anchor semantics (middle-click, open-in-new-tab). */}
                       <Link
                         href={`/admin/${eventSlug}/submissions/${submission.id}`}
-                        className="underline-offset-4 hover:underline"
+                        className="underline-offset-4 outline-none after:absolute after:inset-0 after:content-[''] hover:underline"
                       >
                         {submission.title}
                       </Link>
@@ -136,7 +143,7 @@ export default async function SubmissionsPage({
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {summarizeTally(tally) || "—"}
+                      {summarizeTally(tally, rollup.scorecards) || "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(submission.createdAt)}

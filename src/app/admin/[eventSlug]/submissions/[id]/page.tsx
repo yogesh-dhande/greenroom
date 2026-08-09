@@ -5,16 +5,23 @@ import { createsSessionsDirectly, type FormField } from "@/db/entities";
 import { DIRECT_TO_SESSION_LABEL, prefillValues, publicFields } from "@/domain/forms";
 import { loadSubmissionDetail } from "@/domain/submissions";
 import { canRecordDecision, canViewSubmission, tallyReviews } from "@/domain/review";
+import { rollupProgressLabel, type SubmissionReviewRollup } from "@/domain/rounds";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
 import { fileUrl, filenameFromKey } from "@/lib/uploads";
 import { formatDate } from "@/components/date-format";
 import { PageHeader } from "@/components/page-header";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { personName, reviewerTrackIdsFor } from "../queue";
+import { loadRoundRollups, personName, reviewerTrackIdsFor, rollupFor } from "../queue";
 import { DecisionPanel } from "./decision-panel";
 import { ReviewPanel } from "./review-panel";
 
@@ -78,10 +85,17 @@ export default async function SubmissionDetailPage({
 
   // What acceptance already produced, so the outcome is visible on the page
   // that caused it rather than only on the agenda and task screens.
-  const [eventTasks, assignments] = await Promise.all([
+  const [eventTasks, assignments, rollups] = await Promise.all([
     repos.tasks.listByEvent(event.id),
     Promise.all(detail.speakerIds.map((speakerId) => repos.taskAssignments.listBySpeaker(speakerId))),
+    // Round scorecards are review activity too, and this record has to say so
+    // rather than contradict the round's own results page (decisions.md D-048).
+    // Organizer-only, like every other view of a round's aggregate (D-035).
+    viewer.role === "admin"
+      ? loadRoundRollups(repos, event.id)
+      : Promise.resolve<Record<string, SubmissionReviewRollup>>({}),
   ]);
+  const rollup = rollupFor(rollups, id);
   const taskById = new Map(eventTasks.map((task) => [task.id, task]));
   const speakerTaskCount = assignments
     .flat()
@@ -126,7 +140,13 @@ export default async function SubmissionDetailPage({
             <CardContent className="flex flex-col gap-4">
               {reviews.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No reviewer has weighed in yet.
+                  {/* Only when *neither* source holds anything: a filed
+                      scorecard is a reviewer weighing in (D-048). */}
+                  {rollup.scorecards > 0
+                    ? `No written recommendation yet — ${rollup.scorecards} round scorecard${
+                        rollup.scorecards === 1 ? "" : "s"
+                      } filed — see Round results below.`
+                    : "No reviewer has weighed in yet."}
                 </p>
               ) : (
                 reviews.map((review, index) => {
@@ -158,6 +178,39 @@ export default async function SubmissionDetailPage({
               )}
             </CardContent>
           </Card>
+
+          {/* The rounds pages stay the deep view; this is the record telling
+              the truth about them (decisions.md D-048). */}
+          {rollup.rounds.length === 0 ? null : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Round results</CardTitle>
+                <CardDescription>
+                  Where this proposal stands in each review round it was assigned to.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {rollup.rounds.map((round) => (
+                  <div
+                    key={round.roundId}
+                    className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
+                  >
+                    <Link
+                      href={`/admin/${eventSlug}/rounds/${round.roundId}/results`}
+                      className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                    >
+                      {round.roundName}
+                    </Link>
+                    <span className="text-sm tabular-nums text-muted-foreground">
+                      {round.score === null ? "Not scored yet" : `avg ${round.score}`}
+                      {" · "}
+                      {rollupProgressLabel(round)}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="flex flex-col gap-6">

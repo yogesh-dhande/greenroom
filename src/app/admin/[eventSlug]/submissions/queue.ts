@@ -1,6 +1,7 @@
 import { createsSessionsDirectly, type Event, type Submission, type Track, type User } from "@/db/entities";
 import type { Repos } from "@/db/repos";
 import { tallyReviewsBySubmission, visibleSubmissions, type ReviewTally } from "@/domain/review";
+import { rollupRoundsBySubmission, type SubmissionReviewRollup } from "@/domain/rounds";
 import type { SessionUser } from "@/lib/session";
 import { ALL, type QueueFilter } from "./filters";
 
@@ -18,6 +19,9 @@ export interface QueueRow {
   trackNames: string[];
   speakers: Array<Pick<User, "id" | "name" | "email">>;
   tally: ReviewTally;
+  /** Filed round scorecards for this submission (decisions.md D-048); empty
+   * for a reviewer, who never sees another reviewer's round work (D-035). */
+  rollup: SubmissionReviewRollup;
 }
 
 export interface SubmissionQueue {
@@ -39,6 +43,41 @@ export interface SubmissionQueue {
 export async function directSessionFormIds(repos: Repos, eventId: string): Promise<Set<string>> {
   const forms = await repos.forms.listByEvent(eventId);
   return new Set(forms.filter(createsSessionsDirectly).map((form) => form.id));
+}
+
+/** No round holds this submission — the shape every caller falls back to. */
+const NO_ROUNDS: SubmissionReviewRollup = { rounds: [], scorecards: 0 };
+
+/**
+ * Where every submission on the event stands in its review rounds, keyed by
+ * submission id (decisions.md D-048). Three batched reads for the whole event,
+ * so the submissions table and the detail page can tell the truth about round
+ * activity without a query per row.
+ *
+ * Organizer-only by contract: a round's aggregate is admin material (D-035),
+ * so callers pass the rollup only to an admin's screen.
+ */
+export async function loadRoundRollups(
+  repos: Repos,
+  eventId: string,
+): Promise<Record<string, SubmissionReviewRollup>> {
+  const rounds = await repos.reviewRounds.listByEvent(eventId);
+  if (rounds.length === 0) return {};
+  const assignments = await repos.reviewRounds.listAssignmentsByRounds(
+    rounds.map((round) => round.id),
+  );
+  const scores = await repos.reviewRounds.listScoresByAssignments(
+    assignments.map((assignment) => assignment.id),
+  );
+  return rollupRoundsBySubmission(rounds, assignments, scores);
+}
+
+/** The round standing for one submission, or the empty rollup. */
+export function rollupFor(
+  rollups: Record<string, SubmissionReviewRollup>,
+  submissionId: string,
+): SubmissionReviewRollup {
+  return rollups[submissionId] ?? NO_ROUNDS;
 }
 
 /** The tracks a reviewer owns *on this event*; admins get an empty list and
@@ -87,9 +126,13 @@ export async function loadSubmissionQueue(
     { directSessionFormIds: directFormIds },
   );
 
-  const [speakerLinks, reviews] = await Promise.all([
+  const [speakerLinks, reviews, rollups] = await Promise.all([
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((s) => s.id)),
     repos.reviews.listBySubmissionIds(submissions.map((s) => s.id)),
+    // Rounds roll up onto the record for the organizer only (D-048, D-035).
+    viewer.role === "admin"
+      ? loadRoundRollups(repos, event.id)
+      : Promise.resolve<Record<string, SubmissionReviewRollup>>({}),
   ]);
   const people = await repos.users.listByIds([...new Set(speakerLinks.map((l) => l.userId))]);
   const peopleById = new Map(people.map((person) => [person.id, person]));
@@ -128,6 +171,7 @@ export async function loadSubmissionQueue(
         averageScore: null,
         leaning: null,
       },
+      rollup: rollupFor(rollups, submission.id),
     };
   });
 
@@ -146,14 +190,21 @@ export function filterQueue(rows: QueueRow[], filter: QueueFilter): QueueRow[] {
   });
 }
 
-/** How a review tally reads in a table cell: "2 approve · 1 deny", or "—". */
-export function summarizeTally(tally: ReviewTally): string {
+/**
+ * How review activity reads in a table cell: "1 scorecard · 2 approve", or "".
+ *
+ * Both sources count (decisions.md D-048) — a filed round scorecard is review
+ * work, so the cell must never read as "—" while one exists. Scorecards lead
+ * because they are the scored, structured signal.
+ */
+export function summarizeTally(tally: ReviewTally, scorecards = 0): string {
   const parts: string[] = [];
+  if (scorecards > 0) parts.push(`${scorecards} scorecard${scorecards === 1 ? "" : "s"}`);
   if (tally.approve > 0) parts.push(`${tally.approve} approve`);
   if (tally.maybe > 0) parts.push(`${tally.maybe} maybe`);
   if (tally.deny > 0) parts.push(`${tally.deny} deny`);
-  if (parts.length === 0 && tally.total > 0) {
-    return `${tally.total} comment${tally.total === 1 ? "" : "s"}`;
+  if (tally.total > 0 && parts.length === (scorecards > 0 ? 1 : 0)) {
+    parts.push(`${tally.total} comment${tally.total === 1 ? "" : "s"}`);
   }
   return parts.join(" · ");
 }

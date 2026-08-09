@@ -1,4 +1,3 @@
-import { notFound } from "next/navigation";
 import type { EmailLog, Session, User } from "@/db/entities";
 import {
   buildCommunicationLog,
@@ -12,11 +11,10 @@ import {
 } from "@/domain/comms";
 import { formatEventTimeRange } from "@/lib/event-time";
 import { getRepos } from "@/lib/db";
-import { requireAdminOrReviewer } from "@/lib/session";
+import { requireEventAdmin } from "@/lib/session";
 import { formatDay } from "@/components/date-format";
 import { PageHeader } from "@/components/page-header";
 import { CommsHub } from "./comms-hub";
-import { EmailLogTable } from "./email-log-table";
 import type { InviteRow, LogRow, SpeakerOption, TemplateRow } from "./types";
 
 /**
@@ -29,9 +27,9 @@ import type { InviteRow, LogRow, SpeakerOption, TemplateRow } from "./types";
  * (invites). All of it is loaded here through the storage-agnostic repository
  * layer and handed to client islands; writes go back through ./actions.ts.
  *
- * Reviewers get the log and nothing else: reading what the event has said is
- * useful context on a submission, but sending mail as the event is an admin
- * act (decisions.md D-025).
+ * Admin-only (decisions.md D-047) — the full email log and the levers to send
+ * mail as the event are organizer material; a reviewer never reaches this
+ * page (the event-scoped admin guard bounces them to /admin).
  */
 export default async function CommunicationsPage({
   params,
@@ -39,12 +37,9 @@ export default async function CommunicationsPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const viewer = await requireAdminOrReviewer(`/admin/${eventSlug}/communications`);
+  const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
-
   const [sessions, rooms, submissions, assignments, overrides] = await Promise.all([
     repos.sessions.listByEvent(event.id),
     repos.rooms.listByEvent(event.id),
@@ -103,19 +98,6 @@ export default async function CommunicationsPage({
       confirmed: confirmedIds.has(person.id),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
-
-  // Reviewers see the record, not the levers.
-  if (viewer.role !== "admin") {
-    return (
-      <div>
-        <PageHeader
-          title="Communications"
-          description={`Every message ${event.name} has sent. Only an event admin can send or edit templates.`}
-        />
-        <EmailLogTable rows={logRows} speakers={speakers} />
-      </div>
-    );
-  }
 
   // --- templates ----------------------------------------------------------
   const templates: TemplateRow[] = COMMS_TEMPLATE_IDS.map((id) => {

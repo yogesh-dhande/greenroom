@@ -1,7 +1,6 @@
-import { notFound } from "next/navigation";
 import { enumerateDays } from "@/domain/scheduling";
 import { getRepos } from "@/lib/db";
-import { requireAdminOrReviewer } from "@/lib/session";
+import { requireEventAdmin } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
 import { AgendaBoard } from "./agenda-board";
 import type { BoardPerson, BoardSession } from "./types";
@@ -12,6 +11,9 @@ import type { BoardPerson, BoardSession } from "./types";
  * board needs is loaded here through the storage-agnostic repository layer and
  * handed to a client component; the writes go back through server actions in
  * ./actions.ts.
+ *
+ * Admin-only (decisions.md D-047) — building the schedule isn't part of a
+ * reviewer's event workspace.
  */
 export default async function AgendaPage({
   params,
@@ -19,12 +21,9 @@ export default async function AgendaPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const user = await requireAdminOrReviewer(`/admin/${eventSlug}/agenda`);
+  const { user, event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
-
   const [sessions, rooms, tracks] = await Promise.all([
     repos.sessions.listByEvent(event.id),
     repos.rooms.listByEvent(event.id),

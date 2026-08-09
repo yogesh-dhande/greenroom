@@ -1,17 +1,18 @@
 import { getRepos } from "@/lib/db";
-import { requireEventAccess } from "@/lib/session";
+import { requireEventAdmin } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
 import { TasksManager } from "./tasks-manager";
 
 /** Admin task templates for an event (spec.md §6, §8): what onboarding jobs
- * exist, and whether they auto-assign the moment a submission is accepted. */
+ * exist, and whether they auto-assign the moment a submission is accepted.
+ * Admin-only (decisions.md D-047) — not part of a reviewer's event workspace. */
 export default async function TasksPage({
   params,
 }: {
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const { event } = await requireEventAccess(eventSlug);
+  const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
   const [tasks, forms, assignments] = await Promise.all([

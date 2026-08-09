@@ -437,6 +437,68 @@ function mean(values: number[]): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// Rollup onto the submission record (decisions.md D-048)
+// ---------------------------------------------------------------------------
+
+/** Where one submission stands in one round, as the submission record shows
+ * it: the round's aggregate for it, and how much of the work is filed. */
+export interface SubmissionRoundRollup {
+  roundId: string;
+  roundName: string;
+  scored: number;
+  required: number;
+  /** The round's aggregate for this submission, null before anyone scores. */
+  score: number | null;
+}
+
+export interface SubmissionReviewRollup {
+  /** Every round holding this submission, in the event's round order. */
+  rounds: SubmissionRoundRollup[];
+  /** Scorecards filed across all of them — the count that keeps a scored
+   * submission from reading as "no reviews" on the queue (D-048). */
+  scorecards: number;
+}
+
+/**
+ * Round standings keyed by submission id, for the organizer's submission list
+ * and detail page. A submission no round was ever assigned holds no entry, so
+ * an absent rollup means "no round has this proposal" rather than "unscored" —
+ * the two read very differently to an organizer.
+ */
+export function rollupRoundsBySubmission(
+  rounds: Array<Pick<ReviewRound, "id" | "name" | "criteria">>,
+  assignments: RoundAssignment[],
+  scores: RoundScore[],
+): Record<string, SubmissionReviewRollup> {
+  const rollups: Record<string, SubmissionReviewRollup> = {};
+  for (const round of rounds) {
+    const roundAssignments = assignments.filter(
+      (assignment) => assignment.roundId === round.id,
+    );
+    if (roundAssignments.length === 0) continue;
+    for (const summary of summarizeRound(round.criteria, roundAssignments, scores)) {
+      const rollup = (rollups[summary.submissionId] ??= { rounds: [], scorecards: 0 });
+      rollup.rounds.push({
+        roundId: round.id,
+        roundName: round.name,
+        scored: summary.scored,
+        required: summary.required,
+        score: summary.score,
+      });
+      rollup.scorecards += summary.scored;
+    }
+  }
+  return rollups;
+}
+
+/** "1 of 2 scorecards" — one round's progress on one submission. */
+export function rollupProgressLabel(
+  rollup: Pick<SubmissionRoundRollup, "scored" | "required">,
+): string {
+  return `${rollup.scored} of ${rollup.required} scorecard${rollup.required === 1 ? "" : "s"}`;
+}
+
+// ---------------------------------------------------------------------------
 // Results table: sorting and CSV export
 // ---------------------------------------------------------------------------
 

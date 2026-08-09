@@ -1,6 +1,5 @@
-import { notFound } from "next/navigation";
 import { getRepos } from "@/lib/db";
-import { requireAdmin } from "@/lib/session";
+import { requireEventAdmin } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InviteForm } from "./invite-form";
@@ -14,9 +13,9 @@ import type { TeamMemberRow, TrackOption } from "./types";
  * this page is the whole of it — who has admin or reviewer access, which
  * tracks each reviewer's queue is drawn from, and how someone new is added.
  *
- * Organizer-only, guarded exactly like event settings: a reviewer who reaches
- * the URL directly is bounced to /admin, and the nav never offers them the
- * link (src/components/admin-nav.tsx).
+ * Organizer-only, guarded exactly like event settings (decisions.md D-047): a
+ * reviewer who reaches the URL directly is bounced to /admin, and the nav
+ * never offers them the link (src/components/admin-nav.tsx).
  */
 export default async function TeamPage({
   params,
@@ -24,12 +23,9 @@ export default async function TeamPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const viewer = await requireAdmin(`/admin/${eventSlug}/team`);
+  const { user: viewer, event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
-  if (!event) notFound();
-
   const [admins, reviewers, tracks] = await Promise.all([
     repos.users.listByRole("admin"),
     repos.users.listByRole("reviewer"),

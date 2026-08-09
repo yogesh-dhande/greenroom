@@ -9,22 +9,24 @@ const NAV_ITEMS = [
   { label: "Overview", href: "" },
   { label: "Submissions", href: "/submissions" },
   { label: "Review rounds", href: "/rounds" },
-  { label: "Agenda", href: "/agenda" },
-  { label: "Speakers", href: "/speakers" },
-  { label: "Tasks", href: "/tasks" },
-  { label: "Forms", href: "/forms" },
-  { label: "Communications", href: "/communications" },
+  { label: "Agenda", href: "/agenda", adminOnly: true },
+  { label: "Speakers", href: "/speakers", adminOnly: true },
+  { label: "Tasks", href: "/tasks", adminOnly: true },
+  { label: "Forms", href: "/forms", adminOnly: true },
+  { label: "Communications", href: "/communications", adminOnly: true },
   { label: "Team", href: "/team", adminOnly: true },
-  { label: "Settings", href: "/settings" },
+  { label: "Settings", href: "/settings", adminOnly: true },
 ] as const;
 
 /** Left nav for the event-scoped admin area. Client-only so it can read the
  * current path for active-item styling; everything else in the admin shell
  * stays a server component.
  *
- * `role` hides the destinations a reviewer can't open anyway (Team): the page
- * itself still guards with `requireAdmin`, but offering a link that bounces
- * is worse than not offering it. */
+ * `role` hides the destinations a reviewer can't open anyway: within an event
+ * a reviewer's workspace is exactly Overview, Submissions, and Review rounds
+ * (decisions.md D-047) — every other page still guards itself with
+ * `requireAdmin`/`requireEventAdmin`, but offering a link that bounces is
+ * worse than not offering it. */
 export function AdminNav({ eventSlug, role }: { eventSlug: string; role: Role }) {
   const pathname = usePathname();
   const base = `/admin/${eventSlug}`;

@@ -13,7 +13,7 @@ export default async function EventOverviewPage({
   params: Promise<{ eventSlug: string }>;
 }) {
   const { eventSlug } = await params;
-  const { event } = await requireEventAccess(eventSlug);
+  const { user, event } = await requireEventAccess(eventSlug);
 
   const repos = await getRepos();
   const [submissions, sessions, speakers, tasks] = await Promise.all([
@@ -46,6 +46,9 @@ export default async function EventOverviewPage({
           <CardTitle>Jump back in</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
+          {/* Agenda/Speakers/Communications are admin-only (decisions.md
+              D-047) — a reviewer's workspace stops at Submissions and Review
+              rounds, so offering these would just be a dead end. */}
           <ul className="grid gap-2 sm:grid-cols-2">
             <li>
               <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/submissions`}>
@@ -53,24 +56,30 @@ export default async function EventOverviewPage({
               </Link>{" "}
               — the queue, recommendations, and decisions.
             </li>
-            <li>
-              <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/agenda`}>
-                Build the agenda
-              </Link>{" "}
-              — drag sessions onto the day/room grid.
-            </li>
-            <li>
-              <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/speakers`}>
-                Track onboarding
-              </Link>{" "}
-              — who still owes which task.
-            </li>
-            <li>
-              <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/communications`}>
-                Communications
-              </Link>{" "}
-              — the email log, composer, templates, and invites.
-            </li>
+            {user.role === "admin" ? (
+              <li>
+                <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/agenda`}>
+                  Build the agenda
+                </Link>{" "}
+                — drag sessions onto the day/room grid.
+              </li>
+            ) : null}
+            {user.role === "admin" ? (
+              <li>
+                <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/speakers`}>
+                  Track onboarding
+                </Link>{" "}
+                — who still owes which task.
+              </li>
+            ) : null}
+            {user.role === "admin" ? (
+              <li>
+                <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/communications`}>
+                  Communications
+                </Link>{" "}
+                — the email log, composer, templates, and invites.
+              </li>
+            ) : null}
             <li>
               <Link className="text-foreground underline underline-offset-4" href={`/p/${eventSlug}`}>
                 Public program
