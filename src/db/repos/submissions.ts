@@ -11,6 +11,10 @@ export interface SubmissionsRepo {
   getById(id: string): Promise<Submission | null>;
   listByEvent(eventId: string): Promise<Submission[]>;
   listByForm(formId: string): Promise<Submission[]>;
+  /** Response counts keyed by form id — the forms list shows one per row and
+   * must not fetch every submission to get them. Forms with no submissions
+   * are present with a count of 0. */
+  countByForms(formIds: string[]): Promise<Record<string, number>>;
   listByStatus(eventId: string, status: SubmissionStatus): Promise<Submission[]>;
   /** A reviewer's queue: everything tagged with any of their tracks
    * (spec.md §4 — track-based routing, no routing engine). */

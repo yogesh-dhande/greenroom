@@ -44,6 +44,18 @@ Expected: when a `{{#field}}`/`{{/field}}` pair sits on its own lines, dropping 
 
 Expected: reseeding local D1 (`npm run seed`) is safe anytime; the next request just sees new data. Actual: a dev server that was already running starts failing every write with `internal error` (e.g. `insert into "auth_verifications"…`) while the identical statement succeeds via `wrangler d1 execute --local`. Only restarting the dev server clears it. Direct consequence for parallel agents sharing one local DB: never reseed while someone else's dev server is up.
 
+## zod 4: `z.unknown()` fields are required, unlike zod 3 (2026-08-08)
+
+Expected (zod 3 behavior): `z.unknown()` in an object schema is implicitly optional — a missing key parses fine. Actually in zod 4 `unknown` keys are **required**: a missing key fails parsing, and worse, in a generated form validator the failure surfaced as a confusing type-level error instead of the intended per-field "required" message. Zod 4 changed this deliberately (only `.optional()` marks a key optional). Any dynamically generated schema whose leaf type is `unknown` needs an explicit `.optional()` plus its own required-check where "required" is a runtime flag.
+
+## R2's `writeHttpMetadata(headers)` throws `DevalueError` under `next dev` (2026-08-08)
+
+Expected: the documented `object.writeHttpMetadata(headers)` idiom populates response headers from R2 metadata anywhere the binding works. Actually under `next dev` (getPlatformProxy), R2 objects cross a serialization boundary and the method throws `DevalueError: Cannot stringify arbitrary non-POJOs` — while the same code is fine in a deployed Worker. Reading `object.httpMetadata` field-by-field (`contentType`, etc.) works in both environments; the proxy serializes plain fields, just not the header-writing method's machinery.
+
+## Playwright SIGKILLs its webServer tree — in-process cleanup handlers never run (2026-08-08)
+
+Expected: a webServer wrapper script can restore swapped config (`.dev.vars`) in `SIGTERM`/`exit` handlers when the run ends. Actually those handlers reliably did NOT fire — two separate agents found `.dev.vars` still pointing at the e2e port after green runs. Playwright kills the webServer's process tree with SIGKILL, which is uncatchable, so no in-process cleanup in the server wrapper can ever be trusted. Fix: do cleanup in Playwright's own `globalTeardown` (runs in the Playwright process, which exits normally), keeping the wrapper's restore-from-stale-backup self-heal as a second net.
+
 ## Resend attachments: `contentType` camelCase, base64 string content, no raw MIME (2026-08-08)
 
 Expected: set an attachment's MIME type via a `Content-Type` entry in Resend's `headers`. Actually: that returns a 500 "Duplicate header"; the only channel is the attachment's own `contentType` (camelCase) field, with `content` as a base64 *string*. Resend also has no raw-MIME endpoint, so the classic Gmail-friendly `multipart/alternative` with a `text/calendar` sibling part is unreachable — calendar invites must ship as a `text/calendar; method=REQUEST` attachment (D-020).

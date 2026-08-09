@@ -119,6 +119,15 @@ export const formFieldTypeSchema = z.enum([
   "checkbox",
   "file",
   "url",
+  /**
+   * The co-speaker repeater (spec.md §2 — "speaker and co-speaker info,
+   * multi-speaker supported, never required"). A composite field whose value
+   * is an array of `{name, email, title?, company?}` rows; on save each row
+   * becomes a `submission_speakers` row with role `co`. Modelled as a field
+   * type rather than a column on `forms` so that turning co-speakers on or
+   * off — and where the block appears — is just an edit to the JSON schema.
+   */
+  "co_speakers",
 ]);
 export type FormFieldType = z.infer<typeof formFieldTypeSchema>;
 
@@ -164,6 +173,12 @@ export const RESERVED_FIELD_IDS = {
   /** -> the primary speaker's user record */
   speakerName: "speaker_name",
   speakerEmail: "speaker_email",
+  /** -> users.bio on the primary speaker, when they don't have one yet */
+  speakerBio: "speaker_bio",
+  /** file field -> users.headshotUrl on the primary speaker */
+  headshot: "headshot",
+  /** co_speakers repeater -> submission_speakers rows with role `co` */
+  coSpeakers: "co_speakers",
 } as const;
 
 export const formSchema = z.object({

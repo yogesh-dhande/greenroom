@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import {
   submissionSchema,
   submissionSpeakerSchema,
@@ -38,6 +38,17 @@ export function createSubmissionsRepo(db: DrizzleD1): SubmissionsRepo {
         orderBy: [desc(submissions.createdAt)],
       });
       return rows.map((r) => submissionSchema.parse(r));
+    },
+    async countByForms(formIds) {
+      const counts: Record<string, number> = Object.fromEntries(formIds.map((id) => [id, 0]));
+      if (formIds.length === 0) return counts;
+      const rows = await db
+        .select({ formId: submissions.formId, total: count() })
+        .from(submissions)
+        .where(inArray(submissions.formId, formIds))
+        .groupBy(submissions.formId);
+      for (const row of rows) counts[row.formId] = Number(row.total);
+      return counts;
     },
     async listByStatus(eventId, status) {
       const rows = await db.query.submissions.findMany({
