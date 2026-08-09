@@ -388,6 +388,12 @@ export const reviewRoundSchema = z.object({
   opensAt: z.coerce.date().nullable(),
   closesAt: z.coerce.date().nullable(),
   criteria: scorecardSchema,
+  /**
+   * "Hide speaker identity" (decisions.md D-049). Off by default; editable on
+   * round setup. Consumed only by the reviewer-facing queue and scorecard —
+   * see the blind-review section of src/domain/rounds.ts for what identity is.
+   */
+  blindReview: z.boolean(),
   ...timestamps,
 });
 export type ReviewRound = z.infer<typeof reviewRoundSchema>;
@@ -556,6 +562,9 @@ export const emailKindSchema = z.enum([
   "draft_saved",
   /** "Your draft proposal — this form closes soon" (D-034, D-038). */
   "draft_reminder",
+  /** "You still have N scorecards to file in this round" — the manual
+   * reviewer completion nudge from a round's assignments page (D-050). */
+  "round_reminder",
   "calendar_invite",
   "manual",
 ]);

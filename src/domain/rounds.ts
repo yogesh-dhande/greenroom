@@ -26,7 +26,9 @@
  * "Accept / Maybe / Decline" is a judgement, not a measurement, and mapping it
  * onto numbers would invent precision nobody entered.
  */
+import { RESERVED_FIELD_IDS } from "@/db/entities";
 import type {
+  FormField,
   ReviewRound,
   RoundAssignment,
   RoundScore,
@@ -591,4 +593,80 @@ export function roundResultsCsv(criteria: ScorecardCriterion[], rows: ResultRow[
 export function csvFilename(eventSlug: string, roundName: string): string {
   const slug = roundName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `${eventSlug}-${slug || "round"}-scores.csv`;
+}
+
+// ---------------------------------------------------------------------------
+// Blind review (decisions.md D-049)
+// ---------------------------------------------------------------------------
+
+/**
+ * A round's "Hide speaker identity" toggle, read as a question.
+ *
+ * Deliberately narrow: blind review exists to keep the *scorer* unbiased, so
+ * only the reviewer's queue and scorecard consult it. Results, assignments and
+ * the submission record are organizer surfaces and are never anonymized — an
+ * organizer accepted the speaker's data in the first place (D-049).
+ */
+export function hidesSpeakerIdentity(round: Pick<ReviewRound, "blindReview">): boolean {
+  return round.blindReview;
+}
+
+/** The one line a reviewer reads where the author would have been. */
+export const BLIND_REVIEW_NOTICE = "Speaker identity hidden for blind review";
+
+/**
+ * Form fields that say *who* wrote the proposal rather than what it says.
+ *
+ * These are exactly the reserved ids (src/db/entities.ts `RESERVED_FIELD_IDS`)
+ * that map onto a person: name, email, bio, headshot, and the co-speaker
+ * block. `title`, `description` and `tracks` are deliberately absent — they
+ * describe the talk, and a blind round still has to be scoreable.
+ */
+export const IDENTITY_FIELD_IDS: readonly string[] = [
+  RESERVED_FIELD_IDS.speakerName,
+  RESERVED_FIELD_IDS.speakerEmail,
+  RESERVED_FIELD_IDS.speakerBio,
+  RESERVED_FIELD_IDS.headshot,
+  RESERVED_FIELD_IDS.coSpeakers,
+];
+
+/**
+ * Whether one form field carries author identity. The `co_speakers` *type* is
+ * checked as well as the reserved id: the block is the one field whose whole
+ * payload is other people's names and addresses, so a copy of it saved under
+ * some other id must not slip through.
+ */
+export function isIdentityField(field: Pick<FormField, "id" | "type">): boolean {
+  return IDENTITY_FIELD_IDS.includes(field.id) || field.type === "co_speakers";
+}
+
+/**
+ * The answer list a reviewer may see. On a blind round the identity questions
+ * are dropped entirely — a genuinely custom question the organizer added
+ * ("What's the audience takeaway?") is not identity and stays.
+ *
+ * Filtering the *fields* is what keeps the values off the page: callers build
+ * their value map from the fields this returns, so a withheld answer is never
+ * rendered and never reaches the browser.
+ */
+export function reviewerVisibleFields(fields: FormField[], blind: boolean): FormField[] {
+  return blind ? fields.filter((field) => !isIdentityField(field)) : fields;
+}
+
+/** What a reviewer reads on the speaker line of a queue row or a scorecard. */
+export function speakerLine(names: string[], blind: boolean): string {
+  if (blind) return BLIND_REVIEW_NOTICE;
+  const listed = names.map((name) => name.trim()).filter(Boolean);
+  return listed.length > 0 ? listed.join(", ") : "No speaker on file";
+}
+
+/**
+ * Strips the author off round-queue rows before the page renders them.
+ *
+ * Applied in the loader rather than by hiding markup: on a blind round the
+ * names, emails and ids simply aren't in the rendered output, so "blind" holds
+ * for anyone reading the HTML as well as anyone reading the screen (D-049).
+ */
+export function withoutSpeakers<T extends { speakers: unknown[] }>(rows: T[], blind: boolean): T[] {
+  return blind ? rows.map((row) => ({ ...row, speakers: [] })) : rows;
 }

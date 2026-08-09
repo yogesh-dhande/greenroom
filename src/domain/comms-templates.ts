@@ -53,6 +53,10 @@ export const MERGE_FIELDS = [
   "taskInstructions",
   "taskDueDate",
   "outstandingTasks",
+  /** The round name and pending count on a reviewer completion nudge (D-050). */
+  "roundName",
+  "pendingScorecards",
+  "roundQueueUrl",
 ] as const;
 
 export type MergeField = (typeof MERGE_FIELDS)[number];
@@ -223,6 +227,7 @@ export const COMMS_TEMPLATE_IDS = [
   "submission_declined",
   "change_request",
   "task_digest",
+  "round_reminder",
   "calendar_invite",
 ] as const;
 
@@ -452,6 +457,26 @@ We send this once a week while something is outstanding, and stop as soon as you
 {{eventName}}`,
   },
   {
+    id: "round_reminder",
+    name: "Reviewer completion nudge",
+    description:
+      "Manual nudge to a reviewer with unfiled scorecards in a review round (D-050). Sent from the round's assignments page — never scheduled.",
+    kind: "round_reminder",
+    subject: "Reminder: {{pendingScorecards}} waiting in {{roundName}}",
+    body: `Hi {{speakerFirstName}},
+
+{{roundName}} still needs your review for {{eventName}} — {{pendingScorecards}} still to file.
+
+Pick up where you left off:
+
+{{roundQueueUrl}}
+
+Thanks for keeping the review moving.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
     id: "calendar_invite",
     name: "Calendar invitation",
     description:
@@ -543,6 +568,7 @@ export const TEMPLATE_TRIGGERS: Record<CommsTemplateId, EmailTrigger> = {
   submission_declined: "on_denial",
   change_request: "manual",
   task_digest: "deadline_reminder",
+  round_reminder: "manual",
   calendar_invite: "manual",
 };
 
@@ -648,6 +674,10 @@ export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
   // The digest speaks about the whole checklist, so it has the task *list*
   // (`outstandingTasks`) but no single task's title, instructions or due date.
   task_digest: [...COMMON_MERGE_FIELDS, "outstandingTasks"],
+  // The reviewer isn't a speaker, but reuses the same speakerName/speakerFirstName
+  // fields (src/domain/comms.ts speakerFields is generic on any User) plus the
+  // round-specific trio.
+  round_reminder: [...COMMON_MERGE_FIELDS, "roundName", "pendingScorecards", "roundQueueUrl"],
   calendar_invite: [...COMMON_MERGE_FIELDS, ...SESSION_MERGE_FIELDS],
 };
 
@@ -701,6 +731,9 @@ export function templatePreviewData(overrides: MergeData = {}): MergeData {
     taskInstructions: "Square image, at least 800×800.",
     taskDueDate: "June 5, 2026",
     outstandingTasks: "- Upload your headshot (due June 5)\n- Complete the hotel form (due June 1)",
+    roundName: "Initial Review",
+    pendingScorecards: "3 scorecards",
+    roundQueueUrl: "https://example.com/admin/your-event/rounds/1/score",
     ...overrides,
   };
 }

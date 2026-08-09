@@ -73,6 +73,7 @@ export default async function RoundAssignmentsPage({
       <AssignmentManager
         eventSlug={eventSlug}
         roundId={roundId}
+        roundName={round.name}
         reviewers={pool.map((person) => ({
           id: person.id,
           name: personName(person),

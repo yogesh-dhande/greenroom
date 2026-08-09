@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import {
   ROUND_STATE_LABEL,
+  hidesSpeakerIdentity,
   progressLabel,
   roundState,
   type RoundState,
@@ -136,6 +137,14 @@ export default async function RoundsPage({
                     >
                       {round.name}
                     </Link>
+                    {/* Whether this round hides speaker identity from its
+                        reviewers is part of the plan, so it reads off the
+                        plan (decisions.md D-049). */}
+                    {hidesSpeakerIdentity(round) ? (
+                      <Badge variant="outline" className="ml-2">
+                        Blind review
+                      </Badge>
+                    ) : null}
                     {round.description ? (
                       <p className="text-sm text-muted-foreground">{round.description}</p>
                     ) : null}

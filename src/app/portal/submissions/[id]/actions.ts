@@ -72,6 +72,16 @@ export async function updateOwnSubmission(
   revalidatePath(`/portal/submissions/${submissionId}`);
   revalidatePath(`/portal`);
   revalidatePath(`/admin/${detail.event.slug}/submissions`);
+  // A speaker edit here can add or drop a co-speaker on an already-accepted
+  // proposal, which (src/domain/submissions.ts syncSpeakers) keeps the
+  // converted session's speaker set in step. That session is what these
+  // surfaces render (decisions.md D-017, spec.md §8) — same paths
+  // src/app/portal/profile/actions.ts revalidates for the same reason.
+  revalidatePath(`/admin/${detail.event.slug}/speakers`);
+  revalidatePath(`/p/${detail.event.slug}/speakers`);
+  revalidatePath(`/p/${detail.event.slug}/schedule`);
+  revalidatePath(`/embed/${detail.event.slug}/speakers`);
+  revalidatePath(`/embed/${detail.event.slug}/schedule`);
 
   return {
     ok: true,

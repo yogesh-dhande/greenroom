@@ -40,21 +40,25 @@ export default async function CommunicationsPage({
   const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const [sessions, rooms, submissions, assignments, overrides] = await Promise.all([
+  const [sessions, rooms, submissions, assignments, overrides, rounds] = await Promise.all([
     repos.sessions.listByEvent(event.id),
     repos.rooms.listByEvent(event.id),
     repos.submissions.listByEvent(event.id),
     repos.taskAssignments.listByEvent(event.id),
     repos.emailTemplates.listByEvent(event.id),
+    repos.reviewRounds.listByEvent(event.id),
   ]);
 
   // --- who this event's mail concerns -------------------------------------
   // Both halves matter: people on a session are the confirmed lineup, and
   // people on a submission include co-speakers whose proposal is still under
-  // review — they get confirmations and change requests too.
-  const [sessionLinks, submissionLinks] = await Promise.all([
+  // review — they get confirmations and change requests too. Reviewers join
+  // the list too: the round assignments page can mail them a completion
+  // nudge (D-050), and its sends belong in the same log as everyone else's.
+  const [sessionLinks, submissionLinks, roundAssignments] = await Promise.all([
     repos.sessions.listSpeakersBySessionIds(sessions.map((session) => session.id)),
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((submission) => submission.id)),
+    repos.reviewRounds.listAssignmentsByRounds(rounds.map((round) => round.id)),
   ]);
   const confirmedIds = new Set(sessionLinks.map((link) => link.userId));
   const personIds = [
@@ -62,6 +66,7 @@ export default async function CommunicationsPage({
       ...confirmedIds,
       ...submissionLinks.map((link) => link.userId),
       ...assignments.map((assignment) => assignment.speakerId),
+      ...roundAssignments.map((assignment) => assignment.reviewerId),
     ]),
   ];
   const people = await repos.users.listByIds(personIds);

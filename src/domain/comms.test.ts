@@ -4,6 +4,9 @@ import type {
   Event,
   Form,
   NewEmailLog,
+  ReviewRound,
+  RoundAssignment,
+  RoundScore,
   Session,
   Submission,
   Task,
@@ -14,6 +17,7 @@ import type { Repos } from "@/db/repos";
 import type { EmailSender } from "@/lib/email";
 import {
   buildCommunicationLog,
+  type CommsContext,
   decideDraftReminder,
   decideTaskDigest,
   DRAFT_REMINDER_WINDOW_HOURS,
@@ -22,6 +26,7 @@ import {
   isTaskDigestWindow,
   MANUAL_TASK_DIGEST_COOLDOWN_HOURS,
   runReminderJob,
+  sendRoundReminders,
   summarizeSessionInvites,
   TASK_DIGEST_COOLDOWN_DAYS,
   taskDigestLogId,
@@ -918,5 +923,164 @@ describe("inviteBlocker", () => {
 
   it("blocks a cancelled session ahead of anything else", () => {
     expect(inviteBlocker({ ...scheduled, day: null, status: "cancelled" }, 0)).toBe("cancelled");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendRoundReminders — the manual reviewer completion nudge (D-050)
+// ---------------------------------------------------------------------------
+
+describe("sendRoundReminders", () => {
+  function round(overrides: Partial<ReviewRound> = {}): ReviewRound {
+    return {
+      id: "round-1",
+      eventId: "event-1",
+      name: "Initial Review",
+      description: null,
+      opensAt: null,
+      closesAt: null,
+      criteria: [],
+      blindReview: false,
+      ...timestamps(),
+      ...overrides,
+    };
+  }
+
+  function roundAssignment(overrides: Partial<RoundAssignment> & { id: string }): RoundAssignment {
+    return {
+      roundId: "round-1",
+      submissionId: "submission-1",
+      reviewerId: "reviewer-1",
+      status: "pending",
+      recusalReason: null,
+      ...timestamps(),
+      ...overrides,
+    };
+  }
+
+  function roundScore(assignmentId: string): RoundScore {
+    return {
+      id: `score-${assignmentId}`,
+      assignmentId,
+      values: {},
+      submittedAt: NOW,
+      ...timestamps(),
+    };
+  }
+
+  /** Just enough of the repository layer for `sendRoundReminders`. */
+  function fakeRoundRepos(seed: {
+    round: ReviewRound;
+    assignments: RoundAssignment[];
+    scores?: RoundScore[];
+    users: User[];
+    events: Event[];
+  }) {
+    const emails: EmailLog[] = [];
+    const repos = {
+      reviewRounds: {
+        getById: async (id: string) => (id === seed.round.id ? seed.round : null),
+        listAssignments: async (roundId: string) =>
+          seed.assignments.filter((row) => row.roundId === roundId),
+        listScoresByAssignments: async (assignmentIds: string[]) =>
+          (seed.scores ?? []).filter((row) => assignmentIds.includes(row.assignmentId)),
+      },
+      events: {
+        getById: async (id: string) => seed.events.find((row) => row.id === id) ?? null,
+      },
+      users: {
+        listByIds: async (ids: string[]) => seed.users.filter((row) => ids.includes(row.id)),
+      },
+      emailTemplates: {
+        listByEvent: async () => [],
+      },
+      emailLog: {
+        create: async (row: NewEmailLog) => {
+          const created: EmailLog = { id: `log-${emails.length + 1}`, ...row };
+          emails.push(created);
+          return created;
+        },
+      },
+    };
+    return { repos: repos as unknown as Repos, emails };
+  }
+
+  function context(repos: Repos, sender: EmailSender): CommsContext {
+    return { repos, sender, appUrl: "https://example.com", now: NOW };
+  }
+
+  it("emails every reviewer with unfiled scorecards, and nobody else", async () => {
+    const dana = user({ id: "dana", email: "dana@example.test", name: "Dana Scully" });
+    const marco = user({ id: "marco", email: "marco@example.test", name: "Marco Polo" });
+    const { repos } = fakeRoundRepos({
+      round: round(),
+      assignments: [
+        roundAssignment({ id: "a1", reviewerId: "dana" }),
+        roundAssignment({ id: "a2", reviewerId: "dana" }),
+        roundAssignment({ id: "a3", reviewerId: "marco" }),
+      ],
+      // Dana has filed one of her two; Marco has filed everything.
+      scores: [roundScore("a1"), roundScore("a3")],
+      users: [dana, marco],
+      events: [event()],
+    });
+    const { sender, sent } = fakeSender();
+
+    const deliveries = await sendRoundReminders(context(repos, sender), { roundId: "round-1" });
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].to).toBe("dana@example.test");
+    expect(deliveries[0].status).toBe("sent");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe("dana@example.test");
+    expect(sent[0].subject).toBe("Reminder: 1 scorecard waiting in Initial Review");
+    expect(sent[0].text).toContain("Initial Review");
+    expect(sent[0].text).toContain("1 scorecard");
+    expect(sent[0].text).toContain(
+      "https://example.com/admin/aie-2026/rounds/round-1/score",
+    );
+  });
+
+  it("sends nothing, and touches no repo write, when every scorecard is filed", async () => {
+    const dana = user({ id: "dana", email: "dana@example.test" });
+    const { repos, emails } = fakeRoundRepos({
+      round: round(),
+      assignments: [roundAssignment({ id: "a1", reviewerId: "dana" })],
+      scores: [roundScore("a1")],
+      users: [dana],
+      events: [event()],
+    });
+    const { sender, sent } = fakeSender();
+
+    const deliveries = await sendRoundReminders(context(repos, sender), { roundId: "round-1" });
+
+    expect(deliveries).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(emails).toEqual([]);
+  });
+
+  it("never counts a recusal as pending", async () => {
+    const dana = user({ id: "dana", email: "dana@example.test" });
+    const { repos } = fakeRoundRepos({
+      round: round(),
+      assignments: [roundAssignment({ id: "a1", reviewerId: "dana", status: "recused" })],
+      users: [dana],
+      events: [event()],
+    });
+    const { sender, sent } = fakeSender();
+
+    const deliveries = await sendRoundReminders(context(repos, sender), { roundId: "round-1" });
+
+    expect(deliveries).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it("throws for an unknown round rather than silently sending nothing", async () => {
+    const { repos } = fakeRoundRepos({ round: round(), assignments: [], users: [], events: [event()] });
+    const { sender } = fakeSender();
+
+    await expect(
+      sendRoundReminders(context(repos, sender), { roundId: "no-such-round" }),
+    ).rejects.toThrow(/not found/);
   });
 });

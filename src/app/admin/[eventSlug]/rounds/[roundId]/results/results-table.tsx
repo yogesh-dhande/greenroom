@@ -114,11 +114,18 @@ export function ResultsTable({ rows }: { rows: ResultRow[] }) {
       <TableBody>
         {sorted.map((row) => (
           <TableRow key={row.submissionId} data-testid="result-row">
-            <TableCell className="font-medium text-foreground">{row.title}</TableCell>
-            <TableCell className="text-sm text-muted-foreground">
+            {/* Capped and wrapped/truncated like the submissions list's Talk
+                and Speakers columns (src/app/admin/[eventSlug]/submissions/
+                page.tsx) — an uncapped nowrap title or speaker list is the
+                disproportionate width that pushes the Aggregate score column
+                off a standard-width viewport. */}
+            <TableCell className="max-w-96 font-medium whitespace-normal text-foreground">
+              {row.title}
+            </TableCell>
+            <TableCell className="max-w-56 truncate text-sm text-muted-foreground">
               {row.speakers.join(", ") || "—"}
             </TableCell>
-            <TableCell className="text-sm text-muted-foreground">
+            <TableCell className="max-w-40 truncate text-sm text-muted-foreground">
               {row.trackNames.join(", ") || "—"}
             </TableCell>
             <TableCell className="text-sm text-muted-foreground">{row.status}</TableCell>

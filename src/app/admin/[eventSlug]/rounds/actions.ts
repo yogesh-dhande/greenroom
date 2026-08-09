@@ -53,6 +53,8 @@ const roundInputSchema = z.object({
   opensAt: z.string().trim().optional(),
   closesAt: z.string().trim().optional(),
   criteria: z.array(criterionInputSchema),
+  /** "Hide speaker identity" (decisions.md D-049) — off unless posted. */
+  blindReview: z.boolean().optional(),
 });
 export type RoundInput = z.infer<typeof roundInputSchema>;
 
@@ -83,6 +85,7 @@ function prepareRound(input: RoundInput, timezone: string) {
       opensAt,
       closesAt,
       criteria,
+      blindReview: v.blindReview ?? false,
     },
   };
 }

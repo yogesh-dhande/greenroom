@@ -3,6 +3,7 @@ import type {
   Event,
   Form,
   NewSubmission,
+  Session,
   Submission,
   SubmissionSpeaker,
   Track,
@@ -57,6 +58,24 @@ const TRACKS: Track[] = [
   { id: "track-1", eventId: "event-1", name: "AI Engineering", color: null, ...timestamps() },
 ];
 
+function session(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "session-1",
+    eventId: "event-1",
+    title: "Retrieval that survives production traffic",
+    description: null,
+    submissionId: "submission-1",
+    trackId: null,
+    roomId: null,
+    day: null,
+    startTime: null,
+    endTime: null,
+    status: "confirmed",
+    ...timestamps(),
+    ...overrides,
+  };
+}
+
 /** A complete set of answers to the default CFP form. */
 function answers(overrides: Record<string, unknown> = {}) {
   const fields = publicFields(DEFAULT_CFP_FIELDS, ["AI Engineering"]);
@@ -80,11 +99,15 @@ function answers(overrides: Record<string, unknown> = {}) {
  * the real `saveSubmission` — the point is to exercise the actual create /
  * promote / limit code rather than assert against mocks.
  */
-function fakeRepos(seed: { submissions?: Submission[]; users?: User[] } = {}) {
+function fakeRepos(
+  seed: { submissions?: Submission[]; users?: User[]; sessions?: Session[] } = {},
+) {
   const submissions: Submission[] = [...(seed.submissions ?? [])];
   const users: User[] = [...(seed.users ?? [])];
+  const sessions: Session[] = [...(seed.sessions ?? [])];
   const speakerLinks: SubmissionSpeaker[] = [];
   const trackLinks: Record<string, string[]> = {};
+  const sessionSpeakerLinks: Record<string, string[]> = {};
 
   const repos = {
     users: {
@@ -145,9 +168,16 @@ function fakeRepos(seed: { submissions?: Submission[]; users?: User[] } = {}) {
         if (index >= 0) speakerLinks.splice(index, 1);
       },
     },
+    sessions: {
+      getBySubmission: async (submissionId: string) =>
+        sessions.find((row) => row.submissionId === submissionId) ?? null,
+      setSpeakers: async (sessionId: string, userIds: string[]) => {
+        sessionSpeakerLinks[sessionId] = [...userIds];
+      },
+    },
   };
 
-  return { repos: repos as unknown as Repos, submissions, users, trackLinks };
+  return { repos: repos as unknown as Repos, submissions, users, trackLinks, sessionSpeakerLinks };
 }
 
 function save(repos: Repos, values: Record<string, unknown>, extra: Record<string, unknown> = {}) {
@@ -321,5 +351,128 @@ describe("speakerLimitState", () => {
       "priya@example.test",
     );
     expect(state.used).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keeping an accepted submission's session speakers in step (spec.md §5, §8)
+// ---------------------------------------------------------------------------
+
+describe("editing speakers on an already-accepted submission", () => {
+  /** An `approved` submission with a session already converted from it —
+   * the state a co-speaker edit lands in after acceptance. */
+  function approvedSubmission(): Submission {
+    return {
+      id: "submission-1",
+      eventId: "event-1",
+      formId: "form-1",
+      title: "Retrieval that survives production traffic",
+      description: "A practitioner story.",
+      answers: {},
+      status: "approved",
+      resumeToken: null,
+      decidedBy: "admin-1",
+      decidedAt: NOW,
+      decisionNote: null,
+      ...timestamps(),
+    };
+  }
+
+  it("adds a co-speaker saved after acceptance to the session, not just the submission", async () => {
+    const primary: User = {
+      id: "user-1",
+      email: "priya@example.test",
+      name: "Priya Raman",
+      role: "speaker",
+      emailVerified: true,
+      title: null,
+      company: null,
+      bio: "Builds retrieval systems.",
+      headshotUrl: null,
+      websiteUrl: null,
+      linkedinUrl: null,
+      twitterUrl: null,
+      socials: null,
+      image: null,
+      ...timestamps(),
+    };
+    const { repos, sessionSpeakerLinks } = fakeRepos({
+      submissions: [approvedSubmission()],
+      users: [primary],
+      sessions: [session({ submissionId: "submission-1" })],
+    });
+
+    const result = await save(
+      repos,
+      answers({
+        co_speakers: [{ name: "Dan Cho", email: "dan@example.test", title: "", company: "" }],
+      }),
+      { submissionId: "submission-1" },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const dan = await repos.users.getByEmail("dan@example.test");
+    expect(dan).not.toBeNull();
+    // The layer that already keeps a session's speakers in sync on acceptance
+    // (`sessions.setSpeakers` in src/domain/review.ts) is the one this reuses:
+    // without it, the co-speaker would be linked on `submission_speakers` only,
+    // and both Admin > Speakers and the public gallery read the session's
+    // speakers — the co-speaker would be untrackable and invisible on both.
+    expect(sessionSpeakerLinks["session-1"]).toEqual([primary.id, dan?.id]);
+  });
+
+  it("drops a removed co-speaker from the session too", async () => {
+    const primary: User = {
+      id: "user-1",
+      email: "priya@example.test",
+      name: "Priya Raman",
+      role: "speaker",
+      emailVerified: true,
+      title: null,
+      company: null,
+      bio: "Builds retrieval systems.",
+      headshotUrl: null,
+      websiteUrl: null,
+      linkedinUrl: null,
+      twitterUrl: null,
+      socials: null,
+      image: null,
+      ...timestamps(),
+    };
+    const { repos, sessionSpeakerLinks } = fakeRepos({
+      submissions: [approvedSubmission()],
+      users: [primary],
+      sessions: [session({ submissionId: "submission-1" })],
+    });
+
+    // First save adds the co-speaker (and the session picks them up)...
+    await save(
+      repos,
+      answers({
+        co_speakers: [{ name: "Dan Cho", email: "dan@example.test", title: "", company: "" }],
+      }),
+      { submissionId: "submission-1" },
+    );
+    // ...the next save drops them again.
+    await save(repos, answers({ co_speakers: [] }), { submissionId: "submission-1" });
+
+    expect(sessionSpeakerLinks["session-1"]).toEqual([primary.id]);
+  });
+
+  it("leaves the session untouched before the submission has one", async () => {
+    // Nothing to sync yet — acceptance hasn't run, so there is no session.
+    const { repos, sessionSpeakerLinks } = fakeRepos();
+
+    const result = await save(
+      repos,
+      answers({
+        co_speakers: [{ name: "Dan Cho", email: "dan@example.test", title: "", company: "" }],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(Object.keys(sessionSpeakerLinks)).toHaveLength(0);
   });
 });

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -101,6 +102,9 @@ export function RoundForm({
   const [criteria, setCriteria] = useState<CriterionDraft[]>(() =>
     round ? round.criteria.map(toDraft) : [blankDraft("number")],
   );
+  // Blind review is per round and off unless the organizer asks for it
+  // (decisions.md D-049).
+  const [blindReview, setBlindReview] = useState(round?.blindReview ?? false);
   const [isSaving, startSaving] = useTransition();
   const [isDeleting, startDeleting] = useTransition();
 
@@ -118,6 +122,7 @@ export function RoundForm({
       description,
       opensAt,
       closesAt,
+      blindReview,
       criteria: criteria.map((row) => ({
         id: row.id,
         label: row.label,
@@ -209,6 +214,21 @@ export function RoundForm({
           Times are in the event&apos;s timezone ({eventTimezone}). Reviewers can only score while
           the round is open.
         </p>
+
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">Hide speaker identity</p>
+            <p className="text-sm text-muted-foreground">
+              Blind review: reviewers in this round see the proposal without names, emails, bios,
+              headshots or co-speakers. Your own results and submission pages are unaffected.
+            </p>
+          </div>
+          <Switch
+            aria-label="Hide speaker identity"
+            checked={blindReview}
+            onCheckedChange={setBlindReview}
+          />
+        </div>
       </section>
 
       <section className="flex flex-col gap-3">

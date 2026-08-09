@@ -179,6 +179,19 @@ async function syncSpeakers(
 
   await ctx.repos.submissions.addSpeaker(submissionId, primary.id, "primary");
   for (const user of resolved) await ctx.repos.submissions.addSpeaker(submissionId, user.id, "co");
+
+  // A submission already converted into a session (spec.md §5) keeps that
+  // session's speaker roster in step with edits made here. Without this, a
+  // co-speaker added — or removed — after acceptance only ever exists on the
+  // submission: Admin > Speakers and the public gallery both read the
+  // session's speakers (`sessions.setSpeakers`, the same call the acceptance
+  // conversion in src/domain/review.ts makes), not the submission's, so the
+  // edit would be invisible on both and the new speaker's onboarding would go
+  // untracked. Nothing to do before acceptance — `getBySubmission` is null.
+  const session = await ctx.repos.sessions.getBySubmission(submissionId);
+  if (session) {
+    await ctx.repos.sessions.setSpeakers(session.id, [primary.id, ...resolved.map((user) => user.id)]);
+  }
 }
 
 /**

@@ -2,10 +2,20 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { XIcon } from "lucide-react";
+import { BellRingIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { RoundAssignmentStatus, SubmissionStatus } from "@/db/entities";
 import { progressByReviewer, progressLabel } from "@/domain/rounds";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -28,6 +38,7 @@ import {
 import { EmptyState } from "@/components/empty-state";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
 import { assignSubmissions, assignTrack, unassignSubmission } from "../../actions";
+import { remindReviewers } from "./actions";
 
 /**
  * Assigning review work for one round.
@@ -69,6 +80,7 @@ const ALL_TRACKS = "__all__";
 export function AssignmentManager({
   eventSlug,
   roundId,
+  roundName,
   reviewers,
   tracks,
   submissions,
@@ -76,6 +88,7 @@ export function AssignmentManager({
 }: {
   eventSlug: string;
   roundId: string;
+  roundName: string;
   reviewers: ReviewerOption[];
   tracks: Array<{ id: string; name: string }>;
   submissions: SubmissionOption[];
@@ -86,6 +99,8 @@ export function AssignmentManager({
   const [trackId, setTrackId] = useState(ALL_TRACKS);
   const [selected, setSelected] = useState<string[]>([]);
   const [isBusy, startWork] = useTransition();
+  const [confirmingRemind, setConfirmingRemind] = useState(false);
+  const [isReminding, startRemind] = useTransition();
 
   const byReviewer = useMemo(() => {
     const map = new Map<string, AssignmentRow[]>();
@@ -113,6 +128,13 @@ export function AssignmentManager({
     [reviewers],
   );
 
+  // Same "who still owes work" reading as the Progress column itself — the
+  // reminder can never disagree with what's on screen (D-050).
+  const pendingCount = useMemo(
+    () => progress.filter((row) => row.pending > 0).length,
+    [progress],
+  );
+
   function run(action: () => Promise<{ ok: true } | { ok: false; error: string }>, success: string) {
     startWork(async () => {
       const result = await action();
@@ -122,6 +144,28 @@ export function AssignmentManager({
       }
       toast.success(success);
       setSelected([]);
+      router.refresh();
+    });
+  }
+
+  function sendReminders() {
+    startRemind(async () => {
+      const result = await remindReviewers(eventSlug, roundId);
+      setConfirmingRemind(false);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      if (result.sent === 0) {
+        toast.success("Nothing to send", { description: "Every reviewer is already caught up." });
+        return;
+      }
+      toast.success(`Sent ${result.sent} reminder${result.sent === 1 ? "" : "s"}`, {
+        description:
+          result.failed > 0
+            ? `${result.failed} couldn't be delivered — check the communications log.`
+            : undefined,
+      });
       router.refresh();
     });
   }
@@ -297,12 +341,42 @@ export function AssignmentManager({
       )}
 
       <section className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-sm font-medium text-foreground">Reviewers in this round</h2>
-          <p className="text-sm text-muted-foreground">
-            Only these people can score in this round — each round has its own pool.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-medium text-foreground">Reviewers in this round</h2>
+            <p className="text-sm text-muted-foreground">
+              Only these people can score in this round — each round has its own pool.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pendingCount === 0}
+            onClick={() => setConfirmingRemind(true)}
+          >
+            <BellRingIcon />
+            Remind reviewers
+          </Button>
         </div>
+        <AlertDialog open={confirmingRemind} onOpenChange={(open) => !open && setConfirmingRemind(false)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Remind {pendingCount} reviewer{pendingCount === 1 ? "" : "s"} in {roundName}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Each reviewer with unfiled scorecards gets one email now, with their pending count and a
+                link back to their queue. This is a one-time send — nothing gets scheduled.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isReminding}>Cancel</AlertDialogCancel>
+              <AlertDialogAction disabled={isReminding} onClick={sendReminders}>
+                {isReminding ? "Sending…" : "Send reminders"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {progress.length === 0 ? (
           <EmptyState
             title="No reviewers in this round yet"

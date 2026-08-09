@@ -95,6 +95,8 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
   task_digest: "Weekly task digest",
   draft_saved: "Draft link",
   draft_reminder: "Draft closing soon",
+  /** The manual "Remind reviewers" nudge from a round's assignments page (D-050). */
+  round_reminder: "Reviewer reminder",
   calendar_invite: "Calendar invite",
   manual: "One-off message",
 };
@@ -104,6 +106,7 @@ export const LOG_KIND_ORDER: EmailKind[] = [
   "decision",
   "change_request",
   "task_digest",
+  "round_reminder",
   "task_reminder",
   "draft_reminder",
   "calendar_invite",

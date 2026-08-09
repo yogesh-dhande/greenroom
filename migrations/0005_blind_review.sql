@@ -1,0 +1,1 @@
+ALTER TABLE `review_rounds` ADD `blind_review` integer DEFAULT false NOT NULL;

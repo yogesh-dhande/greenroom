@@ -344,6 +344,11 @@ export const reviewRounds = sqliteTable(
     /** JSON-serialized ScorecardCriterion[] (src/db/entities.ts). Each round
      * carries its own scorecard — that is what makes rounds independent. */
     criteria: text("criteria", { mode: "json" }).notNull(),
+    /** Blind review (decisions.md D-049): when set, this round's *reviewer*
+     * surfaces withhold every trace of who wrote the proposal. Organizer
+     * surfaces are never anonymized, so it is a property of the round rather
+     * than of the submission. */
+    blindReview: integer("blind_review", { mode: "boolean" }).notNull().default(false),
     ...timestamps,
   },
   (t) => [index("review_rounds_event_idx").on(t.eventId)],
@@ -545,6 +550,9 @@ export const emailLog = sqliteTable(
         "task_digest",
         "draft_saved",
         "draft_reminder",
+        // The manual reviewer completion nudge from a round's assignments
+        // page (D-050).
+        "round_reminder",
         "calendar_invite",
         "manual",
       ],

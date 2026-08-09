@@ -918,6 +918,9 @@ async function seed(repos: Repos): Promise<void> {
     description: "Screening pass — anything plausible goes through to the committee round.",
     opensAt: daysFromNow(-14),
     closesAt: daysFromNow(14),
+    // Screening is where blind review earns its keep, and a dormant toggle is
+    // indistinguishable from a missing one (decisions.md D-046, D-049).
+    blindReview: true,
     criteria: [
       {
         id: "originality",
@@ -945,6 +948,7 @@ async function seed(repos: Repos): Promise<void> {
     description: "The shortlist, scored on one number by the program committee.",
     opensAt: daysFromNow(21),
     closesAt: daysFromNow(45),
+    blindReview: false,
     criteria: [
       { id: "final_score", label: "Final score", type: "number", min: 1, max: 10, weight: 1 },
       { id: "comments", label: "Comments", type: "text" },

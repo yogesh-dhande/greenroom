@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { RESERVED_FIELD_IDS } from "@/db/entities";
 import type {
+  FormField,
   ReviewRound,
   RoundAssignment,
   RoundScore,
   ScorecardCriterion,
 } from "@/db/entities";
 import {
+  BLIND_REVIEW_NOTICE,
   assignmentsForReviewer,
   canScoreSubmission,
   criterionIdFromLabel,
@@ -13,20 +16,25 @@ import {
   criterionWeight,
   csvHeader,
   csvRow,
+  hidesSpeakerIdentity,
+  isIdentityField,
   isRoundOpen,
   normalizeCriteria,
   normalizedValue,
   pickScorecardValues,
   progressByReviewer,
   progressLabel,
+  reviewerVisibleFields,
   rollupProgressLabel,
   rollupRoundsBySubmission,
   roundResultsCsv,
   roundState,
   scorecardScore,
   sortResultRows,
+  speakerLine,
   summarizeRound,
   validateScorecard,
+  withoutSpeakers,
   type ResultRow,
 } from "@/domain/rounds";
 
@@ -54,6 +62,7 @@ function round(overrides: Partial<ReviewRound> = {}): ReviewRound {
     opensAt: new Date("2026-08-01T00:00:00Z"),
     closesAt: new Date("2026-10-15T23:59:00Z"),
     criteria: INITIAL_REVIEW,
+    blindReview: false,
     createdAt: EPOCH,
     updatedAt: EPOCH,
     ...overrides,
@@ -601,5 +610,77 @@ describe("CSV export", () => {
     );
     expect(lines[2]).toBe("Nobody scored me,,,Unreviewed,1,0,,,");
     expect(csv.endsWith("\n")).toBe(true);
+  });
+});
+
+describe("blind review (D-049)", () => {
+  /** A CFP form as the builder produces it: reserved questions plus a custom one. */
+  const FORM_FIELDS: FormField[] = [
+    { id: RESERVED_FIELD_IDS.title, type: "text", label: "Title" },
+    { id: RESERVED_FIELD_IDS.description, type: "textarea", label: "Abstract" },
+    { id: RESERVED_FIELD_IDS.tracks, type: "multiselect", label: "Track" },
+    { id: RESERVED_FIELD_IDS.speakerName, type: "text", label: "Your name" },
+    { id: RESERVED_FIELD_IDS.speakerEmail, type: "email", label: "Your email" },
+    { id: RESERVED_FIELD_IDS.speakerBio, type: "textarea", label: "Your bio" },
+    { id: RESERVED_FIELD_IDS.headshot, type: "file", label: "Headshot" },
+    { id: RESERVED_FIELD_IDS.coSpeakers, type: "co_speakers", label: "Co-speakers" },
+    { id: "format", type: "select", label: "Session format", options: ["Talk", "Workshop"] },
+    { id: "takeaway", type: "textarea", label: "Audience takeaway" },
+  ];
+
+  it("is off unless the round says otherwise", () => {
+    expect(hidesSpeakerIdentity(round())).toBe(false);
+    expect(hidesSpeakerIdentity(round({ blindReview: true }))).toBe(true);
+  });
+
+  it("counts the person-shaped reserved questions as identity, and nothing else", () => {
+    const identity = FORM_FIELDS.filter(isIdentityField).map((field) => field.id);
+    expect(identity).toEqual([
+      RESERVED_FIELD_IDS.speakerName,
+      RESERVED_FIELD_IDS.speakerEmail,
+      RESERVED_FIELD_IDS.speakerBio,
+      RESERVED_FIELD_IDS.headshot,
+      RESERVED_FIELD_IDS.coSpeakers,
+    ]);
+  });
+
+  it("treats a co-speaker block as identity even under a non-reserved id", () => {
+    expect(isIdentityField({ id: "extra_presenters", type: "co_speakers" })).toBe(true);
+  });
+
+  it("keeps what the talk is judged on and drops who wrote it", () => {
+    const visible = reviewerVisibleFields(FORM_FIELDS, true).map((field) => field.id);
+    expect(visible).toEqual([
+      RESERVED_FIELD_IDS.title,
+      RESERVED_FIELD_IDS.description,
+      RESERVED_FIELD_IDS.tracks,
+      "format",
+      "takeaway",
+    ]);
+  });
+
+  it("changes nothing when the round isn't blind", () => {
+    expect(reviewerVisibleFields(FORM_FIELDS, false)).toEqual(FORM_FIELDS);
+  });
+
+  it("replaces the speaker line with the marker, and only when blind", () => {
+    expect(speakerLine(["Priya Raman", "Tom Beckett"], false)).toBe("Priya Raman, Tom Beckett");
+    expect(speakerLine([], false)).toBe("No speaker on file");
+    expect(speakerLine(["Priya Raman"], true)).toBe(BLIND_REVIEW_NOTICE);
+    // The marker stands in even when there was nobody to hide, so an empty
+    // queue row can't be read as "this one has no author".
+    expect(speakerLine([], true)).toBe(BLIND_REVIEW_NOTICE);
+  });
+
+  it("strips speakers off queue rows in the loader, leaving the proposal intact", () => {
+    const rows = [
+      { title: "Retrieval, at scale", speakers: [{ id: "u1", name: "Priya Raman" }] },
+      { title: "Nobody here", speakers: [] },
+    ];
+    expect(withoutSpeakers(rows, true)).toEqual([
+      { title: "Retrieval, at scale", speakers: [] },
+      { title: "Nobody here", speakers: [] },
+    ]);
+    expect(withoutSpeakers(rows, false)).toEqual(rows);
   });
 });

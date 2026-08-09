@@ -31,6 +31,7 @@ import type {
   TaskAssignment,
   User,
 } from "@/db/entities";
+import { pendingReviewers, pendingScorecardsLabel } from "@/domain/round-reminders";
 import type { Repos } from "@/db/repos";
 import {
   createLoggingEmailSender,
@@ -115,6 +116,11 @@ function submissionUrl(ctx: CommsContext, submissionId: string): string {
 
 function eventUrl(ctx: CommsContext, event: Event): string {
   return `${trimTrailingSlash(ctx.appUrl)}/e/${event.slug}`;
+}
+
+/** A reviewer's own queue for one round (src/app/admin/[eventSlug]/rounds/[roundId]/score). */
+function roundQueueUrl(ctx: CommsContext, eventSlug: string, roundId: string): string {
+  return `${trimTrailingSlash(ctx.appUrl)}/admin/${eventSlug}/rounds/${roundId}/score`;
 }
 
 function nowOf(ctx: CommsContext): Date {
@@ -644,6 +650,71 @@ export async function sendTaskDigest(
   if (outstanding.length === 0) return [];
 
   return [await deliverTaskDigest(ctx, { event, user, tasks: outstanding, overrides })];
+}
+
+// ---------------------------------------------------------------------------
+// Reviewer completion nudges (decisions.md D-050)
+// ---------------------------------------------------------------------------
+
+export interface RoundReminderInput {
+  roundId: string;
+}
+
+/**
+ * Emails every reviewer in a round who still has unfiled scorecards: their
+ * pending count and a direct link back to their queue. Sent from the round's
+ * assignments page — manual only, no automatic scheduling (D-050); the
+ * weekly task digest (D-039) remains the only recurring email.
+ *
+ * Pending-ness is computed the same way the assignments page's own Progress
+ * column is (src/domain/round-reminders.ts wraps `progressByReviewer`), so
+ * this never disagrees with what the organizer sees on screen.
+ */
+export async function sendRoundReminders(
+  ctx: CommsContext,
+  input: RoundReminderInput,
+): Promise<CommsDelivery[]> {
+  const round = await ctx.repos.reviewRounds.getById(input.roundId);
+  if (!round) throw new Error(`Round ${input.roundId} not found`);
+
+  const event = await requireEvent(ctx, round.eventId);
+  const [assignments, overrides] = await Promise.all([
+    ctx.repos.reviewRounds.listAssignments(round.id),
+    eventTemplateOverrides(ctx, event.id),
+  ]);
+  const scores = await ctx.repos.reviewRounds.listScoresByAssignments(
+    assignments.map((assignment) => assignment.id),
+  );
+  const scored = new Set(scores.map((score) => score.assignmentId));
+  const pending = pendingReviewers(assignments, scored);
+  if (pending.length === 0) return [];
+
+  const reviewers = await requireUsers(ctx, pending.map((item) => item.reviewerId));
+  const reviewersById = new Map(reviewers.map((reviewer) => [reviewer.id, reviewer]));
+
+  const results: CommsDelivery[] = [];
+  for (const item of pending) {
+    const reviewer = reviewersById.get(item.reviewerId);
+    // A deleted or never-created reviewer account isn't a skip an admin can
+    // act on; there's simply no address to send to.
+    if (!reviewer) continue;
+
+    const data: MergeData = {
+      ...eventFields(ctx, event),
+      ...speakerFields(reviewer),
+      roundName: round.name,
+      pendingScorecards: pendingScorecardsLabel(item.pending),
+      roundQueueUrl: roundQueueUrl(ctx, event.slug, round.id),
+    };
+    results.push(
+      await deliver(ctx, reviewer.email, renderForEvent("round_reminder", overrides, data), {
+        kind: "round_reminder",
+        relatedType: "user",
+        relatedId: reviewer.id,
+      }),
+    );
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------

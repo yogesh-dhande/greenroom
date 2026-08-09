@@ -15,8 +15,11 @@ import { PageHeader } from "@/components/page-header";
 import {
   ROUND_STATE_LABEL,
   assignmentsForReviewer,
+  hidesSpeakerIdentity,
   progressLabel,
   roundState,
+  speakerLine,
+  withoutSpeakers,
 } from "@/domain/rounds";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
@@ -29,6 +32,10 @@ import { loadRound, loadRoundSubmissions, roundWindowLabel } from "../../data";
  * session id, not with anything the page was navigated with — so it contains
  * exactly what they were given and nothing else. No aggregate and no other
  * reviewer's scorecard appears anywhere on the reviewer side.
+ *
+ * On a blind round (decisions.md D-049) the speakers are dropped from the rows
+ * here, in the loader, rather than hidden in the markup — the names never make
+ * it into the rendered page at all.
  */
 export default async function ReviewerQueuePage({
   params,
@@ -52,7 +59,8 @@ export default async function ReviewerQueuePage({
   );
   const scored = new Set(myScores.map((score) => score.assignmentId));
 
-  const submissions = await loadRoundSubmissions(repos, event.id);
+  const blind = hidesSpeakerIdentity(round);
+  const submissions = withoutSpeakers(await loadRoundSubmissions(repos, event.id), blind);
   const byId = new Map(submissions.map((row) => [row.submission.id, row]));
 
   const state = roundState(round);
@@ -75,6 +83,7 @@ export default async function ReviewerQueuePage({
         <Badge variant={state === "open" ? "default" : "outline"}>{ROUND_STATE_LABEL[state]}</Badge>
         <span>{roundWindowLabel(round, event.timezone)}</span>
         <span>{progressLabel({ done: done.length, required: required.length })}</span>
+        {blind ? <Badge variant="outline">Blind review</Badge> : null}
       </div>
 
       {mine.length === 0 ? (
@@ -103,8 +112,10 @@ export default async function ReviewerQueuePage({
                       {row?.submission.title ?? "Withdrawn submission"}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {row?.speakers.map((person) => person.name ?? person.email).join(", ") ||
-                        "No speaker on file"}
+                      {speakerLine(
+                        row?.speakers.map((person) => person.name ?? person.email) ?? [],
+                        blind,
+                      )}
                     </p>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">

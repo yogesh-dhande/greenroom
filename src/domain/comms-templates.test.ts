@@ -45,6 +45,9 @@ const FULL: MergeData = {
   taskInstructions: "Square image, at least 800×800.",
   taskDueDate: "Friday, June 5, 2026",
   outstandingTasks: "- Upload your headshot\n- Complete the A/V form",
+  roundName: "Initial Review",
+  pendingScorecards: "3 scorecards",
+  roundQueueUrl: "https://example.test/admin/aie-2026/rounds/round-1/score",
 };
 
 describe("renderText — merge fields", () => {
