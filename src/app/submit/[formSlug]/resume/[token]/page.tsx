@@ -29,7 +29,15 @@ export default async function ResumeDraftPage({
   if (!submission) notFound();
 
   const detail = await loadSubmissionDetail({ repos }, submission.id);
-  if (!detail || detail.form.slug !== formSlug) notFound();
+  if (!detail) notFound();
+
+  // The token is the authentication, not the slug (D-038) — and the slug is an
+  // organizer-editable field, so an emailed draft link outlives any rename.
+  // Send a stale link on to the same draft at the form's current address
+  // rather than 404ing a speaker who kept the link exactly as they were told.
+  if (detail.form.slug !== formSlug) {
+    redirect(`/submit/${detail.form.slug}/resume/${token}`);
+  }
 
   const { form, event } = detail;
 

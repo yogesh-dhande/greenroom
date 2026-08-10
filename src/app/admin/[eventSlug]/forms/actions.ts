@@ -55,7 +55,9 @@ export async function createForm(eventSlug: string, name: string, type: FormType
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) return fail("That event no longer exists");
 
-  const draft = defaultFormDraft(trimmed);
+  // The confirmation copy is written for the type chosen here: a session form
+  // has no review step to promise (decisions.md D-041, D-042).
+  const draft = defaultFormDraft(trimmed, parsedType.data);
   try {
     const form = await repos.forms.create({
       eventId: event.id,
@@ -262,6 +264,24 @@ export async function deleteForm(eventSlug: string, formId: string) {
   const counts = await repos.submissions.countByForms([form.id]);
   if ((counts[form.id] ?? 0) > 0) {
     return fail("This form has submissions — unpublish it instead of deleting it");
+  }
+
+  // An onboarding task of type "form" points at this form, and the foreign key
+  // is `set null` (src/db/schema.ts) — deleting the form would silently leave
+  // every speaker holding a task with nothing to fill in and no way to
+  // complete it. The organizer decides what happens to those tasks first.
+  const linkedTasks = (await repos.tasks.listByEvent(form.eventId)).filter(
+    (task) => task.formId === form.id,
+  );
+  if (linkedTasks.length > 0) {
+    const named = linkedTasks.slice(0, 3).map((task) => `"${task.title}"`);
+    const rest = linkedTasks.length - named.length;
+    const list = rest > 0 ? `${named.join(", ")} and ${rest} more` : named.join(", ");
+    return fail(
+      linkedTasks.length === 1
+        ? `The onboarding task ${list} asks speakers to fill this form in — point it at another form, or delete the task, before deleting this form`
+        : `${linkedTasks.length} onboarding tasks ask speakers to fill this form in (${list}) — point them at another form, or delete them, before deleting this form`,
+    );
   }
 
   try {

@@ -10,6 +10,8 @@ import {
   fieldTakesMaxLength,
   fieldTakesOptions,
   isReservedFieldId,
+  reservedFieldTypes,
+  reservedTypeSummary,
 } from "@/domain/forms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +76,11 @@ export function FieldEditor({
   const [open, setOpen] = useState(false);
   const isTracks = field.id === RESERVED_FIELD_IDS.tracks;
   const isCoSpeakers = field.type === "co_speakers";
+  // A built-in question's answer is written to a column or a join table on
+  // save, so its type is locked to whatever that mapping can take (D-022);
+  // `fieldSchemaProblems` refuses the same combinations server-side.
+  const lockedTypes = reservedFieldTypes(field.id);
+  const typeChoices = lockedTypes ?? SELECTABLE_FIELD_TYPES;
   const conditionTarget = field.showIf
     ? (earlier.find((other) => other.id === field.showIf!.fieldId) ?? null)
     : null;
@@ -171,6 +178,7 @@ export function FieldEditor({
                 <Label htmlFor={`${field.id}-type`}>Answer type</Label>
                 <Select
                   value={field.type}
+                  disabled={typeChoices.length === 1}
                   onValueChange={(value) => {
                     const type = value as FormFieldType;
                     patch({
@@ -184,10 +192,7 @@ export function FieldEditor({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(isTracks
-                      ? (["select", "multiselect"] as FormFieldType[])
-                      : SELECTABLE_FIELD_TYPES
-                    ).map((type) => (
+                    {typeChoices.map((type) => (
                       <SelectItem key={type} value={type}>
                         {FIELD_TYPE_LABELS[type]}
                       </SelectItem>
@@ -198,6 +203,11 @@ export function FieldEditor({
                   <p className="text-xs text-muted-foreground">
                     &ldquo;Choose one&rdquo; lets a speaker pick a single track; &ldquo;Choose
                     any&rdquo; lets them tick several.
+                  </p>
+                ) : lockedTypes ? (
+                  <p className="text-xs text-muted-foreground">
+                    Locked — this is a built-in question and its answer is stored as more than
+                    text, so it stays {reservedTypeSummary(field.id)}.
                   </p>
                 ) : null}
               </div>

@@ -21,8 +21,13 @@ import {
   closureIsDateDriven,
   conditionHolds,
   DEFAULT_CFP_FIELDS,
+  defaultFormDraft,
   emptyValues,
   fieldSchemaProblems,
+  reservedFieldTypes,
+  reservedTypeIsCompatible,
+  reservedTypeSummary,
+  uploadKindForField,
   formWindowState,
   fromZonedInputValue,
   isFieldVisible,
@@ -588,6 +593,179 @@ describe("fieldSchemaProblems", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Reserved-field type contracts (D-022)
+// ---------------------------------------------------------------------------
+
+describe("reserved field types", () => {
+  it("lists the compatible types for a built-in question, and nothing for a custom one", () => {
+    expect(reservedFieldTypes("speaker_email")).toEqual(["email"]);
+    expect(reservedFieldTypes("tracks")).toEqual(["select", "multiselect"]);
+    expect(reservedFieldTypes("question_1")).toBeNull();
+    // Not a reserved id just because every object has the key.
+    expect(reservedFieldTypes("constructor")).toBeNull();
+    expect(reservedTypeSummary("headshot")).toBe('"File upload"');
+    expect(reservedTypeSummary("question_1")).toBeNull();
+  });
+
+  it("accepts every type the default CFP form actually uses", () => {
+    for (const f of DEFAULT_CFP_FIELDS) expect(reservedTypeIsCompatible(f)).toBe(true);
+  });
+
+  it("rejects a retyped speaker email — the value becomes a users row", () => {
+    const problems = fieldSchemaProblems([
+      field({ id: "speaker_email", type: "text", label: "Your email" }),
+    ]);
+    expect(problems).toEqual([
+      '"Your email" is a built-in question — its answer type has to be "Email address"',
+    ]);
+  });
+
+  it("rejects a headshot that isn't a file, and a track question that isn't a choice", () => {
+    expect(
+      fieldSchemaProblems([field({ id: "headshot", type: "text", label: "Headshot" })]),
+    ).toEqual(['"Headshot" is a built-in question — its answer type has to be "File upload"']);
+    expect(
+      fieldSchemaProblems([field({ id: "tracks", type: "checkbox", label: "Track(s)" })]).some((p) =>
+        p.includes("built-in question"),
+      ),
+    ).toBe(true);
+  });
+
+  it("allows either box size where both store the same value", () => {
+    expect(
+      fieldSchemaProblems([field({ id: "speaker_bio", type: "text", label: "Bio" })]),
+    ).toEqual([]);
+    expect(
+      fieldSchemaProblems([field({ id: "speaker_bio", type: "textarea", label: "Bio" })]),
+    ).toEqual([]);
+  });
+
+  it("leaves custom questions alone", () => {
+    expect(
+      fieldSchemaProblems([field({ id: "dietary", type: "checkbox", label: "Dietary needs" })]),
+    ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conditions against a choice question's options (D-009)
+// ---------------------------------------------------------------------------
+
+describe("fieldSchemaProblems — condition values", () => {
+  const controlling = field({
+    id: "format",
+    type: "select",
+    label: "Format",
+    options: ["Talk", "Workshop"],
+  });
+
+  it("passes a condition whose value is still one of the choices", () => {
+    expect(
+      fieldSchemaProblems([
+        controlling,
+        field({ id: "room", label: "Room", showIf: { fieldId: "format", op: "eq", value: "Workshop" } }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("flags a value the controlling question no longer offers", () => {
+    expect(
+      fieldSchemaProblems([
+        controlling,
+        field({
+          id: "room",
+          label: "Room",
+          showIf: { fieldId: "format", op: "eq", value: "Tutorial" },
+        }),
+      ]),
+    ).toEqual([
+      '"Room" is conditional on the answer "Tutorial", which "Format" no longer offers',
+    ]);
+  });
+
+  it("checks every value of an `is any of` condition", () => {
+    const problems = fieldSchemaProblems([
+      controlling,
+      field({
+        id: "room",
+        label: "Room",
+        showIf: { fieldId: "format", op: "in", value: ["Workshop", "Tutorial"] },
+      }),
+    ]);
+    expect(problems).toEqual([
+      '"Room" is conditional on the answer "Tutorial", which "Format" no longer offers',
+    ]);
+  });
+
+  it("mirrors the runtime comparison, which is exact-string", () => {
+    const problems = fieldSchemaProblems([
+      controlling,
+      field({
+        id: "room",
+        label: "Room",
+        showIf: { fieldId: "format", op: "eq", value: " Workshop" },
+      }),
+    ]);
+    expect(problems).toHaveLength(1);
+    expect(
+      conditionHolds({ fieldId: "format", op: "eq", value: " Workshop" }, { format: "Workshop" }),
+    ).toBe(false);
+  });
+
+  it("says nothing about questions with no fixed choices", () => {
+    expect(
+      fieldSchemaProblems([
+        field({ id: "notes", type: "textarea", label: "Notes" }),
+        field({ id: "why", label: "Why", showIf: { fieldId: "notes", op: "neq", value: "x" } }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("skips the track question, whose choices come from the event at render time", () => {
+    expect(
+      fieldSchemaProblems([
+        field({ id: "tracks", type: "multiselect", label: "Track(s)", options: [] }),
+        field({
+          id: "why",
+          label: "Why",
+          showIf: { fieldId: "tracks", op: "eq", value: "AI Engineering" },
+        }),
+      ]),
+    ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// File questions — the headshot takes pictures only (D-022)
+// ---------------------------------------------------------------------------
+
+describe("headshot uploads", () => {
+  const fields = [
+    field({ id: "headshot", type: "file", label: "Headshot" }),
+    field({ id: "handout", type: "file", label: "Handout" }),
+  ];
+
+  it("asks for an image on the reserved headshot, anything on other file questions", () => {
+    expect(uploadKindForField(fields[0])).toBe("image");
+    expect(uploadKindForField(fields[1])).toBe("any");
+  });
+
+  it("rejects a document answer to the headshot", () => {
+    const errors = errorsFor(fields, { headshot: "uploads/cfp/ab12cd34-resume.pdf" });
+    expect(errors.headshot).toContain("Use an image");
+  });
+
+  it("accepts an image, and leaves other file questions alone", () => {
+    expect(errorsFor(fields, { headshot: "uploads/cfp/ab12cd34-priya.jpg" })).toEqual({});
+    expect(errorsFor(fields, { handout: "uploads/cfp/ab12cd34-slides.pdf" })).toEqual({});
+  });
+
+  it("stays quiet when the headshot is simply unanswered", () => {
+    expect(errorsFor(fields, { headshot: "" })).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Confirmation email merge fields
 // ---------------------------------------------------------------------------
 
@@ -613,6 +791,38 @@ describe("confirmation email checks", () => {
     expect(check.preview.subject).toContain("Retrieval that survives production traffic");
     expect(check.preview.text).toContain("Hi Priya,");
     expect(check.preview.html).toContain("<p");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default draft copy per submission type (D-041, D-042)
+// ---------------------------------------------------------------------------
+
+describe("defaultFormDraft", () => {
+  it("promises review only on an abstract form", () => {
+    const draft = defaultFormDraft("Call for Speakers");
+    expect(draft.confirmationEmailBody).toContain("program committee reviews");
+    expect(defaultFormDraft("Call for Speakers", "abstract")).toEqual(draft);
+  });
+
+  it("tells a session-form submitter their session is confirmed, not queued", () => {
+    const draft = defaultFormDraft("Invited sessions", "session");
+    expect(draft.confirmationEmailSubject).toContain("confirmed");
+    expect(draft.confirmationEmailBody).not.toContain("program committee");
+    expect(draft.confirmationEmailBody).toContain("no review step");
+  });
+
+  it("renders both variants with no unknown or unfillable merge fields", () => {
+    for (const type of ["abstract", "session"] as const) {
+      const draft = defaultFormDraft("A form", type);
+      const check = checkConfirmationEmail(
+        draft.confirmationEmailSubject,
+        draft.confirmationEmailBody,
+      );
+      expect(check.unknown).toEqual([]);
+      expect(check.unavailable).toEqual([]);
+      expect(check.blank).toEqual([]);
+    }
   });
 });
 

@@ -4,7 +4,12 @@ import { useState } from "react";
 import { Controller, useFormContext, useWatch } from "react-hook-form";
 import { LoaderCircleIcon, PaperclipIcon, XIcon } from "lucide-react";
 import type { FormField } from "@/db/entities";
-import { effectiveMaxLength, showsCharacterCount, type FormValues } from "@/domain/forms";
+import {
+  effectiveMaxLength,
+  showsCharacterCount,
+  uploadKindForField,
+  type FormValues,
+} from "@/domain/forms";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,11 +24,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  acceptAttributeForKind,
   checkUpload,
   filenameFromKey,
   fileUrl,
   isImageKey,
-  UPLOAD_ACCEPT_ATTRIBUTE,
   uploadProblemMessage,
 } from "@/lib/uploads";
 import { CoSpeakersField } from "./co-speakers-field";
@@ -51,6 +56,9 @@ function FileControl({
   const { control } = useFormContext<FormValues>();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // A headshot question takes pictures only (decisions.md D-022) — the answer
+  // becomes the speaker's photo. Everything else takes the general set.
+  const kind = uploadKindForField(field);
 
   return (
     <Controller
@@ -100,16 +108,16 @@ function FileControl({
                 <Input
                   id={field.id}
                   type="file"
-                  accept={UPLOAD_ACCEPT_ATTRIBUTE}
+                  accept={acceptAttributeForKind(kind)}
                   disabled={busy}
                   className="file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs file:font-medium file:text-secondary-foreground"
                   onChange={async (event) => {
                     const file = event.target.files?.[0];
                     if (!file) return;
                     setProblem(null);
-                    const invalid = checkUpload(file);
+                    const invalid = checkUpload(file, kind);
                     if (invalid) {
-                      setProblem(uploadProblemMessage(invalid));
+                      setProblem(uploadProblemMessage(invalid, kind));
                       event.target.value = "";
                       return;
                     }

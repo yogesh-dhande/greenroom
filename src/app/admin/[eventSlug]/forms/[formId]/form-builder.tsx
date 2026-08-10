@@ -572,8 +572,8 @@ export function FormBuilder({
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Lowercase letters, numbers, and hyphens. Changing this breaks links you already
-                shared.
+                Lowercase letters, numbers, and hyphens. Changing this breaks the public link you
+                already shared — saved-draft links keep working.
               </p>
             </div>
           </div>
@@ -678,9 +678,13 @@ export function FormBuilder({
 
           <div className="flex flex-col gap-2">
             <p className="text-sm font-medium text-foreground">Publishing</p>
+            {/* What the public route actually does with an unpublished form
+             * (decisions.md D-063): it renders the closed state, never a 404. */}
             <p className="text-sm text-muted-foreground">
-              An unpublished form is invisible to the public — the link 404s, even for someone who
-              guesses it. Publishing makes it live subject to the window above.
+              An unpublished form takes no submissions — anyone with the link sees the event and
+              form name, a short note that this call isn&apos;t open, and a link to the public
+              program, but never the questions. Publishing makes it live subject to the window
+              above.
             </p>
             {responseCount > 0 ? (
               <p className="text-sm text-muted-foreground">

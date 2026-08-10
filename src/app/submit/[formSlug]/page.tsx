@@ -97,6 +97,32 @@ export default async function SubmitFormPage({
       ) : limit?.atLimit && limit.limit !== null ? (
         <SubmitNotice title="You've used your proposals for this call">
           <p>{submissionLimitMessage(limit.limit)}</p>
+          {/* A draft occupies a slot but is still finishable: the save path
+            * excludes the proposal in hand from the count (D-038), so an
+            * unfinished draft can be submitted even at the cap. Hiding it here
+            * would leave a speaker at the limit with no route to the one
+            * proposal they still have to send. */}
+          {drafts.length > 0 ? (
+            <div className="mt-3">
+              <p>
+                {drafts.length === 1
+                  ? "One of them is still an unfinished draft — you can finish and submit it:"
+                  : `${drafts.length} of them are still unfinished drafts — you can finish and submit them:`}
+              </p>
+              <ul className="mt-2 flex flex-col gap-1">
+                {drafts.map((draft) => (
+                  <li key={draft.id}>
+                    <Link
+                      href={`/portal/submissions/${draft.id}`}
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {draft.title}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <p className="mt-3">
             <Link href="/portal" className="text-primary underline-offset-4 hover:underline">
               Go to your proposals

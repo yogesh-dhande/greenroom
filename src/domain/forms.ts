@@ -38,6 +38,7 @@ import {
   renderMessage,
 } from "@/domain/comms-templates";
 import { zonedWallClockToInstant } from "@/lib/event-time";
+import { isImageKey, uploadProblemMessage, type UploadKind } from "@/lib/uploads";
 
 // ---------------------------------------------------------------------------
 // Value shapes
@@ -123,6 +124,62 @@ export const SELECTABLE_FIELD_TYPES: FormFieldType[] = [
   "checkbox",
   "file",
 ];
+
+/**
+ * The answer types each reserved question may have (decisions.md D-022 — the
+ * authoritative id list lives in src/db/entities.ts).
+ *
+ * A reserved id isn't just a question: its answer is mapped onto a column or a
+ * join table when the submission is saved (src/domain/submissions.ts), so the
+ * *type* is part of that contract. Retyping "Your email" to Short text or a
+ * Checkbox doesn't produce a slightly odd form — it hands `findOrCreateSpeaker`
+ * a value that isn't an address and inserts a `users` row the schema rejects
+ * only after the write. Locked here, in the builder's type picker, and in
+ * `fieldSchemaProblems` (the save-path backstop), so no payload can store one.
+ *
+ * Where two types are listed, both round-trip to the same stored value and the
+ * choice is purely how big the box is.
+ */
+export const RESERVED_FIELD_TYPES: Record<string, FormFieldType[]> = {
+  [RESERVED_FIELD_IDS.title]: ["text", "textarea"],
+  [RESERVED_FIELD_IDS.description]: ["textarea", "text"],
+  [RESERVED_FIELD_IDS.tracks]: ["select", "multiselect"],
+  [RESERVED_FIELD_IDS.speakerName]: ["text"],
+  [RESERVED_FIELD_IDS.speakerEmail]: ["email"],
+  [RESERVED_FIELD_IDS.speakerBio]: ["textarea", "text"],
+  [RESERVED_FIELD_IDS.headshot]: ["file"],
+  [RESERVED_FIELD_IDS.coSpeakers]: ["co_speakers"],
+};
+
+/** The types this question is allowed to have — null when it's a custom
+ * question an organizer may type however they like. `hasOwn` because field ids
+ * arrive from a payload, and `"constructor"` is a key every object answers to. */
+export function reservedFieldTypes(id: string): FormFieldType[] | null {
+  return Object.hasOwn(RESERVED_FIELD_TYPES, id) ? RESERVED_FIELD_TYPES[id] : null;
+}
+
+export function reservedTypeIsCompatible(field: FormField): boolean {
+  const allowed = reservedFieldTypes(field.id);
+  return allowed === null || allowed.includes(field.type);
+}
+
+/** `"Email address"`, `"Long text" or "Short text"` — the allowed types of a
+ * built-in question, named as the type picker names them. */
+export function reservedTypeSummary(id: string): string | null {
+  const allowed = reservedFieldTypes(id);
+  if (!allowed) return null;
+  return allowed.map((type) => `"${FIELD_TYPE_LABELS[type]}"`).join(" or ");
+}
+
+/**
+ * What a file question accepts. The reserved headshot answer becomes
+ * `users.headshotUrl` and is rendered as an `<img>` on the speaker gallery
+ * (decisions.md D-022), so a PDF or a .docx there is never a useful answer
+ * even though the general upload rules allow them on other file questions.
+ */
+export function uploadKindForField(field: FormField): UploadKind {
+  return field.id === RESERVED_FIELD_IDS.headshot ? "image" : "any";
+}
 
 /**
  * Types whose answer is free text, and which can therefore carry a character
@@ -324,6 +381,13 @@ function checkField(field: FormField, value: unknown, ctx: z.RefinementCtx): voi
       }
       if (field.type === "select" && field.options && !field.options.includes(text)) {
         addIssue(ctx, [field.id], `"${text}" isn't one of the choices`);
+      }
+      // A picture-only question (the reserved headshot) re-checks the stored
+      // key here, not just in the browser's `accept` filter: the answer becomes
+      // `users.headshotUrl` and is rendered as an image (D-022), so a PDF would
+      // be a broken photo on the public gallery.
+      if (field.type === "file" && uploadKindForField(field) === "image" && !isImageKey(text)) {
+        addIssue(ctx, [field.id], uploadProblemMessage("unsupported-type", "image"));
       }
       // D-034, D-038: the same cap the browser counts down to is re-checked here,
       // so a form can never accept an answer its own rules reject.
@@ -722,6 +786,14 @@ export function fieldSchemaProblems(fields: FormField[]): string[] {
 
     if (!field.label?.trim()) problems.push(`Question ${index + 1} needs a label`);
 
+    // A built-in question's answer feeds a column or a join table, so its type
+    // is part of that contract (decisions.md D-022) — see RESERVED_FIELD_TYPES.
+    if (!reservedTypeIsCompatible(field)) {
+      problems.push(
+        `"${name}" is a built-in question — its answer type has to be ${reservedTypeSummary(field.id)}`,
+      );
+    }
+
     if (fieldTakesOptions(field.type) && (field.options ?? []).length === 0) {
       // The track question is the exception: its choices come from the
       // event's tracks at render time, so an empty list here is expected.
@@ -741,6 +813,26 @@ export function fieldSchemaProblems(fields: FormField[]): string[] {
       }
       if (expectedValues(field.showIf).every((value) => value.trim() === "")) {
         problems.push(`"${name}" needs a value to compare against`);
+      }
+      // A condition compares by exact string (`conditionHolds`), so an answer
+      // the controlling question no longer offers is a rule that can never fire
+      // again — renaming or deleting a choice used to kill the condition
+      // silently. Only questions with a *fixed* choice list can be checked:
+      // the track question's options are resolved from the event at render
+      // time (D-022), so what's stored here says nothing about them.
+      const target = targetIndex === -1 ? null : fields[targetIndex];
+      if (
+        target &&
+        fieldTakesOptions(target.type) &&
+        target.id !== RESERVED_FIELD_IDS.tracks &&
+        (target.options ?? []).length > 0
+      ) {
+        for (const value of expectedValues(field.showIf)) {
+          if (value.trim() === "" || target.options!.includes(value)) continue;
+          problems.push(
+            `"${name}" is conditional on the answer "${value}", which "${target.label}" no longer offers`,
+          );
+        }
       }
     }
   });
@@ -801,7 +893,9 @@ export const DEFAULT_CFP_FIELDS: FormField[] = [
     id: RESERVED_FIELD_IDS.headshot,
     type: "file",
     label: "Headshot",
-    helpText: "Square, at least 800×800. You can add this later if needed.",
+    // Images only, enforced in `checkField` and by the file control's `accept`
+    // — this answer becomes the speaker's photo on the public gallery (D-022).
+    helpText: "A picture — JPG, PNG or WebP. Square, at least 800×800. You can add this later.",
   },
   {
     id: RESERVED_FIELD_IDS.coSpeakers,
@@ -830,8 +924,38 @@ You can edit your proposal any time before submissions close:
 
 — {{organizerName}}`;
 
-/** Freshly-created form, ready to preview and publish. */
-export function defaultFormDraft(name: string): {
+/**
+ * The same email for a session-type form (decisions.md D-041, D-042).
+ *
+ * A session form has no review step — the proposal becomes a confirmed session
+ * the moment it arrives, and D-042 deliberately sends no decision email — so
+ * promising that "our program committee reviews submissions" would be the only
+ * thing we ever tell the speaker about a decision that already happened.
+ */
+export const DEFAULT_SESSION_CONFIRMATION_EMAIL_SUBJECT =
+  "Your session is confirmed — {{submissionTitle}}";
+
+export const DEFAULT_SESSION_CONFIRMATION_EMAIL_BODY = `Hi {{speakerFirstName}},
+
+Thanks for sending us "{{submissionTitle}}" for {{eventName}}. This form books sessions directly, so there's no review step — your session is on the program, and we'll be in touch about scheduling.
+
+You can edit the details any time before submissions close:
+
+{{portalUrl}}
+
+— {{organizerName}}`;
+
+/**
+ * Freshly-created form, ready to preview and publish.
+ *
+ * The submission type is picked when the form is created (the New form
+ * dialog), which is what lets the stored confirmation copy be honest about
+ * what actually happens next (D-041): review, or a confirmed session.
+ */
+export function defaultFormDraft(
+  name: string,
+  type: FormType = "abstract",
+): {
   name: string;
   welcomeCopy: string;
   fields: FormField[];
@@ -839,13 +963,18 @@ export function defaultFormDraft(name: string): {
   confirmationEmailSubject: string;
   confirmationEmailBody: string;
 } {
+  const direct = type === "session";
   return {
     name,
     welcomeCopy: DEFAULT_WELCOME_COPY,
     fields: DEFAULT_CFP_FIELDS.map((field) => ({ ...field })),
     confirmationPageContent: DEFAULT_CONFIRMATION_PAGE_CONTENT,
-    confirmationEmailSubject: DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
-    confirmationEmailBody: DEFAULT_CONFIRMATION_EMAIL_BODY,
+    confirmationEmailSubject: direct
+      ? DEFAULT_SESSION_CONFIRMATION_EMAIL_SUBJECT
+      : DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+    confirmationEmailBody: direct
+      ? DEFAULT_SESSION_CONFIRMATION_EMAIL_BODY
+      : DEFAULT_CONFIRMATION_EMAIL_BODY,
   };
 }
 
