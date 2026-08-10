@@ -72,6 +72,25 @@ export async function changeTeamRole(eventSlug: string, input: ChangeRoleInput) 
     // having no access to the queue.
     if (target.role === "reviewer" && parsed.data.role !== "reviewer") {
       await repos.tracks.setReviewerTracks(target.id, []);
+      // Same for round assignments: a pending one with no filed scorecard is
+      // this person's future work, which they no longer have access to do —
+      // left behind, it keeps them showing up as an outstanding reviewer in
+      // a round's progress and in reminder targeting (D-050). A *filed*
+      // scorecard is real work product, not routing, and stays untouched —
+      // D-060 reads it back on the submission record regardless of who holds
+      // the assignment.
+      const assignments = await repos.reviewRounds.listAssignmentsByReviewer(target.id);
+      if (assignments.length > 0) {
+        const scores = await repos.reviewRounds.listScoresByAssignments(
+          assignments.map((a) => a.id),
+        );
+        const scoredAssignmentIds = new Set(scores.map((score) => score.assignmentId));
+        await Promise.all(
+          assignments
+            .filter((assignment) => !scoredAssignmentIds.has(assignment.id))
+            .map((assignment) => repos.reviewRounds.unassign(assignment.id)),
+        );
+      }
     }
   } catch {
     return fail("Couldn't change that role — try again");
@@ -237,21 +256,37 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
     return fail(`${labelFor(existing)} is already ${ROLE_LABELS[plan.role].toLowerCase() === "admin" ? "an admin" : "a reviewer"}`);
   }
 
-  async function invite(userId: string) {
+  /**
+   * Sends the invite email and reports whether it actually went out.
+   *
+   * The membership write already succeeded by the time this runs, and a
+   * mail-side failure (a bad transport config, a bounced address) must not
+   * undo it or read back as an error the admin has to retry — but silently
+   * swallowing the result told the admin "invited" when nobody was emailed,
+   * with no way to tell short of the recipient never showing up. The caller
+   * folds this into an honest message instead.
+   */
+  async function invite(userId: string): Promise<{ delivered: boolean; error: string | null }> {
     const comms = await getCommsContext({ repos, organizerName: labelFor(viewer) });
     try {
-      await sendTeamInvite(comms, {
+      const delivery = await sendTeamInvite(comms, {
         userId,
         email,
         roleLabel: ROLE_LABELS[plan.role],
         eventName: event!.name,
         inviterName: labelFor(viewer),
       });
+      if (delivery.status === "failed") {
+        console.warn(`Couldn't send team invite to ${email}:`, delivery.error);
+      }
+      return {
+        delivered: delivery.status === "sent",
+        error: delivery.status === "failed" ? (delivery.error ?? "Delivery failed") : null,
+      };
     } catch (error) {
-      // The membership write already succeeded; a mail-side failure (a bad
-      // transport config, say) must not undo it or read back as an error the
-      // admin has to retry.
+      const message = error instanceof Error ? error.message : String(error);
       console.warn(`Couldn't send team invite to ${email}:`, error);
+      return { delivered: false, error: message };
     }
   }
 
@@ -271,19 +306,26 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
     } catch {
       return fail("Couldn't update that account — try again");
     }
-    await invite(existing.id);
+    const delivery = await invite(existing.id);
     revalidatePath(teamPath(eventSlug));
+    const roleLabel = plan.role === "admin" ? "an admin" : "a reviewer";
     return {
       ok: true as const,
       data: {
         created: false,
         email,
-        message: `${labelFor(existing)} already had an account — they're now ${plan.role === "admin" ? "an admin" : "a reviewer"}`,
+        message: delivery.delivered
+          ? `${labelFor(existing)} already had an account — they're now ${roleLabel}`
+          : `${labelFor(existing)} already had an account and is now ${roleLabel}, but the invite email failed to send${delivery.error ? ` (${delivery.error})` : ""}. Share the sign-in page yourself, or try "Send sign-in link" from the roster below.`,
         // An existing account keeps its own profile name - a name typed into
         // this form for someone who already has an account is never written
         // (eval finding: it used to vanish with no indication it was
         // dropped).
         nameIgnored: Boolean(parsed.data.name),
+        // The role change/account creation above already succeeded even when
+        // this is true — see `invite`'s doc comment for why a failed send
+        // doesn't roll it back.
+        emailFailed: !delivery.delivered,
       },
     };
   }
@@ -314,16 +356,20 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
   } catch {
     return fail("Couldn't add that person — try again");
   }
-  await invite(created.id);
+  const delivery = await invite(created.id);
 
   revalidatePath(teamPath(eventSlug));
+  const roleLabel = plan.role === "admin" ? "an admin" : "a reviewer";
   return {
     ok: true as const,
     data: {
       created: true,
       email,
-      message: `${email} can now sign in as ${plan.role === "admin" ? "an admin" : "a reviewer"}`,
+      message: delivery.delivered
+        ? `${email} can now sign in as ${roleLabel}`
+        : `${email} was added as ${roleLabel}, but the invite email failed to send${delivery.error ? ` (${delivery.error})` : ""}. Share the sign-in page yourself, or try "Send sign-in link" from the roster below.`,
       nameIgnored: false,
+      emailFailed: !delivery.delivered,
     },
   };
 }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Event,
+  EventSpeaker,
   Form,
   Room,
   Session,
@@ -168,6 +169,19 @@ function assignment(overrides: Partial<TaskAssignment> = {}): TaskAssignment {
   };
 }
 
+/** A roster row (D-051) — the only link a manually added/CSV-imported
+ * speaker has before they get a submission, session, or task. */
+function eventSpeaker(overrides: Partial<EventSpeaker> = {}): EventSpeaker {
+  return {
+    eventId: "event-1",
+    userId: "user-1",
+    notes: null,
+    confirmationStatus: null,
+    ...timestamps(),
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // A repository double
 // ---------------------------------------------------------------------------
@@ -185,6 +199,7 @@ interface Seed {
   tasks?: Task[];
   assignments?: TaskAssignment[];
   users?: User[];
+  eventSpeakers?: EventSpeaker[];
 }
 
 /**
@@ -226,6 +241,7 @@ function fakeRepos(seed: Seed): Repos {
     users: {
       listByIds: async (ids: string[]) => (seed.users ?? []).filter((row) => ids.includes(row.id)),
     },
+    eventSpeakers: { listByEvent: byEvent(seed.eventSpeakers) },
   };
 
   return repos as unknown as Repos;
@@ -350,7 +366,11 @@ function fakeAirtable(options: {
   };
 }
 
-function context(seed: Seed, airtable: ReturnType<typeof fakeAirtable>) {
+function context(
+  seed: Seed,
+  airtable: ReturnType<typeof fakeAirtable>,
+  overrides: { appUrl?: string } = {},
+) {
   return {
     repos: fakeRepos(seed),
     airtable: { apiKey: "pat-test", baseId: BASE_ID },
@@ -358,6 +378,7 @@ function context(seed: Seed, airtable: ReturnType<typeof fakeAirtable>) {
     // The 250 ms production spacing is a rate-limit courtesy, not behaviour
     // under test; the 429 path below drives the timer instead.
     requestSpacingMs: 0,
+    ...overrides,
   };
 }
 
@@ -561,6 +582,82 @@ describe("runAirtableSync — projection", () => {
     ]);
     expect(summary.tables.Events).toEqual({ created: 1, updated: 0, failed: 0 });
     expect(summary.errors.join(" ")).toContain("couldn't add field");
+  });
+
+  it("syncs a roster-only speaker who has no submission, session, or task assignment", async () => {
+    // A manually added or CSV-imported speaker (D-051): their only link to
+    // the event is the `event_speakers` roster row, not any of the other
+    // three sources the Speakers table dedupes from.
+    const seed: Seed = {
+      events: [event()],
+      users: [user({ id: "user-2", email: "jordan@example.test", name: "Jordan Lee" })],
+      eventSpeakers: [eventSpeaker({ eventId: "event-1", userId: "user-2" })],
+    };
+
+    const airtable = fakeAirtable({ existingTables: [...AIRTABLE_TABLES] });
+    await runAirtableSync(context(seed, airtable));
+
+    const speakerRows = airtable
+      .upserts()
+      .filter((call) => call.path.endsWith("tblSpeakers"))
+      .flatMap((call) => (call.body?.records as { fields: Record<string, unknown> }[]) ?? []);
+    expect(speakerRows).toHaveLength(1);
+    expect(speakerRows[0].fields).toMatchObject({
+      Name: "Jordan Lee",
+      Email: "jordan@example.test",
+      [GREENROOM_ID_FIELD]: "user-2",
+    });
+  });
+
+  it("leaves a relative file URL alone when no app origin is configured", async () => {
+    const seed = fullSeed();
+    seed.assignments = [assignment({ fileUrl: "/files/uploads/slides.pdf" })];
+    seed.users = [user({ headshotUrl: "/files/headshots/priya.jpg" })];
+
+    const airtable = fakeAirtable({ existingTables: [...AIRTABLE_TABLES] });
+    await runAirtableSync(context(seed, airtable));
+
+    const taskRow = upsertedFields(airtable).find(
+      (fields) => fields[GREENROOM_ID_FIELD] === "assignment-1",
+    );
+    expect(taskRow?.["File URL"]).toBe("/files/uploads/slides.pdf");
+    const speakerRow = upsertedFields(airtable).find(
+      (fields) => fields[GREENROOM_ID_FIELD] === "user-1",
+    );
+    expect(speakerRow?.["Headshot URL"]).toBe("/files/headshots/priya.jpg");
+  });
+
+  it("resolves a relative file URL against the configured app origin", async () => {
+    const seed = fullSeed();
+    seed.assignments = [assignment({ fileUrl: "/files/uploads/slides.pdf" })];
+    seed.users = [user({ headshotUrl: "/files/headshots/priya.jpg" })];
+
+    const airtable = fakeAirtable({ existingTables: [...AIRTABLE_TABLES] });
+    await runAirtableSync(context(seed, airtable, { appUrl: "https://greenroom.example.test/" }));
+
+    const taskRow = upsertedFields(airtable).find(
+      (fields) => fields[GREENROOM_ID_FIELD] === "assignment-1",
+    );
+    expect(taskRow?.["File URL"]).toBe("https://greenroom.example.test/files/uploads/slides.pdf");
+    const speakerRow = upsertedFields(airtable).find(
+      (fields) => fields[GREENROOM_ID_FIELD] === "user-1",
+    );
+    expect(speakerRow?.["Headshot URL"]).toBe(
+      "https://greenroom.example.test/files/headshots/priya.jpg",
+    );
+  });
+
+  it("leaves an already-absolute headshot URL untouched even with an app origin configured", async () => {
+    const seed = fullSeed();
+    seed.users = [user({ headshotUrl: "https://cdn.example.test/priya.jpg" })];
+
+    const airtable = fakeAirtable({ existingTables: [...AIRTABLE_TABLES] });
+    await runAirtableSync(context(seed, airtable, { appUrl: "https://greenroom.example.test" }));
+
+    const speakerRow = upsertedFields(airtable).find(
+      (fields) => fields[GREENROOM_ID_FIELD] === "user-1",
+    );
+    expect(speakerRow?.["Headshot URL"]).toBe("https://cdn.example.test/priya.jpg");
   });
 });
 

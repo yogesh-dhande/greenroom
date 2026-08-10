@@ -191,6 +191,15 @@ export interface AirtableSyncContext {
   requestSpacingMs?: number;
   /** How long to wait out a 429 before the single retry; defaults to 30 s. */
   rateLimitRetryMs?: number;
+  /**
+   * Absolute origin (no trailing slash) used to turn the app's own
+   * `/files/...` paths — `task_assignments.fileUrl`, `users.headshotUrl` —
+   * into links that resolve outside the app, the same `APP_URL` (falling
+   * back to `BETTER_AUTH_URL`) `src/lib/comms-context.ts` resolves for
+   * outbound mail. Left undefined, those fields project as the raw relative
+   * path (today's behavior) rather than guessing an origin.
+   */
+  appUrl?: string;
 }
 
 export interface AirtableTableCounts {
@@ -420,6 +429,20 @@ function instant(value: Date | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+/**
+ * Resolves one of the app's own `/files/...` paths to a URL that works
+ * outside the app. Without `appUrl` the raw relative path is kept — a
+ * relative path is useless in Airtable, but guessing an origin would be
+ * worse — and a value that's already absolute (an external headshot URL a
+ * speaker pasted in) is left alone.
+ */
+function absoluteFileUrl(appUrl: string | undefined, value: string | null | undefined): string | null {
+  const path = text(value);
+  if (!path) return null;
+  if (!appUrl || /^https?:\/\//i.test(path)) return path;
+  return `${appUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function joinNames(ids: readonly string[], names: Map<string, string>): string | null {
   const resolved = ids.map((id) => names.get(id)).filter((name): name is string => Boolean(name));
   return resolved.length > 0 ? resolved.join(", ") : null;
@@ -453,18 +476,28 @@ interface EventBundle {
   submissionTracks: Map<string, string[]>;
   submissionSpeakers: Map<string, string[]>;
   sessionSpeakers: Map<string, string[]>;
+  /**
+   * The event's `event_speakers` roster (D-051) — the membership row a
+   * manually added or CSV-imported speaker gets before they have a
+   * submission, session, or task assignment. Without this, a speaker who
+   * exists only on the roster has no thread linking them to any of the
+   * other three sources below and never reaches the Speakers table.
+   */
+  rosterUserIds: string[];
 }
 
 async function loadEvent(repos: Repos, event: Event): Promise<EventBundle> {
-  const [submissions, forms, tracks, rooms, sessions, tasks, assignments] = await Promise.all([
-    repos.submissions.listByEvent(event.id),
-    repos.forms.listByEvent(event.id),
-    repos.tracks.listByEvent(event.id),
-    repos.rooms.listByEvent(event.id),
-    repos.sessions.listByEvent(event.id),
-    repos.tasks.listByEvent(event.id),
-    repos.taskAssignments.listByEvent(event.id),
-  ]);
+  const [submissions, forms, tracks, rooms, sessions, tasks, assignments, roster] =
+    await Promise.all([
+      repos.submissions.listByEvent(event.id),
+      repos.forms.listByEvent(event.id),
+      repos.tracks.listByEvent(event.id),
+      repos.rooms.listByEvent(event.id),
+      repos.sessions.listByEvent(event.id),
+      repos.tasks.listByEvent(event.id),
+      repos.taskAssignments.listByEvent(event.id),
+      repos.eventSpeakers.listByEvent(event.id),
+    ]);
 
   const submissionIds = submissions.map((row) => row.id);
   const sessionIds = sessions.map((row) => row.id);
@@ -517,6 +550,7 @@ async function loadEvent(repos: Repos, event: Event): Promise<EventBundle> {
     submissionTracks,
     submissionSpeakers,
     sessionSpeakers,
+    rosterUserIds: roster.map((row) => row.userId),
   };
 }
 
@@ -528,6 +562,7 @@ async function loadEvent(repos: Repos, event: Event): Promise<EventBundle> {
 function projectRows(
   bundles: EventBundle[],
   users: Map<string, User>,
+  appUrl: string | undefined,
 ): Record<AirtableTableName, AirtableFields[]> {
   const userNames = new Map([...users.values()].map((user) => [user.id, personLabel(user)]));
 
@@ -617,7 +652,7 @@ function projectRows(
         "Speaker Email": speaker?.email ?? null,
         Status: assignment.status,
         "Completed At": instant(assignment.completedAt),
-        "File URL": text(assignment.fileUrl),
+        "File URL": absoluteFileUrl(appUrl, assignment.fileUrl),
         "Created At": instant(assignment.createdAt),
         "Updated At": instant(assignment.updatedAt),
       });
@@ -626,12 +661,19 @@ function projectRows(
     // Membership, not `users.role`, decides who is a speaker here: a session
     // entered directly for a sponsor may be linked to an admin account, and
     // dropping them would leave the Sessions table naming a person the
-    // Speakers table doesn't have.
+    // Speakers table doesn't have. The roster (`event_speakers`, D-051) is a
+    // fourth source alongside submissions/sessions/assignments: it's the only
+    // link at all for a speaker who was manually added or CSV-imported and
+    // has no submission, session, or task yet.
     const linked = [
       ...bundle.submissionSpeakers.values(),
       ...bundle.sessionSpeakers.values(),
     ].flat();
-    for (const id of [...linked, ...bundle.assignments.map((row) => row.speakerId)]) {
+    for (const id of [
+      ...linked,
+      ...bundle.assignments.map((row) => row.speakerId),
+      ...bundle.rosterUserIds,
+    ]) {
       const user = users.get(id);
       if (!user) continue;
       const key = user.email.trim().toLowerCase();
@@ -647,7 +689,7 @@ function projectRows(
       "Job Title": text(speaker.title),
       Company: text(speaker.company),
       Bio: text(speaker.bio),
-      "Headshot URL": text(speaker.headshotUrl),
+      "Headshot URL": absoluteFileUrl(appUrl, speaker.headshotUrl),
       Website: text(speaker.websiteUrl),
       LinkedIn: text(speaker.linkedinUrl),
       "X / Twitter": text(speaker.twitterUrl),
@@ -661,7 +703,8 @@ function projectRows(
 
 async function buildProjection(
   repos: Repos,
-  eventId?: string,
+  eventId: string | undefined,
+  appUrl: string | undefined,
 ): Promise<Record<AirtableTableName, AirtableFields[]>> {
   const allEvents = await repos.events.listAll();
   const events = eventId ? allEvents.filter((event) => event.id === eventId) : allEvents;
@@ -674,12 +717,13 @@ async function buildProjection(
     for (const ids of bundle.submissionSpeakers.values()) for (const id of ids) userIds.add(id);
     for (const ids of bundle.sessionSpeakers.values()) for (const id of ids) userIds.add(id);
     for (const assignment of bundle.assignments) userIds.add(assignment.speakerId);
+    for (const id of bundle.rosterUserIds) userIds.add(id);
   }
 
   const users =
     userIds.size > 0 ? await repos.users.listByIds([...userIds]) : ([] as User[]);
 
-  return projectRows(bundles, new Map(users.map((user) => [user.id, user])));
+  return projectRows(bundles, new Map(users.map((user) => [user.id, user])), appUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -802,7 +846,7 @@ export async function runAirtableSync(ctx: AirtableSyncContext): Promise<Airtabl
   try {
     // Read D1 first: if the projection can't be built there is nothing worth
     // provisioning tables for, and no Airtable request has been spent yet.
-    const rows = await buildProjection(ctx.repos, ctx.eventId);
+    const rows = await buildProjection(ctx.repos, ctx.eventId, ctx.appUrl);
     const tables = await ensureTables(client, summary);
 
     for (const name of AIRTABLE_TABLES) {

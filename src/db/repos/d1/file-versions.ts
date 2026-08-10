@@ -14,10 +14,15 @@ export function createFileVersionsRepo(db: DrizzleD1): FileVersionsRepo {
       return rows.map((r) => fileVersionSchema.parse(r));
     },
     async listByAssignments(assignmentIds) {
-      if (assignmentIds.length === 0) return [];
-      const rows = await db.query.fileVersions.findMany({
-        where: inArray(fileVersions.assignmentId, assignmentIds),
-      });
+      // An event's whole task-assignment list can outgrow D1's bound-parameter
+      // ceiling (the Files page and ZIP export both call this with every
+      // assignment id at once), so this slices the same way
+      // `listProfileVersionsByOwners` below does.
+      const rows = await inIdChunks(assignmentIds, (chunk) =>
+        db.query.fileVersions.findMany({
+          where: inArray(fileVersions.assignmentId, chunk),
+        }),
+      );
       return rows.map((r) => fileVersionSchema.parse(r));
     },
     async listProfileVersionsByOwners(ownerUserIds) {

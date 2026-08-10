@@ -21,6 +21,9 @@ export async function getAirtableSyncContext(
   return {
     repos: await getRepos(),
     airtable: { apiKey: env.AIRTABLE_API_KEY, baseId: env.AIRTABLE_BASE_ID },
+    // Same origin resolution as custom-worker.ts and comms-context.ts, so the
+    // sync's projected file links resolve outside the app.
+    appUrl: env.APP_URL ?? env.BETTER_AUTH_URL ?? "http://localhost:3000",
     ...overrides,
   };
 }

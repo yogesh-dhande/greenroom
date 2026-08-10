@@ -57,7 +57,13 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
       toast.error(result.error);
       return;
     }
-    toast.success(result.data.message);
+    // The membership write succeeded either way, but a failed invite email is
+    // something the admin has to act on — it must not scan as a green check.
+    if (result.data.emailFailed) {
+      toast.warning(result.data.message);
+    } else {
+      toast.success(result.data.message);
+    }
     setAdded({ email: result.data.email, nameIgnored: result.data.nameIgnored });
     reset({ name: "", email: "", role: values.role });
   }

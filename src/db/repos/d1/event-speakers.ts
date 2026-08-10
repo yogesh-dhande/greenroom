@@ -19,6 +19,13 @@ export function createEventSpeakersRepo(db: DrizzleD1): EventSpeakersRepo {
       });
       return rows.map((r) => eventSpeakerSchema.parse(r));
     },
+    async listByUser(userId) {
+      const rows = await db.query.eventSpeakers.findMany({
+        where: eq(eventSpeakers.userId, userId),
+        orderBy: [asc(eventSpeakers.createdAt)],
+      });
+      return rows.map((r) => eventSpeakerSchema.parse(r));
+    },
     async add(eventId, userId) {
       // `onConflictDoNothing` returns nothing when the row already exists, so
       // the existing record is read back rather than assumed — the caller

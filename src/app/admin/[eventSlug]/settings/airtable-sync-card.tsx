@@ -41,13 +41,32 @@ export function AirtableSyncCard({ eventSlug }: { eventSlug: string }) {
         return;
       }
 
+      // Any failure — even alongside records that did land — is reported as
+      // a failure, not buried as a footnote on a success toast: an organizer
+      // scanning for a green checkmark should not read "some records didn't
+      // sync" as "it worked".
+      if (failed > 0) {
+        toast.warning(
+          `Airtable sync had ${failed} failure${failed === 1 ? "" : "s"}`,
+          {
+            description: [
+              `${created + updated} of ${created + updated + failed} record${created + updated + failed === 1 ? "" : "s"} synced (${created} created, ${updated} updated).`,
+              error ? error : "See the worker logs for details.",
+              tablesCreated.length > 0 ? `Created tables: ${tablesCreated.join(", ")}.` : null,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          },
+        );
+        return;
+      }
+
       toast.success(
         `Synced ${created + updated} record${created + updated === 1 ? "" : "s"} to Airtable`,
         {
           description: [
             `${created} created, ${updated} updated.`,
             tablesCreated.length > 0 ? `Created tables: ${tablesCreated.join(", ")}.` : null,
-            failed > 0 ? `${failed} failed — ${error ?? "see the logs"}.` : null,
           ]
             .filter(Boolean)
             .join(" "),

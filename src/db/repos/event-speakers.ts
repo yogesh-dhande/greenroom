@@ -12,6 +12,10 @@ import type { EventSpeaker, SpeakerConfirmation } from "@/db/entities";
 export interface EventSpeakersRepo {
   get(eventId: string, userId: string): Promise<EventSpeaker | null>;
   listByEvent(eventId: string): Promise<EventSpeaker[]>;
+  /** Every event one person is on the roster of — what the speaker portal
+   * needs to find the events a hand-added or imported speaker belongs to
+   * before they have a submission, a session or a task. */
+  listByUser(userId: string): Promise<EventSpeaker[]>;
   /** Idempotent: re-adding an existing speaker leaves their notes alone. */
   add(eventId: string, userId: string): Promise<EventSpeaker>;
   /** Creates the record if it doesn't exist yet — an organizer can write

@@ -68,6 +68,7 @@ export default {
       runAirtableSync({
         repos,
         airtable: { apiKey: env.AIRTABLE_API_KEY, baseId: env.AIRTABLE_BASE_ID },
+        appUrl,
       })
         .then((summary) => {
           console.log(formatAirtableSummary(summary));
