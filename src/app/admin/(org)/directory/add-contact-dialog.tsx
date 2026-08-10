@@ -1,0 +1,160 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+import { z } from "zod";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  ActionTimeoutError,
+  withActionTimeout,
+} from "@/app/admin/[eventSlug]/speakers/action-timeout";
+import { addContact } from "./actions";
+
+const formSchema = z.object({
+  name: z.string().trim().min(1, "Name is required"),
+  email: z.email("Enter a valid email address"),
+  title: z.string().trim().optional(),
+  company: z.string().trim().optional(),
+  bio: z.string().trim().optional(),
+});
+type FormValues = z.infer<typeof formSchema>;
+
+const EMPTY: FormValues = { name: "", email: "", title: "", company: "", bio: "" };
+
+/**
+ * Manual "Add contact" for the org directory (spec.md "Org-level speaker
+ * CRM"): a prospect nobody has invited to an event yet — met at a conference,
+ * recommended by a colleague — entered before there is any event to attach
+ * them to.
+ *
+ * Deduplicates by address like the roster's own add does: an address that
+ * already has an account joins the directory rather than forking a second
+ * person, and the toast says so rather than pretending a record was created.
+ */
+export function AddContactDialog() {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: EMPTY });
+
+  async function onSubmit(values: FormValues) {
+    let result;
+    try {
+      result = await withActionTimeout(addContact(values));
+    } catch (error) {
+      if (error instanceof ActionTimeoutError) {
+        const message =
+          "The server didn't respond. Check the directory before trying again — the contact may have been added.";
+        setError("root", { message });
+        toast.error(message);
+        return;
+      }
+      throw error;
+    }
+    if (!result.ok) {
+      setError("root", { message: result.error });
+      toast.error(result.error);
+      return;
+    }
+    toast.success(result.data.message);
+    setOpen(false);
+    reset(EMPTY);
+    router.refresh();
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset(EMPTY);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm">Add contact</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add contact</DialogTitle>
+          <DialogDescription>
+            Someone you want in the directory before they&apos;re on any event. If this address
+            already has an account, it&apos;s linked to the directory instead of creating a second
+            record.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="contact-name">Name</Label>
+            <Input id="contact-name" placeholder="Ada Lovelace" {...register("name")} />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="contact-email">Email</Label>
+            <Input
+              id="contact-email"
+              type="email"
+              placeholder="ada@example.com"
+              {...register("email")}
+            />
+            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="contact-title">Title (optional)</Label>
+              <Input id="contact-title" placeholder="Principal Engineer" {...register("title")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="contact-company">Company (optional)</Label>
+              <Input
+                id="contact-company"
+                placeholder="Analytical Engines"
+                {...register("company")}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="contact-bio">Bio (optional)</Label>
+            <Textarea
+              id="contact-bio"
+              rows={4}
+              placeholder="They can also write this themselves in the speaker portal."
+              {...register("bio")}
+            />
+          </div>
+
+          {errors.root && <p className="text-sm text-destructive">{errors.root.message}</p>}
+
+          <DialogFooter>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Adding…" : "Add contact"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

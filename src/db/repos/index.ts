@@ -1,3 +1,4 @@
+import type { ContactsRepo } from "./contacts";
 import type { EmailLogRepo } from "./email-log";
 import type { EmailTemplatesRepo } from "./email-templates";
 import type { EventSpeakersRepo } from "./event-speakers";
@@ -5,9 +6,11 @@ import type { EventsRepo } from "./events";
 import type { FileCommentsRepo } from "./file-comments";
 import type { FileVersionsRepo } from "./file-versions";
 import type { FormsRepo } from "./forms";
+import type { PipelineRepo } from "./pipeline";
 import type { ReviewRoundsRepo } from "./review-rounds";
 import type { ReviewsRepo } from "./reviews";
 import type { RoomsRepo } from "./rooms";
+import type { SegmentsRepo } from "./segments";
 import type { SessionRevisionsRepo } from "./session-revisions";
 import type { SessionsRepo } from "./sessions";
 import type { SubmissionsRepo } from "./submissions";
@@ -33,6 +36,20 @@ export type { FileVersionsRepo } from "./file-versions";
 export type { FileCommentsRepo } from "./file-comments";
 export type { EmailTemplatesRepo } from "./email-templates";
 export type { EmailLogRepo } from "./email-log";
+export type {
+  ContactsRepo,
+  ContactDetail,
+  ContactEventLink,
+  DirectoryContact,
+  DirectoryFilter,
+} from "./contacts";
+export type {
+  PipelineRepo,
+  EnrollInput,
+  PipelineCardWithHistory,
+  StageMoveResult,
+} from "./pipeline";
+export type { SegmentsRepo } from "./segments";
 
 /**
  * The full set of repositories the app depends on. Route handlers/server
@@ -61,4 +78,13 @@ export interface Repos {
   fileComments: FileCommentsRepo;
   emailTemplates: EmailTemplatesRepo;
   emailLog: EmailLogRepo;
+  /**
+   * Org-level speaker CRM (decisions.md D-077). These three are deliberately
+   * *not* event-scoped: the directory, the sourcing board and saved segments
+   * span every event, which is the whole point of the area. Event-scoped
+   * speaker data still lives on `eventSpeakers` above.
+   */
+  contacts: ContactsRepo;
+  pipeline: PipelineRepo;
+  segments: SegmentsRepo;
 }

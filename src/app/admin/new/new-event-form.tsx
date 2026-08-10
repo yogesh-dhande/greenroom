@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { listTimezones } from "@/lib/timezones";
-import { RESERVED_EVENT_SLUGS, SLUG_PATTERN, slugify } from "@/lib/slug";
+import { isReservedEventSlug, SLUG_PATTERN, slugify } from "@/lib/slug";
 import { createEvent } from "./actions";
 
 // Static list — safe to compute once at module load (see src/lib/timezones.ts).
@@ -32,7 +32,7 @@ const formSchema = z.object({
     .toLowerCase()
     .min(1, "Slug is required")
     .regex(SLUG_PATTERN, "Lowercase letters, numbers, and hyphens only")
-    .refine((slug) => !(RESERVED_EVENT_SLUGS as readonly string[]).includes(slug), {
+    .refine((slug) => !isReservedEventSlug(slug), {
       message: "That slug is reserved — try another",
     }),
   description: z.string(),

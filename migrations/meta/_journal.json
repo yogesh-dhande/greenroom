@@ -85,6 +85,13 @@
       "when": 1786326026327,
       "tag": "0011_speaker_confirmation_status",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786333423602,
+      "tag": "0012_org_speaker_crm",
+      "breakpoints": true
     }
   ]
 }

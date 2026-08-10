@@ -744,3 +744,175 @@ export const emailLog = sqliteTable(
   },
   (t) => [index("email_log_to_idx").on(t.to)],
 );
+
+// ---------------------------------------------------------------------------
+// Org-level speaker CRM (spec.md "Org-level speaker CRM", decisions.md D-077)
+//
+// Everything below is organization-scoped: no `event_id` anywhere. That is the
+// point of the area — identity is global by email in `users` (D-051), so a
+// person is already a cross-event contact and these tables only add the
+// organizer's own material about them (tags, notes, pipeline state, saved
+// views). Event-scoped speaker data stays exactly where it was; nothing here
+// changes `event_speakers` or its logistics notes.
+// ---------------------------------------------------------------------------
+
+/**
+ * The registry of contacts an organizer added directly — imported or typed in
+ * — who are not (yet) a speaker anywhere.
+ *
+ * Deliberately *not* the directory itself. The directory is the union of
+ * "speaks at >= 1 event" and this table, so a speaker never needs a row here
+ * and one is never written for them; that keeps the registry free of the
+ * derivation problem D-068 describes, where stored data freezes an answer the
+ * rest of the system keeps computing.
+ *
+ * `user_id` is the primary key: a person is either an explicitly added contact
+ * or they aren't, so there is nothing to duplicate.
+ */
+export const contacts = sqliteTable("contacts", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** How the row got here — a manual "Add contact", or the org-level CSV
+   * import. Kept so an import can be explained after the fact. */
+  source: text("source", { enum: ["manual", "import"] })
+    .notNull()
+    .default("manual"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+/**
+ * Free-form tags on a contact (D-077: tags only, no custom-field builder).
+ *
+ * Labels are stored already normalized — trimmed, inner whitespace collapsed,
+ * lowercased (`normalizeTagLabel` in src/domain/crm.ts) — which is what makes
+ * the plain unique constraint below mean "one tag per user per *lowercased*
+ * label" without an expression index SQLite would have to recompute.
+ */
+export const contactTags = sqliteTable(
+  "contact_tags",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.label] }),
+    index("contact_tags_label_idx").on(t.label),
+  ],
+);
+
+/**
+ * Org-level internal notes on a contact — append-only, newest first when read.
+ *
+ * Distinct from `event_speakers.notes`, which is one editable field of
+ * logistics prose for one person *at one event* (D-051). These are the
+ * organization's running commentary on a person across every event, so they
+ * are a list rather than a field and they are never rewritten.
+ *
+ * `author_user_id` is nullable and set-null on delete, following
+ * `session_revisions` (D-071): the history outlives the account that wrote it.
+ */
+export const contactNotes = sqliteTable(
+  "contact_notes",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    authorUserId: text("author_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    body: text("body").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("contact_notes_user_idx").on(t.userId)],
+);
+
+/**
+ * A contact's card on the sourcing pipeline (D-077).
+ *
+ * `user_id` is unique: the board is a view of where each *person* stands, so a
+ * second card for the same contact would be two contradictory answers. Score
+ * and rationale are the optional judgement captured at enrol time.
+ */
+export const pipelineCards = sqliteTable(
+  "pipeline_cards",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stage: text("stage", {
+      enum: ["identified", "contacted", "interested", "confirmed", "declined"],
+    })
+      .notNull()
+      .default("identified"),
+    /** Optional 1-5 style fit score; null means nobody scored them. */
+    score: integer("score"),
+    rationale: text("rationale"),
+    ...timestamps,
+  },
+  (t) => [index("pipeline_cards_stage_idx").on(t.stage)],
+);
+
+/**
+ * Timestamped stage history for one card. Append-only, like
+ * `session_revisions`: `from_stage` is null for the enrol event (the card did
+ * not exist before it), and a move that lands on the stage the card is already
+ * on writes nothing at all — see `planStageMove` in src/domain/pipeline.ts.
+ */
+export const pipelineStageEvents = sqliteTable(
+  "pipeline_stage_events",
+  {
+    id: id(),
+    cardId: text("card_id")
+      .notNull()
+      .references(() => pipelineCards.id, { onDelete: "cascade" }),
+    /** Null on the enrol event only. */
+    fromStage: text("from_stage", {
+      enum: ["identified", "contacted", "interested", "confirmed", "declined"],
+    }),
+    toStage: text("to_stage", {
+      enum: ["identified", "contacted", "interested", "confirmed", "declined"],
+    }).notNull(),
+    actorUserId: text("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("pipeline_stage_events_card_idx").on(t.cardId)],
+);
+
+/**
+ * A saved directory view (D-077): a name plus the filter state that produced
+ * it, serialized as JSON (`serializeSegmentQuery` in src/domain/segments.ts).
+ *
+ * Dynamic by construction — the query is re-run on open, so a segment reports
+ * its *current* matches rather than a frozen membership list. Stored as a
+ * string rather than a JSON column because the app owns the shape and
+ * validates it on read; nothing queries inside it.
+ */
+export const segments = sqliteTable("segments", {
+  id: id(),
+  name: text("name").notNull(),
+  /** Serialized DirectoryFilter; see src/db/repos/contacts.ts. */
+  query: text("query").notNull(),
+  createdByUserId: text("created_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accessibleEvents,
   canAccessEvent,
+  canAccessOrgCrm,
   checkRoleChange,
   decideAdminBootstrap,
   normalizeEmail,
@@ -224,5 +225,24 @@ describe("accessibleEvents", () => {
 
   it("gives a reviewer with no track assignments nothing", () => {
     expect(accessibleEvents("reviewer", events, [])).toEqual([]);
+  });
+});
+
+describe("canAccessOrgCrm", () => {
+  it("admits an admin — they hold the organizer role everywhere", () => {
+    expect(canAccessOrgCrm({ role: "admin" })).toBe(true);
+  });
+
+  it("denies a reviewer, whose remit is scoring inside their own tracks", () => {
+    expect(canAccessOrgCrm({ role: "reviewer" })).toBe(false);
+  });
+
+  it("denies a speaker", () => {
+    expect(canAccessOrgCrm({ role: "speaker" })).toBe(false);
+  });
+
+  it("denies a signed-out viewer without the caller having to check first", () => {
+    expect(canAccessOrgCrm(null)).toBe(false);
+    expect(canAccessOrgCrm(undefined)).toBe(false);
   });
 });

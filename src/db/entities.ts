@@ -736,3 +736,104 @@ export const emailLogSchema = z.object({
 export type EmailLog = z.infer<typeof emailLogSchema>;
 export const newEmailLogSchema = emailLogSchema.omit({ id: true });
 export type NewEmailLog = z.infer<typeof newEmailLogSchema>;
+
+// ---------------------------------------------------------------------------
+// Org-level speaker CRM (spec.md "Org-level speaker CRM", decisions.md D-077).
+// Every entity below is organization-scoped — none of them carries an event
+// id, which is what separates them from the event-scoped speaker record
+// (`EventSpeaker`, D-051) that keeps its own per-event logistics notes.
+// ---------------------------------------------------------------------------
+
+/** How a contact got into the registry: typed in, or CSV-imported. */
+export const contactSourceSchema = z.enum(["manual", "import"]);
+export type ContactSource = z.infer<typeof contactSourceSchema>;
+
+/**
+ * A registry row: this person is an explicitly-added org contact.
+ *
+ * The directory is the *union* of everyone who speaks at an event and everyone
+ * with a row here, so the absence of a row says nothing about whether someone
+ * is in the directory — only about how they got there.
+ */
+export const contactSchema = z.object({
+  userId: z.string(),
+  source: contactSourceSchema,
+  createdAt: z.coerce.date(),
+});
+export type Contact = z.infer<typeof contactSchema>;
+
+/**
+ * One tag on one contact. `label` is always stored normalized
+ * (`normalizeTagLabel` in src/domain/crm.ts), so comparing two labels is a
+ * plain string comparison everywhere.
+ */
+export const contactTagSchema = z.object({
+  userId: z.string(),
+  label: z.string().min(1),
+  createdAt: z.coerce.date(),
+});
+export type ContactTag = z.infer<typeof contactTagSchema>;
+
+/** An org-level internal note about a contact; append-only. */
+export const contactNoteSchema = z.object({
+  id: z.string(),
+  /** The contact the note is about. */
+  userId: z.string(),
+  /** Null once the author's account is gone; the note stays (cf. D-071). */
+  authorUserId: z.string().nullable(),
+  body: z.string().min(1),
+  createdAt: z.coerce.date(),
+});
+export type ContactNote = z.infer<typeof contactNoteSchema>;
+export const newContactNoteSchema = contactNoteSchema.omit({ id: true, createdAt: true });
+export type NewContactNote = z.infer<typeof newContactNoteSchema>;
+
+/** The sourcing pipeline's stages, in board order (D-077). */
+export const pipelineStageSchema = z.enum([
+  "identified",
+  "contacted",
+  "interested",
+  "confirmed",
+  "declined",
+]);
+export type PipelineStage = z.infer<typeof pipelineStageSchema>;
+
+/** One contact's position on the sourcing board; at most one per contact. */
+export const pipelineCardSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  stage: pipelineStageSchema,
+  /** Optional fit score recorded at enrol time; null means unscored. */
+  score: z.number().int().nullable(),
+  rationale: z.string().nullable(),
+  ...timestamps,
+});
+export type PipelineCard = z.infer<typeof pipelineCardSchema>;
+
+/**
+ * One entry in a card's stage history. `fromStage` is null for the enrol
+ * event; every later row carries both ends of the move.
+ */
+export const pipelineStageEventSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  fromStage: pipelineStageSchema.nullable(),
+  toStage: pipelineStageSchema,
+  /** Null once the actor's account is gone; the history stays. */
+  actorUserId: z.string().nullable(),
+  createdAt: z.coerce.date(),
+});
+export type PipelineStageEvent = z.infer<typeof pipelineStageEventSchema>;
+
+/** A saved, dynamic directory view: a name plus serialized filter state. */
+export const segmentSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  /** Serialized DirectoryFilter — parse with `parseSegmentQuery`. */
+  query: z.string(),
+  createdByUserId: z.string().nullable(),
+  createdAt: z.coerce.date(),
+});
+export type Segment = z.infer<typeof segmentSchema>;
+export const newSegmentSchema = segmentSchema.omit({ id: true, createdAt: true });
+export type NewSegment = z.infer<typeof newSegmentSchema>;

@@ -194,6 +194,33 @@ export function accessibleEvents<T extends { id: string }>(
 }
 
 // ---------------------------------------------------------------------------
+// Org-level CRM access (decisions.md D-077)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether this viewer may open the org-level speaker CRM — the directory, the
+ * sourcing pipeline, and the CRM overview.
+ *
+ * The area is organization-wide, so unlike `canAccessEvent` there is no event
+ * to scope it to and no per-event membership list to consult: roles are a
+ * column on `users` (D-025) and the only role that manages an organization
+ * rather than a queue inside one is `admin`. That makes the rule "hold an
+ * organizer/admin team role on at least one event, or be a global admin"
+ * collapse to a single check here — an admin holds it everywhere.
+ *
+ * Reviewers are denied on purpose even though they reach the events they hold
+ * tracks on (D-045): their remit is scoring proposals in those tracks, and the
+ * directory would hand them every speaker's contact details across every event
+ * the organization has ever run. Speakers were never candidates.
+ *
+ * Takes the viewer rather than the bare role so a caller can pass
+ * `getSessionUser()`'s result (or null, for signed-out) straight in.
+ */
+export function canAccessOrgCrm(viewer: { role: Role } | null | undefined): boolean {
+  return viewer?.role === "admin";
+}
+
+// ---------------------------------------------------------------------------
 // Presentation helpers (shared by the page and its client islands)
 // ---------------------------------------------------------------------------
 

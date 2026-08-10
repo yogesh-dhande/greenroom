@@ -5,7 +5,7 @@ import { z } from "zod";
 import { newEventSchema } from "@/db/entities";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
-import { RESERVED_EVENT_SLUGS, SLUG_PATTERN } from "@/lib/slug";
+import { isReservedEventSlug, SLUG_PATTERN } from "@/lib/slug";
 
 /**
  * Looser than `newEventSchema` on purpose: the form hands over raw string
@@ -21,7 +21,7 @@ const createEventInputSchema = z.object({
     .toLowerCase()
     .min(1, "Slug is required")
     .regex(SLUG_PATTERN, "Lowercase letters, numbers, and hyphens only")
-    .refine((slug) => !(RESERVED_EVENT_SLUGS as readonly string[]).includes(slug), {
+    .refine((slug) => !isReservedEventSlug(slug), {
       message: "That slug is reserved — try another",
     }),
   description: z.string().trim().optional(),

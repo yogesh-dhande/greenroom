@@ -1,5 +1,6 @@
 import type { Repos } from "@/db/repos";
 import { createDb } from "./client";
+import { createContactsRepo } from "./contacts";
 import { createEmailLogRepo } from "./email-log";
 import { createEmailTemplatesRepo } from "./email-templates";
 import { createEventSpeakersRepo } from "./event-speakers";
@@ -7,9 +8,11 @@ import { createEventsRepo } from "./events";
 import { createFileCommentsRepo } from "./file-comments";
 import { createFileVersionsRepo } from "./file-versions";
 import { createFormsRepo } from "./forms";
+import { createPipelineRepo } from "./pipeline";
 import { createReviewRoundsRepo } from "./review-rounds";
 import { createReviewsRepo } from "./reviews";
 import { createRoomsRepo } from "./rooms";
+import { createSegmentsRepo } from "./segments";
 import { createSessionRevisionsRepo } from "./session-revisions";
 import { createSessionsRepo } from "./sessions";
 import { createSubmissionsRepo } from "./submissions";
@@ -44,5 +47,8 @@ export function createD1Repos(d1: D1Database): Repos {
     fileComments: createFileCommentsRepo(db),
     emailTemplates: createEmailTemplatesRepo(db),
     emailLog: createEmailLogRepo(db),
+    contacts: createContactsRepo(db),
+    pipeline: createPipelineRepo(db),
+    segments: createSegmentsRepo(db),
   };
 }

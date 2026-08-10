@@ -57,6 +57,19 @@ export default async function AdminIndexPage() {
           ) : undefined
         }
       />
+      {canCreate && (
+        <Link href="/admin/directory" className="mb-6 block">
+          <Card className="transition-colors hover:bg-accent/40">
+            <CardHeader>
+              <CardTitle>Speaker CRM</CardTitle>
+              <CardDescription>
+                Organization-wide speaker database — cross-event directory, sourcing
+                pipeline, segments, and outreach.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+      )}
       <div className="flex flex-col gap-3">
         {events.map((event) => (
           <Link key={event.id} href={`/admin/${event.slug}`}>
