@@ -23,6 +23,25 @@ const PRIYA_EMAIL = "priya.raman@example.com";
 /** Seeded, scheduled, on Main Stage with Priya speaking — invitable. */
 const RETRIEVAL = "Retrieval that survives production traffic";
 
+/** The roster page, for the manual "Add speaker" flow (decisions.md D-051). */
+const SPEAKERS = `/admin/${EVENT_SLUG}/speakers`;
+
+/** A speaker entered by hand: no submission, no session, no task — the roster
+ * row is her only trace, which is exactly the case that used to drop her out
+ * of the recipient picker. Fresh name/address, so nothing else in the suite
+ * can be looking at her. */
+const MARISOL = "Marisol Thorne";
+const MARISOL_EMAIL = "marisol.thorne@example.com";
+const MARISOL_COMPANY = "Belmont Foundry";
+
+/** Seeded reviewer (scripts/seed.ts) — the log can name her, the composer
+ * must never offer her. */
+const DANA = "Dana Okoye";
+
+/** A seeded, speaking speaker who is emphatically not the preview's sample
+ * person. */
+const HANNAH_EMAIL = "hannah.kim@example.com";
+
 /** Transcripts the dev transport wrote since `since` (mtime in ms). */
 async function devEmailsSince(since: number, extension = ".txt"): Promise<string[]> {
   const files = await readdir(".dev-emails").catch(() => [] as string[]);
@@ -236,4 +255,79 @@ test("a reviewer is bounced from communications entirely", async ({ page }) => {
 
   await expect(page).not.toHaveURL(/\/communications/);
   await expect(page.getByRole("heading", { name: "Communications" })).toHaveCount(0);
+});
+
+test("a hand-added speaker is writable-to, and a reviewer never is", async ({ page }) => {
+  // decisions.md D-051 + ./recipients.ts: who the composer may write to is a
+  // different set from who this event's log is about. Both halves are checked
+  // here because each one has failed on its own — the roster row was missing
+  // from the recipient derivation, and reviewers were in it.
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(SPEAKERS);
+
+  await page.getByRole("button", { name: "Add speaker" }).click();
+  const addDialog = page.getByRole("dialog");
+  await addDialog.getByLabel("Name", { exact: true }).fill(MARISOL);
+  await addDialog.getByLabel("Email", { exact: true }).fill(MARISOL_EMAIL);
+  await addDialog.getByLabel("Company (optional)").fill(MARISOL_COMPANY);
+  await addDialog.getByRole("button", { name: "Add speaker" }).click();
+  await expect(page.getByText(`${MARISOL} was added to the roster`)).toBeVisible();
+
+  await page.goto(COMMS);
+  await openTab(page, "Compose");
+
+  // She holds nothing on the programme, so `event_speakers` is the only thing
+  // that can put her in the picker — and it does.
+  await expect(
+    page.getByRole("listitem").filter({ hasText: MARISOL_EMAIL }).getByRole("checkbox"),
+  ).toBeVisible();
+
+  // Dana reviews for this event, so the log knows her (D-050). The composer
+  // still must not list her: from the picker she is one "All speakers" chip
+  // away from a message written for the lineup.
+  await expect(page.getByRole("listitem").filter({ hasText: DANA })).toHaveCount(0);
+  await page.getByLabel("Search recipients").fill("Okoye");
+  await expect(page.getByText("Nobody here matches")).toBeVisible();
+  await page.getByRole("button", { name: "Clear search" }).click();
+
+  // The contrast that makes the exclusion deliberate rather than a lookup
+  // failure: the same name *is* offered by the log's speaker filter, because
+  // that set is "everyone this event's mail concerns".
+  await openTab(page, "Log");
+  await page.getByLabel("Filter by speaker").click();
+  await expect(page.getByRole("option", { name: DANA })).toBeVisible();
+  await page.keyboard.press("Escape");
+});
+
+test("the composer previews with the first picked recipient's own details", async ({ page }) => {
+  // decisions.md D-053: a preview that shows a different person's name than
+  // the send will use is a lie the organizer only catches after sending.
+  // Unique per run, so the assertions can't match copy left by another test.
+  const marker = `green room notes ${Date.now().toString(36)}`;
+
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(COMMS);
+  await openTab(page, "Compose");
+
+  await page.locator("#compose-subject").fill(`Arrival details — ${marker}`);
+  await page.locator("#compose-body").fill(`Hi {{speakerFirstName}}, ${marker}`);
+
+  // Nobody picked yet: the sample person stands in, which is honest — no
+  // recipient has been chosen (templatePreviewData's "Priya").
+  await expect(page.getByText(`Hi Priya, ${marker}`)).toBeVisible();
+
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: HANNAH_EMAIL })
+    .getByRole("checkbox")
+    .click();
+
+  // Picked: the preview is now what Hannah would actually receive, and the
+  // sample name is gone rather than sitting alongside it.
+  await expect(page.getByText(`Hi Hannah, ${marker}`)).toBeVisible();
+  await expect(page.getByText(`Hi Priya, ${marker}`)).toHaveCount(0);
+
+  // Read-only on purpose: the draft is ready to go, and this test doesn't
+  // send it — the send path is already covered by the one-off message test.
+  await expect(page.getByRole("button", { name: /^Send to 1 person$/ })).toBeEnabled();
 });

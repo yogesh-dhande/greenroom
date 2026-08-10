@@ -501,3 +501,172 @@ test("a closed submission window shows a friendly closed page", async ({ page })
   await expect(page.getByText("This call for speakers is closed")).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
 });
+
+// ---------------------------------------------------------------------------
+// Form-builder fixes: an emailed resume link survives a slug rename (D-038),
+// reserved built-in questions lock their answer type, and a form an
+// onboarding task points at refuses deletion. Each test creates its own form
+// — the closed form above and the seeded forms stay untouched.
+// ---------------------------------------------------------------------------
+
+/** Its own form, created and renamed here — renaming any seeded form's slug
+ * would break the other specs that submit to it by slug. */
+const RENAME_FORM_NAME = "E2E Resume Rename";
+const RENAME_SLUG_BEFORE = "e2e-resume-rename";
+const RENAME_SLUG_AFTER = "e2e-resume-renamed";
+const RENAME_DRAFT_EMAIL = "e2e.rename@example.com";
+const RENAME_DRAFT_TITLE = "Half an idea about slug renames";
+
+test("an emailed draft link still works after the organizer changes the form's link", async ({
+  page,
+}) => {
+  const startedAt = Date.now();
+
+  // --- a published, open form of our own -----------------------------------
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/forms`);
+  await page.getByRole("button", { name: "New form" }).click();
+  await page.getByLabel("Form name").fill(RENAME_FORM_NAME);
+  await page.getByRole("button", { name: "Create form" }).click();
+  await expect(page.getByRole("heading", { name: RENAME_FORM_NAME })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Window & link" }).click();
+  await page.getByLabel("Public link").fill(RENAME_SLUG_BEFORE);
+  await page.getByLabel("Closes").fill("2027-12-31T17:00");
+  await page.getByRole("button", { name: "Save & publish" }).click();
+  await expect(page.getByText("Form published")).toBeVisible();
+
+  // --- a visitor saves a draft on it, signed out ---------------------------
+  await page.context().clearCookies();
+  await page.goto(`/submit/${RENAME_SLUG_BEFORE}`);
+  await page.getByLabel("Talk title").fill(RENAME_DRAFT_TITLE);
+  await page.getByLabel("Your email").fill(RENAME_DRAFT_EMAIL);
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page).toHaveURL(new RegExp(`/submit/${RENAME_SLUG_BEFORE}/resume/[0-9a-f]{32}$`));
+
+  // The link we test with is the one that actually landed in their inbox —
+  // that link *is* the authentication (D-038), so it's the thing that has to
+  // survive the rename, not the URL the browser happens to be sitting on.
+  let emailedPath = "";
+  await expect(async () => {
+    const emails = await devEmailsSince(startedAt);
+    const mine = emails.filter((body) => body.includes(RENAME_DRAFT_EMAIL));
+    const match = mine
+      .join("\n")
+      .match(new RegExp(`/submit/${RENAME_SLUG_BEFORE}/resume/[0-9a-f]{32}`));
+    expect(match, "draft link email in .dev-emails/").not.toBeNull();
+    emailedPath = match![0];
+  }).toPass({ timeout: 15_000 });
+
+  // --- the organizer changes the public link -------------------------------
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/forms`);
+  await page.getByRole("link", { name: RENAME_FORM_NAME }).click();
+  await page.getByRole("tab", { name: "Window & link" }).click();
+  await page.getByLabel("Public link").fill(RENAME_SLUG_AFTER);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Form saved")).toBeVisible();
+
+  // The old address is genuinely gone for the form itself...
+  const stale = await page.request.get(`/submit/${RENAME_SLUG_BEFORE}`);
+  expect(stale.status()).toBe(404);
+
+  // --- ...but the emailed resume link lands on the draft, not on a 404 -----
+  await page.context().clearCookies();
+  const response = await page.goto(emailedPath);
+  expect(response?.status()).toBe(200);
+  await expect(page).toHaveURL(new RegExp(`/submit/${RENAME_SLUG_AFTER}/resume/[0-9a-f]{32}$`));
+  await expect(page.getByText("Picking up where you left off")).toBeVisible();
+  await expect(page.getByLabel("Talk title")).toHaveValue(RENAME_DRAFT_TITLE);
+});
+
+/** Its own form: the seeded "Call for Speakers 2026" has no speaker_email
+ * field of its own (the public page injects one at render time), so the
+ * built-in "Your email" question only exists in the builder on a form built
+ * from DEFAULT_CFP_FIELDS. Nothing here is saved — the form is left exactly as
+ * `createForm` made it. */
+const LOCKED_TYPE_FORM_NAME = "E2E Locked Answer Types";
+
+test("a built-in question's answer type is locked, a custom one's is not", async ({ page }) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/forms`);
+  await page.getByRole("button", { name: "New form" }).click();
+  await page.getByLabel("Form name").fill(LOCKED_TYPE_FORM_NAME);
+  await page.getByRole("button", { name: "Create form" }).click();
+  await expect(page.getByRole("heading", { name: LOCKED_TYPE_FORM_NAME })).toBeVisible();
+
+  // --- "Your email": one allowed type, so the picker is dead ---------------
+  // The expand toggle's accessible name starts with the question's label and
+  // carries its type and "built-in"; anchoring at the start keeps it off the
+  // "Move Your email up" / "Remove Your email" icon buttons beside it.
+  await page.getByRole("button", { name: /^Your email/ }).click();
+  const lockedType = page.getByLabel("Answer type");
+  await expect(lockedType).toContainText("Email address");
+  await expect(lockedType).toBeDisabled();
+  await expect(page.getByText(/Locked — this is a built-in question/)).toBeVisible();
+  await expect(page.getByText(/so it stays "Email address"/)).toBeVisible();
+
+  // Collapse it again so exactly one "Answer type" control is on the page.
+  await page.getByRole("button", { name: /^Your email/ }).click();
+  await expect(page.getByLabel("Answer type")).toHaveCount(0);
+
+  // --- a custom question keeps the whole vocabulary ------------------------
+  await page.getByRole("button", { name: "Add a question" }).click();
+  await page.getByRole("button", { name: /^New question Short text/ }).click();
+
+  const customType = page.getByLabel("Answer type");
+  await expect(customType).toBeEnabled();
+  await customType.click();
+  for (const label of [
+    "Short text",
+    "Long text",
+    "Email address",
+    "Link",
+    "Choose one",
+    "Choose any",
+    "Checkbox",
+    "File upload",
+  ]) {
+    await expect(page.getByRole("option", { name: label, exact: true })).toBeVisible();
+  }
+  // Every selectable type and nothing else — no co-speakers repeater in here.
+  await expect(page.getByRole("option")).toHaveCount(8);
+  await page.keyboard.press("Escape");
+
+  // Nothing is saved: the form stays as created, so no other spec inherits a
+  // stray "New question".
+});
+
+// `deleteForm` (src/app/admin/[eventSlug]/forms/actions.ts) currently has no
+// caller anywhere in src/ — neither the forms table nor the builder renders a
+// delete affordance, so its task-link guard is unreachable from a browser.
+// Written against the UI the guard implies and marked fixme so the gap stays
+// visible without failing the suite; flip to test() once the affordance
+// exists and adjust the two "Delete form" selectors to match it.
+test.fixme(
+  "a form an onboarding task points at cannot be deleted, and the error names the task",
+  async ({ page }) => {
+    // Seeded: "Hotel Stay Requirements" is the form behind the "Hotel stay
+    // requirement form" onboarding task (scripts/seed.ts — hotelForm.id is the
+    // task's formId), and it has no submissions of its own, so the
+    // submissions-first guard in `deleteForm` is not what trips here.
+    await signIn(page, "admin@greenroom.dev");
+    await page.goto(`/admin/${EVENT_SLUG}/forms`);
+    await page.getByRole("link", { name: "Hotel Stay Requirements" }).click();
+
+    await page.getByRole("button", { name: "Delete form" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete form" }).click();
+
+    // The refusal names the task by title so an organizer knows what to fix
+    // first — a generic "in use" would leave them hunting.
+    await expect(
+      page.getByText(
+        /The onboarding task "Hotel stay requirement form" asks speakers to fill this form in/,
+      ),
+    ).toBeVisible();
+
+    // And it really is still there.
+    await page.goto(`/admin/${EVENT_SLUG}/forms`);
+    await expect(page.getByRole("link", { name: "Hotel Stay Requirements" })).toBeVisible();
+  },
+);

@@ -20,9 +20,11 @@ const EVENT_SLUG = "ai-engineer-summit-2026";
 const ROUNDS = `/admin/${EVENT_SLUG}/rounds`;
 const ROUND = "Playwright screening round";
 
-/** Assigned in this round: approved talks no other spec decides on. */
+/** Assigned in this round: talks no other spec decides on, all inside Dana's
+ * tracks (AI Engineering + Evals & Reliability) — since the track-scoping fix,
+ * an out-of-track talk's checkbox is disabled for her. */
 const EVALS = "Evals you'll actually keep running";
-const TOOL_SCHEMAS = "Tool schemas are your real prompt";
+const OFFLINE_EVALS = "Offline evals lied to us for a quarter";
 const CONTEXT_BUDGET = "A field guide to context window budgeting";
 /** Assigned to Dana in the *seeded* round — must not leak into this one. */
 const RETRIEVAL = "Retrieval that survives production traffic";
@@ -111,14 +113,14 @@ test("an organizer assigns specific submissions to one reviewer", async ({ page 
   await openRoundTab(page, "Assign");
 
   await choose(page, "Reviewer", "Dana Okoye");
-  for (const title of [EVALS, TOOL_SCHEMAS, CONTEXT_BUDGET]) {
+  for (const title of [EVALS, OFFLINE_EVALS, CONTEXT_BUDGET]) {
     await page.getByLabel(`Select ${title}`).click();
   }
   await page.getByRole("button", { name: /Assign selected to Dana Okoye/ }).click();
   await expect(page.getByText("Assigned to Dana Okoye")).toBeVisible();
 
   // The organizer can see who holds what, and the round's own reviewer pool.
-  for (const title of [EVALS, TOOL_SCHEMAS, CONTEXT_BUDGET]) {
+  for (const title of [EVALS, OFFLINE_EVALS, CONTEXT_BUDGET]) {
     await expect(page.getByRole("row", { name: title })).toContainText("Dana Okoye");
   }
   await expect(page.getByRole("row", { name: RETRIEVAL })).toContainText("Nobody yet");
@@ -146,7 +148,7 @@ test("a reviewer's queue is exactly what they were assigned in this round", asyn
   await roundRow(page).getByRole("link", { name: "Open queue" }).click();
 
   await expect(page.getByTestId("queue-row")).toHaveCount(3);
-  for (const title of [EVALS, TOOL_SCHEMAS, CONTEXT_BUDGET]) {
+  for (const title of [EVALS, OFFLINE_EVALS, CONTEXT_BUDGET]) {
     await expect(page.getByText(title)).toBeVisible();
   }
   // Dana reviews this one in another round — that doesn't put it in this queue.
@@ -192,7 +194,7 @@ test("a reviewer fills in the scorecard, and their answers come back", async ({ 
   // A second, weaker scorecard so the results table has something to sort.
   await page.goto(ROUNDS);
   await roundRow(page).getByRole("link", { name: "Open queue" }).click();
-  await page.getByRole("row", { name: TOOL_SCHEMAS }).getByRole("link", { name: "Score" }).click();
+  await page.getByRole("row", { name: OFFLINE_EVALS }).getByRole("link", { name: "Score" }).click();
   await pickPoint(page, "originality", 2);
   await pickPoint(page, "relevance", 2);
   await choose(page, "Recommendation", "Decline");
@@ -209,14 +211,14 @@ test("the organizer sees progress, the aggregate, sorting, and a CSV export", as
   await openRoundTab(page, "Results");
   // Originality 5 (weight 2) and Relevance 3 on a 1–5 scale: (100·2 + 50)/3.
   await expect(page.getByRole("row", { name: EVALS })).toContainText("83.3");
-  await expect(page.getByRole("row", { name: TOOL_SCHEMAS })).toContainText("25");
+  await expect(page.getByRole("row", { name: OFFLINE_EVALS })).toContainText("25");
   // Co-speakers and tracks travel with the row (spec.md §2).
   await expect(page.getByRole("row", { name: EVALS })).toContainText("Hannah Kim");
 
   // Highest first by default; sorting by the aggregate flips it.
   await expect(page.getByTestId("result-row").first()).toContainText(EVALS);
   await page.getByRole("button", { name: "Sort by Aggregate score" }).click();
-  await expect(page.getByTestId("result-row").first()).toContainText(TOOL_SCHEMAS);
+  await expect(page.getByTestId("result-row").first()).toContainText(OFFLINE_EVALS);
   // Unscored submissions stay at the bottom in either direction.
   await expect(page.getByTestId("result-row").last()).toContainText(CONTEXT_BUDGET);
 

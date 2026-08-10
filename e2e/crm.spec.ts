@@ -249,3 +249,202 @@ test("the CRM overview reflects the pipeline built above", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Interested 1" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Identified 0" })).toBeVisible();
 });
+
+// ---------------------------------------------------------------------------
+// Dedup + pipeline-card coverage (spec.md "Org-level speaker CRM": duplicate
+// adds are rejected outright before creation; add-to-event works from a
+// profile *or* a pipeline card). Fresh fixture names throughout (Padma
+// Rannveig, Wren Calloway, Isolde Bramblewood, Quill Farrowmere) — they match
+// no other spec's filters, and these run after the overview test above, whose
+// exact stage counts a new pipeline card would otherwise break.
+// ---------------------------------------------------------------------------
+
+// Seeded, event-connected speaker (scripts/seed.ts SPEAKER_SEEDS[0]): Priya
+// speaks at AI Engineer Summit 2026, so she is in the directory via the
+// speaker union, not a registry row — the exact case the dedup fix covers.
+const PRIYA_EMAIL = "priya.raman@example.com";
+// Seeded speaker used as the CSV duplicate row (SPEAKER_SEEDS[4]).
+const HANNAH_EMAIL = "hannah.kim@example.com";
+
+const WREN = "Wren Calloway";
+const WREN_EMAIL = "wren.calloway@example.com";
+const WREN_SECOND_EMAIL = "wren.calloway.brightside@example.com";
+
+const ISOLDE = "Isolde Bramblewood";
+const ISOLDE_EMAIL = "isolde.bramblewood@example.com";
+
+const QUILL = "Quill Farrowmere";
+const QUILL_EMAIL = "quill.farrowmere@example.com";
+const QUILL_COMPANY = "Aster & Vane";
+
+test("adding a contact whose email is already in the directory is rejected with a pointer to the existing record", async ({
+  page,
+}) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(DIRECTORY);
+
+  // A different *name* on a known *address*: rejection is keyed on email
+  // (identity, D-051), so the typed name must not matter.
+  await page.getByRole("button", { name: "Add contact" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill("Padma Rannveig");
+  await dialog.getByLabel("Email").fill(PRIYA_EMAIL);
+  await dialog.getByRole("button", { name: "Add contact" }).click();
+
+  // Rejected outright (spec.md: duplicates are checked before creation), and
+  // the failure points at the record that already holds the address — both
+  // by name in the message and as a link straight to the existing profile.
+  await expect(
+    dialog.getByText(`${PRIYA_EMAIL} (Priya Raman) is already in the directory`),
+  ).toBeVisible();
+  const openExisting = dialog.getByRole("link", { name: "Open the existing contact" });
+  await expect(openExisting).toBeVisible();
+  await expect(openExisting).toHaveAttribute("href", /\/admin\/directory\/.+/);
+  await page.keyboard.press("Escape");
+
+  // Nothing was written: the address still resolves to exactly one row
+  // (search covers name and email), and the attempted name never appears.
+  await page.getByLabel("Search contacts").fill("priya.raman");
+  await expect(page).toHaveURL(/q=priya\.raman/);
+  await expect(page.getByRole("link", { name: "Priya Raman" })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: "Padma Rannveig" })).toHaveCount(0);
+});
+
+test("a same-name different-email contact is created with a possible-duplicate note", async ({
+  page,
+}) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(DIRECTORY);
+
+  // First Wren — a brand-new contact, so the collision below is entirely
+  // this test's own state and no seed name gets a second spelling.
+  await page.getByRole("button", { name: "Add contact" }).click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill(WREN);
+  await dialog.getByLabel("Email").fill(WREN_EMAIL);
+  await dialog.getByLabel("Company (optional)").fill("Calloway Audio");
+  await dialog.getByRole("button", { name: "Add contact" }).click();
+  await expect(page.getByText(`${WREN} was added to the directory`)).toBeVisible();
+
+  // Second Wren under a different address: two people can share a name
+  // (D-059), so this *succeeds* — but the flash note names the possible
+  // duplicate while it is still cheap to act on.
+  await page.getByRole("button", { name: "Add contact" }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill(WREN);
+  await dialog.getByLabel("Email").fill(WREN_SECOND_EMAIL);
+  await dialog.getByRole("button", { name: "Add contact" }).click();
+  await expect(
+    page.getByText(`another contact named ${WREN} already exists (${WREN_EMAIL})`),
+  ).toBeVisible();
+
+  // Both records exist as separate rows (merge is out of scope, D-065), and
+  // the table's own duplicate flag marks the pair.
+  await page.getByLabel("Search contacts").fill("Wren");
+  await expect(page).toHaveURL(/q=Wren/);
+  await expect(page.getByRole("link", { name: WREN })).toHaveCount(2);
+  await expect(page.getByText("Possible duplicate")).toHaveCount(2);
+});
+
+test("CSV import skips rows already in the directory and lands the new ones", async ({
+  page,
+}) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(DIRECTORY);
+
+  // One new row and one duplicate — the duplicate under a mangled name, so
+  // the skip is provably keyed on the address, and the result row reports
+  // the *existing* record's name, not the file's.
+  const csv = [
+    "name,email,title,company,bio",
+    `${ISOLDE},${ISOLDE_EMAIL},Program Curator,Bramble & Field,`,
+    `H. Kim (from spreadsheet),${HANNAH_EMAIL},,,`,
+  ].join("\n");
+
+  // The import dialog takes pasted CSV in a textarea (a file input sits
+  // beside it feeding the same textarea) — paste is the primary path.
+  await page.getByRole("button", { name: "Import CSV" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Paste CSV").fill(csv);
+  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+
+  // The per-row report: the known address is skipped as a duplicate rather
+  // than merged, under the directory's own name for that person; the new
+  // row is created.
+  await expect(dialog.getByText("1 created · 0 merged · 1 skipped")).toBeVisible();
+  await expect(dialog.getByText("Already in the directory — skipped as a duplicate")).toBeVisible();
+  await expect(dialog.getByText("Hannah Kim")).toBeVisible();
+  // Scoped to the result list — the pasted CSV in the textarea also contains
+  // the address, so a bare getByText resolves to two elements.
+  await expect(dialog.getByRole("listitem").filter({ hasText: ISOLDE_EMAIL })).toContainText(
+    "Created",
+  );
+  await page.keyboard.press("Escape");
+
+  // The new row landed in the directory; the duplicate changed nothing.
+  await page.getByLabel("Search contacts").fill("Isolde");
+  await expect(page).toHaveURL(/q=Isolde/);
+  await expect(page.getByRole("link", { name: ISOLDE })).toBeVisible();
+
+  await page.getByLabel("Search contacts").fill("hannah.kim");
+  await expect(page).toHaveURL(/q=hannah\.kim/);
+  await expect(page.getByRole("link", { name: "Hannah Kim" })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: /from spreadsheet/ })).toHaveCount(0);
+});
+
+test("add to event from a pipeline card connects the contact and updates the roster", async ({
+  page,
+}) => {
+  await signIn(page, "admin@greenroom.dev");
+
+  // Nothing in the seed enrolls a pipeline card, so build one: a fresh
+  // contact (no event connections, so the card's Events section starts
+  // empty), enrolled through the same dialog the pipeline test above uses.
+  await page.goto(DIRECTORY);
+  await page.getByRole("button", { name: "Add contact" }).click();
+  const addDialog = page.getByRole("dialog");
+  await addDialog.getByLabel("Name").fill(QUILL);
+  await addDialog.getByLabel("Email").fill(QUILL_EMAIL);
+  await addDialog.getByLabel("Company (optional)").fill(QUILL_COMPANY);
+  await addDialog.getByRole("button", { name: "Add contact" }).click();
+  await expect(page.getByText(`${QUILL} was added to the directory`)).toBeVisible();
+
+  await page.goto("/admin/pipeline");
+  await page.getByRole("button", { name: "Add prospect" }).click();
+  const enrollDialog = page.getByRole("dialog");
+  await enrollDialog
+    .getByLabel("Contact", { exact: true })
+    .selectOption({ label: `${QUILL} (${QUILL_EMAIL})` });
+  await enrollDialog.getByRole("button", { name: "Add prospect" }).click();
+  await expect(page.getByText(`${QUILL} added to Identified`)).toBeVisible();
+
+  // Open the card. Its Events section is the new part of this page — empty
+  // until the picker below fires.
+  await page
+    .getByRole("region", { name: "Identified stage" })
+    .getByRole("link", { name: QUILL })
+    .click();
+  await expect(page.getByRole("heading", { name: QUILL })).toBeVisible();
+  await expect(page.getByText("Not on any event yet — use Add to event.")).toBeVisible();
+
+  // The same AddToEventDialog as the profile, reached from the card (spec.md:
+  // "from a profile or pipeline card").
+  await page.getByRole("button", { name: "Add to event" }).click();
+  const eventDialog = page.getByRole("dialog");
+  await eventDialog.getByLabel("Event").click();
+  await page.getByRole("option", { name: /AI Engineer Summit 2026/ }).click();
+  await eventDialog.getByRole("button", { name: "Add to event" }).click();
+  await expect(page.getByText(`${QUILL} was added to AI Engineer Summit 2026`)).toBeVisible();
+
+  // The card's Events section now lists the connection...
+  await expect(page.getByRole("link", { name: "AI Engineer Summit 2026" })).toBeVisible();
+  await expect(page.getByText("Not on any event yet — use Add to event.")).toHaveCount(0);
+
+  // ...and the event's speaker roster shows the person, profile intact with
+  // no re-entry, because roster and card read the same record (D-051).
+  await page.goto("/admin/ai-engineer-summit-2026/speakers");
+  await page.getByLabel("Search speakers").fill("Quill");
+  await expect(page).toHaveURL(/q=Quill/);
+  await expect(page.getByRole("link", { name: QUILL })).toBeVisible();
+  await expect(page.getByText(QUILL_COMPANY)).toBeVisible();
+});

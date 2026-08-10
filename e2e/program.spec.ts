@@ -409,3 +409,204 @@ test("the embed schedule keeps search and filters but no personal itinerary", as
   await page.getByLabel("Search speakers by name").fill("Beckett");
   await expect(page.getByTestId("speaker-count")).toContainText("1 of");
 });
+
+// ---------------------------------------------------------------------------
+// Public program fixes (decisions.md D-068; src/app/p/[eventSlug]/data.ts,
+// src/lib/ics.ts, feed.ics/route.ts, schedule-view.tsx/session-dialog.tsx):
+// declined speakers filtered from every public surface, speaker lines in the
+// public .ics feed, a valid empty calendar for a published-but-empty program,
+// and the explicit "Room to be announced" state.
+//
+// The two tests that mutate seed-adjacent state (Luis's confirmation, the
+// hospital talk's room) restore it before finishing, so specs after this file
+// in the single-worker order (review/rounds/speakers/team) — none of which
+// assert either fact — are untouched even mid-suite.
+// ---------------------------------------------------------------------------
+
+/** Aisha Nwosu's co-speaker on HOSPITAL and nobody's fixture after this file:
+ * program.spec.ts's own gallery test (which runs earlier) is the only other
+ * place his visibility is asserted, so he is the safe speaker to decline. */
+const LUIS = "Luis Fernández";
+const AISHA = "Aisha Nwosu";
+
+/** Day-switcher button label on the admin agenda board ("Sep 24") — same
+ * derivation as e2e/agenda.spec.ts's dayButtonLabel: the seed places the
+ * event 45 days out and formatDay renders "YYYY-MM-DD" in UTC, month short,
+ * no year. */
+function agendaDayLabel(dayIndex = 0): string {
+  return new Date(Date.now() + (45 + dayIndex) * 24 * 60 * 60 * 1000).toLocaleDateString(
+    "en-US",
+    { timeZone: "UTC", month: "short", day: "numeric" },
+  );
+}
+
+test("the public schedule feed names each session's speakers in its calendar entry", async ({
+  page,
+}) => {
+  const response = await page.request.get(`/p/${EVENT_SLUG}/feed.ics`);
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("text/calendar");
+
+  // RFC 5545 §3.1 folds content lines at 75 octets, so a DESCRIPTION — and
+  // any name inside it — can be split across physical lines. Unfold before
+  // asserting, exactly as src/lib/ics.ts's own unfoldIcs does.
+  const unfolded = (await response.text()).replace(/\r\n[ \t]/g, "");
+  expect(unfolded).toContain("BEGIN:VCALENDAR");
+  expect(unfolded).toContain("BEGIN:VEVENT");
+
+  // The seeded 10:00 day-1 talk: its entry carries a "Speaker:" line naming
+  // Priya. Only the name is asserted — portal.spec.ts rewrites her title and
+  // company earlier in the suite, so the rest of the affiliation label
+  // ("Name — Title, Company", speakerAffiliationLabel) isn't stable. "\n" is
+  // the literal two-character escape inside a DESCRIPTION (RFC 5545 §3.3.11).
+  const retrievalEntry = unfolded
+    .split("BEGIN:VEVENT")
+    .find((block) => block.includes(`SUMMARY:${RETRIEVAL}`));
+  expect(retrievalEntry).toBeTruthy();
+  expect(retrievalEntry).toContain("Speaker:\\nPriya Raman");
+
+  // A co-presented session gets the plural line with every speaker on it.
+  // Co-speaker order isn't guaranteed, so assert both names follow the label
+  // rather than pinning who comes first.
+  const hospitalEntry = unfolded
+    .split("BEGIN:VEVENT")
+    .find((block) => block.includes(`SUMMARY:${HOSPITAL}`));
+  expect(hospitalEntry).toBeTruthy();
+  const speakersBlock = hospitalEntry!.split("Speakers:\\n")[1];
+  expect(speakersBlock).toBeTruthy();
+  expect(speakersBlock).toContain(AISHA);
+  expect(speakersBlock).toContain(LUIS);
+});
+
+test("a published event with an empty program serves a valid, empty calendar feed", async ({
+  page,
+}) => {
+  // The seeded event's program has sessions, so the published-but-empty state
+  // is built from scratch: create an event (unpublished by default, D-056),
+  // then publish its empty program — same creation flow event-config.spec.ts
+  // exercises. The suite seeds once per run, so the slug is fresh.
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto("/admin/new");
+  await page.getByLabel("Event name").fill("Empty Program Feed Check");
+  await expect(page.getByLabel("URL slug")).toHaveValue("empty-program-feed-check");
+  const day = (offset: number) =>
+    new Date(Date.now() + offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  await page.getByLabel("Start date").fill(day(90));
+  await page.getByLabel("End date").fill(day(91));
+  await page.getByRole("button", { name: "Create event" }).click();
+  await expect(page).toHaveURL(/\/admin\/empty-program-feed-check$/);
+
+  // Publish from the overview's program card (both directions are confirmed).
+  await page.getByRole("button", { name: "Publish program" }).click();
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByText("Program published")).toBeVisible();
+
+  // Published + zero scheduled sessions: HTTP 200 and a parseable VCALENDAR
+  // with no VEVENTs — never a 404, which a subscribed calendar client would
+  // surface as a broken subscription (feed.ics/route.ts, buildEmptyCalendar).
+  const response = await page.request.get("/p/empty-program-feed-check/feed.ics");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("text/calendar");
+
+  const body = await response.text();
+  expect(body).toContain("BEGIN:VCALENDAR");
+  expect(body).toContain("END:VCALENDAR");
+  // Still this event's calendar, not a generic shell.
+  expect(body).toContain("X-WR-CALNAME:Empty Program Feed Check");
+  expect(body).not.toContain("BEGIN:VEVENT");
+});
+
+test("a speaker marked declined leaves the public program while their co-speaker stays", async ({
+  page,
+}) => {
+  // decisions.md D-068: the stored confirmation beats the session-attachment
+  // derivation everywhere. Luis co-presents the hospital talk with Aisha and
+  // is still attached to it — exactly the speaker the public filter in
+  // src/app/p/[eventSlug]/data.ts exists for.
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/speakers`);
+  await page.getByRole("link", { name: LUIS }).click();
+  await page.getByRole("button", { name: "Declined", exact: true }).click();
+  await expect(page.getByText("Marked declined")).toBeVisible();
+
+  // Gone from the public gallery; the co-presented session survives under the
+  // remaining confirmed speaker.
+  await page.goto(SPEAKERS);
+  await expect(page.getByRole("heading", { name: AISHA })).toBeVisible();
+  await expect(page.getByText(HOSPITAL)).toBeVisible();
+  await expect(page.getByRole("heading", { name: LUIS })).toHaveCount(0);
+
+  // And out of the session's public byline: the detail dialog names Aisha
+  // alone. Search narrows to the talk so the day tabs follow it.
+  await page.goto(SCHEDULE);
+  await page.getByLabel("Search sessions by title or speaker").fill("Shipping an agent");
+  await expect(page.getByText(HOSPITAL)).toBeVisible();
+  await page.getByRole("button", { name: HOSPITAL, exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText(AISHA);
+  await expect(dialog).not.toContainText("Fernández");
+  await dialog.getByRole("button", { name: "Back to schedule" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Restore: clear the override back to automatic (he's attached to a
+  // session, so automatic derives Confirmed again) and prove the public
+  // gallery agrees — reruns and any later spec see seeded behavior.
+  await page.goto(`/admin/${EVENT_SLUG}/speakers`);
+  await page.getByRole("link", { name: LUIS }).click();
+  await page.getByRole("button", { name: /^Automatic/ }).click();
+  await expect(page.getByText("Confirmation back to automatic")).toBeVisible();
+
+  await page.goto(SPEAKERS);
+  await expect(page.getByRole("heading", { name: LUIS })).toBeVisible();
+});
+
+test("a scheduled session with no room yet says so instead of inventing one", async ({
+  page,
+}) => {
+  // The hospital talk is seeded on day 2, 14:00, Main Stage, and no spec
+  // asserts its room anywhere — so it can lose the room for a moment. The
+  // admin agenda board shows one day at a time; switch to day 2 first.
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/agenda`);
+  await page.getByRole("button", { name: new RegExp(agendaDayLabel(1)) }).click();
+
+  const hospitalCard = page.locator("[data-session-id]").filter({ hasText: HOSPITAL });
+  const editDialog = page.getByRole("dialog");
+
+  await hospitalCard.first().click();
+  await expect(editDialog).toBeVisible();
+  await page.locator("#session-room").click();
+  await page.getByRole("option", { name: "No room yet", exact: true }).click();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await editDialog.getByRole("button", { name: "Save time" }).click();
+  await expect(editDialog).toHaveCount(0);
+
+  // Public: the card carries an explicit badge (schedule-view.tsx — the badge
+  // used to be dropped, so an unassigned room was indistinguishable from one
+  // nobody printed)...
+  await page.goto(SCHEDULE);
+  await page.getByLabel("Search sessions by title or speaker").fill("Shipping an agent");
+  await expect(page.getByText(HOSPITAL)).toBeVisible();
+  await expect(page.getByText("Room to be announced")).toBeVisible();
+
+  // ...and the detail dialog's Room row reads "To be announced", with no
+  // invented "General" track anywhere (session-dialog.tsx).
+  await page.getByRole("button", { name: HOSPITAL, exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("To be announced");
+  await expect(dialog).not.toContainText("Main Stage");
+  await expect(dialog).not.toContainText("General");
+  await dialog.getByRole("button", { name: "Back to schedule" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Restore the seeded placement (its original slot, so no conflicts appear).
+  await page.goto(`/admin/${EVENT_SLUG}/agenda`);
+  await page.getByRole("button", { name: new RegExp(agendaDayLabel(1)) }).click();
+  await hospitalCard.first().click();
+  await expect(editDialog).toBeVisible();
+  await page.locator("#session-room").click();
+  await page.getByRole("option", { name: "Main Stage", exact: true }).click();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await editDialog.getByRole("button", { name: "Save time" }).click();
+  await expect(editDialog).toHaveCount(0);
+});
