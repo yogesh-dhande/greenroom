@@ -3,7 +3,7 @@ import { UserRoundIcon } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { getRepos } from "@/lib/db";
 import { isScheduled, type Event, type Form, type Room } from "@/db/entities";
-import { buildAssignmentViews, sortAssignmentViews } from "@/domain/onboarding";
+import { buildAssignmentViews, nextDueAssignmentId, sortAssignmentViews } from "@/domain/onboarding";
 import { buildCommentThread, buildFileHistory, groupByAssignment } from "@/domain/files";
 import { speakerFacingStatus } from "@/domain/evaluation";
 import { formatEventWhen } from "@/lib/event-time";
@@ -79,6 +79,9 @@ export default async function PortalHomePage() {
   }
 
   const views = sortAssignmentViews(buildAssignmentViews(assignments, tasksById));
+  // The one task the speaker should land on expanded — across every event,
+  // not per section, so the whole page opens on a single next step (W25 4A).
+  const nextDueId = nextDueAssignmentId(views);
 
   return (
     <div className="flex flex-col gap-8">
@@ -213,6 +216,7 @@ export default async function PortalHomePage() {
                             authorsById,
                           )}
                           timeZone={event.timezone}
+                          startExpanded={view.assignment.id === nextDueId}
                         />
                       ))}
                     </div>

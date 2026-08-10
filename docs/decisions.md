@@ -47,11 +47,11 @@ Record caps (50k/base on Team) are a non-issue at conference scale. These constr
 
 **Rationale:** Judges will review on GitHub; the Forge bonus is explicitly "teeny" and not worth the workflow risk.
 
-## D-006: Optional features (spec §7–10) — design only, no implementation — **accepted**
+## D-006: Remaining design-only optional features — wiki/resource pages and authenticated public API — **accepted (rewritten 2026-08-09)**
 
-**Decision:** For the competition submission, optional features (Accelevents sync, wiki pages, embeds, public API) get designed — data model support, design notes, interface stubs — but not implemented.
+**Decision:** Wiki/resource pages and the authenticated write API stay design-only for the competition submission. The rest of the original design-only list has since shipped or been dropped: embeds and read-only public feeds are implemented (D-040 — `/embed/<event>` iframe pages, `/embed.js` one-liner, `/p/<slug>/feed.json` + `.ics`), and Accelevents sync was dropped by the organizer (D-017).
 
-**Rationale:** Six firm requirements in ~4 days; design-only keeps the architecture ready without spending build time.
+**Rationale:** Originally all optional features (spec §7–10) were design-only to protect the six firm requirements under the 4-day deadline. Embeds/feeds were promoted to implemented because Public Widgets is a judged 20% area; wiki pages and a write API are not judged by the evaluator, so they keep the design-only treatment. (Rewritten from the pre-2026-08-09 entry, which listed embeds and the public API as design-only — that no longer described reality; audit 2026-08-09 flagged the drift.)
 
 ## D-007: Auth — magic links for everyone — **accepted**
 
@@ -91,13 +91,17 @@ Investigation no longer needed — Accelevents integration dropped by the organi
 
 **Rationale:** Simplest thing that works under the deadline; jobs are idempotent queries + sends.
 
-## D-014: Deployment account & domain — **pending (owner)**
+## D-014: Deployment account & domain — **accepted (2026-08-09)**
 
-Which Cloudflare account, custom domain vs workers.dev, secret management.
+**Decision:** Deployed on the owner's Cloudflare account (Workers paid plan) at the custom domain `https://greenroom.usespaces.dev`; secrets managed via `wrangler secret put`, never committed.
 
-## D-015: Demo & seed data story — **pending**
+**Rationale:** Resolved in practice during deployment; this entry was stale at "pending" long after the deploy completed (audit 2026-08-09 flagged the drift).
 
-Seed a realistic sandbox event so judges can test all flows without setup; decide what the walkthrough shows.
+## D-015: Demo & seed data story — **accepted (2026-08-09)**
+
+**Decision:** Resolved by D-046: the demo seed provides realistic sandbox events, personas, and pre-placed program data so judges can exercise every flow without setup; destructive remote reseed is forbidden once live accounts exist.
+
+**Rationale:** D-046 made the concrete seed decision; this placeholder entry was never closed out (audit 2026-08-09 flagged the drift).
 
 ## D-016: Auth library — better-auth — **accepted**
 

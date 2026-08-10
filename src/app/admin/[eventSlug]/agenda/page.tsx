@@ -8,7 +8,7 @@ import type { BoardPerson, BoardSession } from "./types";
 
 /**
  * Agenda builder (spec.md §9): one day at a time, rooms across, time down,
- * with the unscheduled sessions in a tray beside the grid. Everything the
+ * with the unscheduled sessions in a strip above the grid. Everything the
  * board needs is loaded here through the storage-agnostic repository layer and
  * handed to a client component; the writes go back through server actions in
  * ./actions.ts.

@@ -22,4 +22,7 @@ export const STATUS_FILTERS: Array<{ value: SubmissionStatus; label: string }> =
 export interface QueueFilter {
   status: string;
   track: string;
+  /** Free-text search, matched against title and speaker name - the queue's
+   * triage-bar search box (spec.md section 4, wave W25). Empty matches everything. */
+  q: string;
 }

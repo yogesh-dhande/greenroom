@@ -92,13 +92,16 @@ test("the log narrows to one speaker's correspondence", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(COMMS);
 
-  await expect(page.getByRole("cell").filter({ hasText: OTHER })).toBeVisible();
+  // The To column shows the display name and keeps the address in the cell's
+  // title attribute (W25) — the address is the log's identity key, so these
+  // assertions target the title rather than the visible text.
+  await expect(page.locator(`td[title="${OTHER}"]`).first()).toBeVisible();
 
   await page.getByLabel("Filter by speaker").click();
   await page.getByRole("option", { name: PRIYA }).click();
 
-  await expect(page.getByRole("cell").filter({ hasText: PRIYA_EMAIL }).first()).toBeVisible();
-  await expect(page.getByRole("cell").filter({ hasText: OTHER })).toHaveCount(0);
+  await expect(page.locator(`td[title="${PRIYA_EMAIL}"]`).first()).toBeVisible();
+  await expect(page.locator(`td[title="${OTHER}"]`)).toHaveCount(0);
 
   // Both filters compose: her decisions only.
   await page.getByLabel("Filter by message type").click();
@@ -150,6 +153,8 @@ test("a digest run sends once per speaker, then respects the cooldown", async ({
   await page.goto(COMMS);
 
   await page.getByRole("button", { name: "Send task digest now" }).click();
+  // The button opens a confirm dialog first; the real trigger is inside it.
+  await page.getByRole("button", { name: "Send digest" }).click();
   // The seed leaves speakers with outstanding tasks, so the first manual run
   // has something to do (the manual path bypasses the Monday window, D-039).
   await expect(page.getByText(/Sent \d+ emails?/)).toBeVisible({ timeout: 30_000 });
@@ -164,13 +169,13 @@ test("a digest run sends once per speaker, then respects the cooldown", async ({
     expect(digests.some((body) => body.includes("Our team is around all week"))).toBe(true);
   }).toPass({ timeout: 20_000 });
 
-  // Pressing it again immediately must be a no-op: idempotency comes from
-  // email_log, so the first run's own rows suppress the second (D-039's
-  // 24-hour guard on the manual button).
+  // A second run immediately must be impossible: the cooldown comes from
+  // email_log (D-039's 24-hour guard), the page recomputes the eligible
+  // count server-side, and a zero-recipient digest greys the button out —
+  // so after a reload there is nothing to click.
   const secondRunAt = Date.now();
-  await page.getByRole("button", { name: "Send task digest now" }).click();
-  await expect(page.getByText("Nothing to send")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText(/already emailed recently/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Send task digest now" })).toBeDisabled();
 
   const afterSecond = (await devEmailsSince(secondRunAt)).filter((body) =>
     body.includes("X-Greenroom-Log: task_digest"),
@@ -223,12 +228,12 @@ test("a calendar invitation goes out as a real .ics, and re-sending updates it",
   }).toPass({ timeout: 20_000 });
 });
 
-test("a reviewer can read the log but cannot send anything", async ({ page }) => {
+test("a reviewer is bounced from communications entirely", async ({ page }) => {
+  // D-047: a reviewer's workspace is Overview / Submissions / Review rounds —
+  // Communications is admin-only, so the page refuses the URL outright.
   await signIn(page, "dana@greenroom.dev");
   await page.goto(COMMS);
 
-  await expect(page.getByRole("heading", { name: "Communications" })).toBeVisible();
-  await expect(page.getByLabel("Filter by speaker")).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Compose" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Send task digest now" })).toHaveCount(0);
+  await expect(page).not.toHaveURL(/\/communications/);
+  await expect(page.getByRole("heading", { name: "Communications" })).toHaveCount(0);
 });

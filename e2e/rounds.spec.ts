@@ -36,6 +36,14 @@ function localInput(days: number): string {
   )}:${pad(when.getMinutes())}`;
 }
 
+/** Picks a point on a segmented 1–5 criterion (W25): the radio input is
+ * sr-only, so its clipped box can't take a pointer hit — the visible label
+ * segment does, and checking the input afterwards proves it registered. */
+async function pickPoint(page: Page, criterion: string, point: number): Promise<void> {
+  await page.locator(`label:has(#criterion-${criterion}-${point})`).click();
+  await expect(page.locator(`#criterion-${criterion}-${point}`)).toBeChecked();
+}
+
 /** The round's row in the list — every test starts from here. */
 function roundRow(page: Page) {
   return page.getByRole("row", { name: ROUND });
@@ -163,8 +171,9 @@ test("a reviewer fills in the scorecard, and their answers come back", async ({ 
   // The proposal is in front of the reviewer, co-speakers and all.
   await expect(page.getByText("Hannah Kim")).toBeVisible();
 
-  await page.locator("#criterion-originality").fill("5");
-  await page.locator("#criterion-relevance").fill("3");
+  // Numeric criteria on a short integer scale render as segmented radios (W25).
+  await pickPoint(page, "originality", 5);
+  await pickPoint(page, "relevance", 3);
   await choose(page, "Recommendation", "Accept");
   await page.locator("#criterion-comments").fill("Keeps its promises; would open the track.");
   await page.getByRole("button", { name: "Submit scorecard" }).click();
@@ -173,8 +182,8 @@ test("a reviewer fills in the scorecard, and their answers come back", async ({ 
   // Back on the queue, marked done — and the answers really persisted.
   await expect(page.getByRole("row", { name: EVALS })).toContainText("Submitted");
   await page.getByRole("row", { name: EVALS }).getByRole("link", { name: "Review scorecard" }).click();
-  await expect(page.locator("#criterion-originality")).toHaveValue("5");
-  await expect(page.locator("#criterion-relevance")).toHaveValue("3");
+  await expect(page.locator("#criterion-originality-5")).toBeChecked();
+  await expect(page.locator("#criterion-relevance-3")).toBeChecked();
   await expect(page.getByLabel("Recommendation")).toContainText("Accept");
   await expect(page.locator("#criterion-comments")).toHaveValue(
     "Keeps its promises; would open the track.",
@@ -184,8 +193,8 @@ test("a reviewer fills in the scorecard, and their answers come back", async ({ 
   await page.goto(ROUNDS);
   await roundRow(page).getByRole("link", { name: "Open queue" }).click();
   await page.getByRole("row", { name: TOOL_SCHEMAS }).getByRole("link", { name: "Score" }).click();
-  await page.locator("#criterion-originality").fill("2");
-  await page.locator("#criterion-relevance").fill("2");
+  await pickPoint(page, "originality", 2);
+  await pickPoint(page, "relevance", 2);
   await choose(page, "Recommendation", "Decline");
   await page.locator("#criterion-comments").fill("Covered better by the agents talk.");
   await page.getByRole("button", { name: "Submit scorecard" }).click();
@@ -218,13 +227,15 @@ test("the organizer sees progress, the aggregate, sorting, and a CSV export", as
   expect(download.headers()["content-disposition"]).toContain(".csv");
   const csv = await download.text();
   const [header, ...rows] = csv.trim().split("\n");
+  // Dropdown and free-text criteria each get a column after the averages —
+  // the export is the only place unscored answers reach a spreadsheet.
   expect(header).toBe(
-    "Submission,Speakers,Tracks,Status,Reviewers assigned,Scorecards submitted,Aggregate score,Originality (avg),Relevance (avg)",
+    "Submission,Speakers,Tracks,Status,Reviewers assigned,Scorecards submitted,Aggregate score,Originality (avg),Relevance (avg),Recommendation,Comments",
   );
   const evalsRow = rows.find((row) => row.includes(EVALS))!;
   expect(evalsRow).toContain("Hannah Kim");
   expect(evalsRow).toContain("83.3");
-  expect(evalsRow.endsWith(",5,3")).toBe(true);
+  expect(evalsRow.endsWith(",5,3,Accept,Keeps its promises; would open the track.")).toBe(true);
 });
 
 test("a reviewer can declare a conflict, and the organizer sees it", async ({ page }) => {

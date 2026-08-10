@@ -6,21 +6,15 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 - [ ] **(Optional, for local dev only)** add `AIRTABLE_API_KEY=…` to `.dev.vars` yourself in an editor — don't paste the token into chat or a terminal command. Not needed for the deployed sync (the secret is already set in the worker); it only lets a local dev server hit the base.
 
-## Evaluator prep (after the deploy is verified)
+## Blocking
 
-- [ ] **`npm install` in the evals repo.** The judging harness now lives at `~/projects/killmysaas-evals` (moved out of the session temp dir); dependencies weren't copied, so run `npm install` there once.
-- [ ] **Save evaluator persona sessions.** The harness's browser agent has no email inbox, so each persona's magic-link sign-in is done once by hand and the session saved. For each of `speaker`, `organizer`, `reviewer`:
-  1. In `~/projects/killmysaas-evals`, run `npm run sbek -- auth --persona speaker` (repeat later for the other two personas).
-  2. A real Chromium window opens at the deployed site. **Do the entire login inside that window**: enter the persona's email on the login page, request the magic link, then fetch the link from your inbox and paste it into *that window's* address bar. (Opening the link in your normal browser authenticates the wrong session.)
-  3. Once the window shows you signed in, return to the terminal and press Enter. The session lands in `.auth/<host>.<persona>.json` — those files hold live cookies; treat them as secrets.
-  4. Use plus-addressed emails you control so each persona is a distinct account — e.g. `email+sbek-speaker@gmail.com`, `…+sbek-organizer@…`, `…+sbek-reviewer@…` — and put the same three addresses under `personaEmails` in the repo's `evalconfig.json`. The organizer and reviewer personas must hold those roles in the app. *(Done 2026-08-09: the three `+sbek-*` accounts you signed in with are granted their roles in the deployed database — organizer → admin, reviewer → reviewer on all three tracks. Exact addresses confirmed in chat only, deliberately not written here. `evalconfig.json` written with the addresses 2026-08-09 — it's gitignored in the eval repo, so it stays local.)*
-  5. Re-run the `auth` command for a persona whenever its saved session expires.
-- [ ] **Run the evaluation** — the harness now supports your Claude Code subscription, no API key needed (ported 2026-08-09). After `npm install`, verify auth with `npm run probe:claude-code`, then run `SBEK_CLAUDE_CODE=1 npm run eval -- --url https://greenroom.usespaces.dev`. Caveats: subscription-mode scores are directional (judge runs under slightly different plumbing than the API-key path), so if you want "official"-style numbers and have an `ANTHROPIC_API_KEY`, the default path is unchanged and preferred. `npm run smoke` still needs no auth at all.
 - [ ] **Competition submission** — organizer's form + repo link + deployed URL + walkthrough video, before **Wed Aug 12, 10 PM PT**.
+- [ ] **Re-authenticate evaluator personas when sessions expire** — for each of `speaker`/`organizer`/`reviewer`: run `npm run sbek -- auth --persona <name>` in `~/projects/killmysaas-evals` and complete the magic-link login entirely inside the Chromium window it opens (fetch the link from your inbox, paste into *that window's* address bar; your normal browser authenticates the wrong session). Sessions land in `.auth/` — live cookies, treat as secrets. Only needed on expiry; all three are currently valid.
 
 ## Done
 
-- [x] Cloudflare Workers **paid plan** upgraded (2026-08-09) — fixes both free-plan walls: the 10 ms CPU cap behind the eval-critical site hangs (`/admin` and friends timing out at 30s; now verified answering in 0.1–1.3s with an authenticated organizer session) and the 3 MiB bundle cliff (now 10 MiB; `keep_names: false` in wrangler.jsonc can be revisited if ever needed).
+- [x] Evaluator prep complete (2026-08-09): `npm install` in `~/projects/killmysaas-evals`, all three persona sessions saved (`+sbek-*` accounts hold their roles in the deployed DB; addresses live only in the gitignored `evalconfig.json`), and the eval runs under the Claude Code subscription (`SBEK_CLAUDE_CODE=1 npm run eval -- --url https://greenroom.usespaces.dev`) — four runs executed 2026-08-09.
+- [x] Cloudflare Workers **paid plan** upgraded (2026-08-09) — removes both free-plan walls: the 10 ms CPU cap and the 3 MiB bundle cliff (now 10 MiB; `keep_names: false` in wrangler.jsonc can be revisited if ever needed). *Correction (2026-08-09, late):* the paid plan did **not** fully fix the authenticated-route hangs — `/admin` and `/portal` stalls recurred in eval runs 3 and 4 and in an external audit run, all post-upgrade. Root cause under active investigation; no owner action needed yet.
 - [x] `npx wrangler login` (2026-08-09) — account verified, D1 database created in WNAM, remote migrations applied, worker created, `BETTER_AUTH_SECRET` set.
 - [x] SendGrid chosen over Resend (D-030) — code migrated, `resend` dependency removed.
 - [x] R2 enabled (2026-08-09) — bucket `greenroom-files` created with `wnam` location hint.

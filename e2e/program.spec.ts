@@ -77,9 +77,9 @@ test("the speaker gallery shows every confirmed speaker, scheduled or not", asyn
   await expect(page.getByRole("heading", { name: PRIYA })).toBeVisible();
   await expect(page.getByText(RETRIEVAL)).toBeVisible();
 
-  // Confirmed, and seeded unscheduled (whether or not another spec later
-  // places it — see TOOL_SCHEMAS above): the gallery shows every confirmed
-  // speaker regardless of scheduling, unlike the schedule.
+  // Confirmed, seeded on day 2 (agenda.spec.ts moves it around when the
+  // whole suite runs in file order): the gallery shows every confirmed
+  // speaker regardless of where — or whether — their talk is scheduled.
   await expect(page.getByRole("heading", { name: DAMOLA })).toBeVisible();
   await expect(page.getByText(TOOL_SCHEMAS)).toBeVisible();
 });
@@ -100,14 +100,14 @@ test("the schedule shows only confirmed, scheduled sessions, in time order", asy
   const day1Order = day1Panel.getByText(new RegExp(`${RETRIEVAL}|${INFERENCE}`));
   await expect(day1Order.first()).toHaveText(RETRIEVAL);
 
-  // A confirmed talk that no other spec ever places on the agenda (unlike
-  // Tool schemas / Evals, which agenda.spec.ts schedules when the whole
-  // suite runs in file order) stays off the public schedule for good.
-  await expect(page.getByText("Hands-on: building a recovery loop for flaky agents")).toHaveCount(
-    0,
-  );
+  // The seeded day-3 workshop lives on its own tab, not day 1's — sessions
+  // stay under the day they were placed on, never flattened into one list.
+  const WORKSHOP = "Hands-on: building a recovery loop for flaky agents";
+  await expect(day1Panel.getByText(WORKSHOP)).toHaveCount(0);
+  await page.getByRole("tab").nth(2).click();
+  await expect(page.getByRole("tabpanel").getByText(WORKSHOP)).toBeVisible();
 
-  // Day 2 holds the third scheduled session, on its own tab.
+  // Day 2 holds the seeded hospital talk, on its own tab.
   await page.getByRole("tab").nth(1).click();
   await expect(page.getByRole("tabpanel").getByText(HOSPITAL)).toBeVisible();
 });

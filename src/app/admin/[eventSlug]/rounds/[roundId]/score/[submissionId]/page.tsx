@@ -38,11 +38,16 @@ import { ScorecardForm } from "./scorecard-form";
  * available: a reviewer can recognise the work without the name.
  */
 
-/** Questions with their own slot above the answer list, so they aren't repeated. */
+/** Questions with their own slot above the answer list, so they aren't repeated.
+ * Speaker identity is the speaker line's job — printing the "Your name" answer
+ * again below it says the same thing twice (and blind rounds already strip
+ * identity fields before this set is consulted). */
 const ALREADY_SHOWN = new Set<string>([
   RESERVED_FIELD_IDS.title,
   RESERVED_FIELD_IDS.description,
   RESERVED_FIELD_IDS.tracks,
+  RESERVED_FIELD_IDS.speakerName,
+  RESERVED_FIELD_IDS.speakerEmail,
 ]);
 
 export default async function ScorecardPage({
@@ -111,9 +116,16 @@ export default async function ScorecardPage({
         title={row.submission.title}
         description={`${round.name} — your scorecard`}
         action={
-          <Button asChild variant="outline">
-            <Link href={`/admin/${eventSlug}/rounds/${roundId}/score`}>Back to queue</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline">
+              <Link href={`/admin/${eventSlug}/rounds/${roundId}/score`}>Back to queue</Link>
+            </Button>
+            {/* The proposal is long by design, and the scorecard is what the
+                reviewer came to do: this is the short way past it. */}
+            <Button asChild variant="secondary">
+              <Link href="#scorecard">Jump to scorecard</Link>
+            </Button>
+          </div>
         }
       />
 
@@ -148,17 +160,28 @@ export default async function ScorecardPage({
         {answerFields.length > 0 ? <AnswerList fields={answerFields} values={answerValues} /> : null}
       </div>
 
-      <ScorecardForm
-        eventSlug={eventSlug}
-        roundId={roundId}
-        submissionId={submissionId}
-        criteria={round.criteria}
-        values={existing?.values ?? {}}
-        submitted={Boolean(existing)}
-        recused={assignment.status === "recused"}
-        recusalReason={assignment.recusalReason}
-        canScore={state === "open"}
-      />
+      <section
+        id="scorecard"
+        className="flex scroll-mt-6 flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:p-6"
+      >
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Your scorecard</h2>
+          <p className="text-sm text-muted-foreground">
+            Rate each criterion, and the weighted total updates as you pick.
+          </p>
+        </div>
+        <ScorecardForm
+          eventSlug={eventSlug}
+          roundId={roundId}
+          submissionId={submissionId}
+          criteria={round.criteria}
+          values={existing?.values ?? {}}
+          submitted={Boolean(existing)}
+          recused={assignment.status === "recused"}
+          recusalReason={assignment.recusalReason}
+          canScore={state === "open"}
+        />
+      </section>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import {
   type SubmissionReviewRollup,
   type SubmissionRoundRollup,
 } from "@/domain/rounds";
+import { matchesSubmissionSearch } from "@/domain/submissions";
 import type { SessionUser } from "@/lib/session";
 import { ALL, type QueueFilter } from "./filters";
 
@@ -244,15 +245,15 @@ export async function reviewerTrackIdsFor(
 }
 
 /**
- * Every submission this viewer may see, with the columns the table shows.
- * Tracks, speakers, and reviews are each fetched in one batch — the table
- * must not cost a query per row.
+ * The queue's backbone: which submissions this viewer may see, in the order
+ * the table lists them (newest first: `listByEvent` orders by `createdAt`
+ * descending, and nothing here re-sorts).
+ *
+ * Shared so that anything walking the queue, the table itself and the record
+ * page's prev/next pager alike, agrees on both the membership and the order,
+ * without a second opinion about either.
  */
-export async function loadSubmissionQueue(
-  repos: Repos,
-  event: Event,
-  viewer: SessionUser,
-): Promise<SubmissionQueue> {
+async function loadVisible(repos: Repos, event: Event, viewer: SessionUser) {
   const [all, tracks, reviewerTrackIds, directFormIds] = await Promise.all([
     repos.submissions.listByEvent(event.id),
     repos.tracks.listByEvent(event.id),
@@ -276,6 +277,37 @@ export async function loadSubmissionQueue(
     reviewerTrackIds,
     { directSessionFormIds: directFormIds },
   );
+
+  return { submissions, trackIdsBySubmission, tracks, reviewerTrackIds, directFormIds };
+}
+
+/**
+ * Just the ids, in queue order: what the record page's pager walks
+ * (spec.md section 4). The cheap half of `loadSubmissionQueue`: no speakers, no
+ * reviews, no round rollups, because a pager only needs to know what comes
+ * next.
+ */
+export async function loadSubmissionOrder(
+  repos: Repos,
+  event: Event,
+  viewer: SessionUser,
+): Promise<string[]> {
+  const { submissions } = await loadVisible(repos, event, viewer);
+  return submissions.map((submission) => submission.id);
+}
+
+/**
+ * Every submission this viewer may see, with the columns the table shows.
+ * Tracks, speakers, and reviews are each fetched in one batch — the table
+ * must not cost a query per row.
+ */
+export async function loadSubmissionQueue(
+  repos: Repos,
+  event: Event,
+  viewer: SessionUser,
+): Promise<SubmissionQueue> {
+  const { submissions, trackIdsBySubmission, tracks, reviewerTrackIds, directFormIds } =
+    await loadVisible(repos, event, viewer);
 
   const [speakerLinks, reviews, rollups, blindIds] = await Promise.all([
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((s) => s.id)),
@@ -343,6 +375,13 @@ export function filterQueue(rows: QueueRow[], filter: QueueFilter): QueueRow[] {
   return rows.filter((row) => {
     if (filter.status !== ALL && row.submission.status !== filter.status) return false;
     if (filter.track !== ALL && !row.trackIds.includes(filter.track)) return false;
+    // Speaker names come off the (possibly blind-emptied) row, not the raw
+    // roster, so the search box never undoes a blind round's anonymity (D-049).
+    const searchRow = {
+      title: row.submission.title,
+      speakerNames: row.speakers.map((speaker) => personName(speaker)),
+    };
+    if (!matchesSubmissionSearch(searchRow, filter.q)) return false;
     return true;
   });
 }

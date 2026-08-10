@@ -22,6 +22,10 @@ async function linkCount(email: string): Promise<number> {
 export async function signIn(page: Page, email: string): Promise<void> {
   const alreadyLogged = await linkCount(email);
 
+  // Switching personas mid-test: /login redirects an authenticated user
+  // straight into their app (src/app/login/page.tsx), so drop the session
+  // cookie first or the Email field below never exists.
+  await page.context().clearCookies();
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Send magic link" }).click();

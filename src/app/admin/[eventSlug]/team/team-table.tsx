@@ -129,7 +129,7 @@ export function TeamTable({
                       member={member}
                       trigger={
                         <Button size="xs" variant="ghost">
-                          Edit
+                          Edit name
                         </Button>
                       }
                     />
@@ -184,7 +184,7 @@ export function TeamTable({
                         tracks={tracks}
                         trigger={
                           <Button size="xs" variant="ghost">
-                            Edit
+                            Edit tracks
                           </Button>
                         }
                       />

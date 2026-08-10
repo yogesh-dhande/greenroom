@@ -41,6 +41,7 @@ export function CommsHub({
   templates,
   invites,
   digestPreviewCount,
+  now,
 }: {
   eventSlug: string;
   /** This event's real merge data (dates, URLs, organizer name) — see
@@ -54,6 +55,9 @@ export function CommsHub({
    * server-side the same way the send itself decides (decisions.md D-039) —
    * what the confirm dialog promises before the click. */
   digestPreviewCount: number;
+  /** Server-captured `Date.now()` — see the page component for why the log's
+   * relative timestamps take it as a prop instead of reading the clock. */
+  now: number;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState("log");
@@ -134,7 +138,7 @@ export function CommsHub({
       </AlertDialog>
 
       <TabsContent value="log">
-        <EmailLogTable rows={logRows} speakers={speakers} />
+        <EmailLogTable rows={logRows} speakers={speakers} now={now} />
       </TabsContent>
 
       <TabsContent value="compose">

@@ -4,7 +4,16 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { ScorecardCriterion } from "@/db/entities";
-import { criterionRange, validateScorecard } from "@/domain/rounds";
+import {
+  criterionRange,
+  criterionScalePoints,
+  criterionWeight,
+  numericCriteria,
+  readNumber,
+  roundScoreValue,
+  scorecardScore,
+  validateScorecard,
+} from "@/domain/rounds";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 // Aliased rather than relative: the submission record renders this same form
 // from a different depth in the tree (decisions.md D-048).
 import { recuseFromSubmission, submitScorecard } from "@/app/admin/[eventSlug]/rounds/actions";
@@ -28,7 +38,20 @@ import { recuseFromSubmission, submitScorecard } from "@/app/admin/[eventSlug]/r
  * The same criteria array that the organizer built drives this form, so a round
  * that asks four questions gets four controls with no code change — the D-009
  * approach for CFP forms, applied to scorecards.
+ *
+ * A rating is picked, not typed: each numeric criterion renders as a segmented
+ * control of native radios, one per point on its scale, so the whole scale is
+ * visible at a glance and a rating is one click (or one arrow key) rather than
+ * a free-text number. The stored value is unchanged: the radio's value is the
+ * same number the text field held, so the payload the server action receives is
+ * byte-for-byte what it was.
+ *
+ * The running weighted total is the *same* number the organizer's results table
+ * will show for this scorecard: it comes from `scorecardScore` in
+ * src/domain/rounds.ts rather than a second copy of the formula living here, so
+ * a reviewer can never be shown a total the aggregate disagrees with.
  */
+
 export function ScorecardForm({
   eventSlug,
   roundId,
@@ -67,6 +90,12 @@ export function ScorecardForm({
   const [reason, setReason] = useState(recusalReason ?? "");
   const [showRecuse, setShowRecuse] = useState(false);
   const [isSaving, startSaving] = useTransition();
+
+  // The live total, straight from the domain: `scorecardScore` reads its values
+  // through `readNumber`, so the strings this form holds need no conversion.
+  const rated = numericCriteria(criteria);
+  const answered = rated.filter((criterion) => readNumber(answers[criterion.id]) !== null).length;
+  const total = roundScoreValue(scorecardScore(criteria, answers));
 
   function set(id: string, value: string) {
     setAnswers((current) => ({ ...current, [id]: value }));
@@ -125,19 +154,97 @@ export function ScorecardForm({
         </p>
       ) : null}
 
+      {rated.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">Weighted total</p>
+            <p className="text-xs text-muted-foreground">
+              {answered} of {rated.length} rating{rated.length === 1 ? "" : "s"} given
+              {total === null ? ", so there is nothing to total yet." : ", each counted by its weight."}
+            </p>
+          </div>
+          <p aria-live="polite" className="text-2xl font-semibold tabular-nums text-foreground">
+            {total === null ? (
+              <span className="text-base font-normal text-muted-foreground">Not rated yet</span>
+            ) : (
+              <>
+                {total}
+                <span className="ml-1 text-sm font-normal text-muted-foreground">/ 100</span>
+              </>
+            )}
+          </p>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-5">
         {criteria.map((criterion) => {
           const inputId = `criterion-${criterion.id}`;
           const range = criterionRange(criterion);
+          const points = criterionScalePoints(criterion);
+
+          // A rating group names itself with a legend rather than a label:
+          // five radios are one question, and a <fieldset> is how that question
+          // reaches a screen reader.
+          if (points) {
+            // Namespaced by round: the submission record renders one of these
+            // forms per round on the same page (D-048), and two rounds asking
+            // "Originality" must not share a radio group.
+            const group = `${roundId}-${inputId}`;
+            const weight = criterionWeight(criterion);
+            return (
+              <fieldset key={criterion.id} className="flex flex-col gap-1.5">
+                <legend className="mb-1.5 flex flex-wrap items-baseline gap-x-2 text-sm leading-none font-medium">
+                  {criterion.label}
+                  <span className="font-normal text-muted-foreground">
+                    Scale {range.min}-{range.max}, weight {weight}
+                  </span>
+                </legend>
+                {criterion.helpText ? (
+                  <p className="text-xs text-muted-foreground">{criterion.helpText}</p>
+                ) : null}
+                <div
+                  id={inputId}
+                  className="flex w-fit items-center gap-1 rounded-lg border border-border bg-background p-1"
+                >
+                  {points.map((point) => {
+                    const value = String(point);
+                    const selected = answers[criterion.id] === value;
+                    return (
+                      <label key={point} className="cursor-pointer">
+                        <input
+                          type="radio"
+                          id={`${inputId}-${point}`}
+                          name={group}
+                          value={value}
+                          checked={selected}
+                          onChange={() => set(criterion.id, value)}
+                          className="peer sr-only"
+                        />
+                        <span
+                          className={cn(
+                            "flex h-9 w-11 items-center justify-center rounded-md text-sm font-medium tabular-nums transition-colors peer-focus-visible:ring-3 peer-focus-visible:ring-ring/50",
+                            selected
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                        >
+                          {point}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            );
+          }
+
           return (
             <div key={criterion.id} className="flex flex-col gap-1.5">
               <Label htmlFor={inputId}>
                 {criterion.label}
                 {criterion.type === "number" ? (
                   <span className="ml-1 font-normal text-muted-foreground">
-                    ({range.min}–{range.max}
-                    {criterion.weight && criterion.weight !== 1 ? `, weight ${criterion.weight}` : ""}
-                    )
+                    (scale {range.min}-{range.max}, weight {criterionWeight(criterion)})
                   </span>
                 ) : null}
               </Label>
@@ -186,37 +293,66 @@ export function ScorecardForm({
 
       <Separator />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
         <Button type="button" onClick={save} disabled={isSaving || !canScore}>
           {isSaving ? "Saving…" : submitted ? "Update scorecard" : "Submit scorecard"}
         </Button>
-        {recused ? null : (
-          <Button type="button" variant="ghost" onClick={() => setShowRecuse((open) => !open)}>
-            Declare a conflict of interest
-          </Button>
-        )}
       </div>
 
-      {showRecuse && !recused ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
-          <Label htmlFor="recusal-reason">Why you can&apos;t review this one (optional)</Label>
-          <Input
-            id="recusal-reason"
-            placeholder="I work with the speaker"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">
-            The organizer sees this on the round&apos;s progress view, and the submission stops
-            counting towards your queue.
-          </p>
-          <div>
-            <Button type="button" variant="outline" onClick={recuse} disabled={isSaving}>
-              Recuse me from this submission
-            </Button>
+      {/* Recusal is not a second way to file the scorecard, so it does not sit
+          beside the button that files it: it gets its own region, its own
+          colour, and a sentence saying what it does before it is clicked. */}
+      {recused ? null : (
+        <div className="mt-2 flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-foreground">Conflict of interest</p>
+            <p className="text-xs text-muted-foreground">
+              Declaring one recuses you: this submission leaves your queue unscored, and the
+              organizer sees that you stepped back.
+            </p>
           </div>
+
+          {showRecuse ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="recusal-reason">Why you can&apos;t review this one (optional)</Label>
+              <Input
+                id="recusal-reason"
+                placeholder="I work with the speaker"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                The organizer sees this on the round&apos;s progress view.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={recuse}
+                  disabled={isSaving}
+                >
+                  Recuse me from this submission
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setShowRecuse(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => setShowRecuse(true)}
+              >
+                Declare a conflict of interest
+              </Button>
+            </div>
+          )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

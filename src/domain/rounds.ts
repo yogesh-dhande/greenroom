@@ -79,6 +79,24 @@ export function criterionRange(criterion: ScorecardCriterion): { min: number; ma
   return { min, max: rawMax > min ? rawMax : min + 1 };
 }
 
+/**
+ * Every point on a numeric criterion's scale, for a rating control that offers
+ * them all at once, or null when the scale doesn't fit in one: a fractional
+ * scale has no discrete points to offer, and a 1-100 criterion would need a
+ * hundred targets. Callers fall back to a plain number field on null.
+ */
+export function criterionScalePoints(
+  criterion: ScorecardCriterion,
+  maxPoints = 10,
+): number[] | null {
+  if (criterion.type !== "number") return null;
+  const { min, max } = criterionRange(criterion);
+  if (!Number.isInteger(min) || !Number.isInteger(max)) return null;
+  const span = max - min + 1;
+  if (span < 2 || span > maxPoints) return null;
+  return Array.from({ length: span }, (_, index) => min + index);
+}
+
 /** A criterion's pull on the aggregate. Non-numeric criteria never count. */
 export function criterionWeight(criterion: ScorecardCriterion): number {
   if (criterion.type !== "number") return 0;

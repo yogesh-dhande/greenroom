@@ -202,6 +202,39 @@ export function formatDueDate(instant: Date, timeZone: string): string {
   return format(instant, timeZone, { month: "short", day: "numeric", year: "numeric" });
 }
 
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+const RELATIVE_TIME_HORIZON_MS = 7 * DAY_MS;
+
+/**
+ * "2h ago" / "3d ago" for the communications log's Sent column (wave W25
+ * 6A) — a glance answer to "how recently did this go out?" that a raw
+ * "Aug 9 8:33 PM UTC" per row doesn't give. Beyond the horizon the count of
+ * days stops being the useful fact, so it falls back to a calendar date; the
+ * exact instant always still belongs in the caller's `title` attribute
+ * (`formatDeadline`/the caller's own timestamp formatter), not here.
+ *
+ * Takes `now` as a parameter rather than reading `Date.now()` internally so
+ * this stays pure: deterministic to test, and safe to call from a
+ * server-rendered value without a server/client clock mismatch.
+ *
+ * Zone-less by design — a *duration* between two instants is the same
+ * number regardless of which timezone either end is viewed in, so this has
+ * no `assertTimeZone` the way the wall-clock helpers above do. The
+ * beyond-horizon fallback formats in UTC for the same reason `formatDate` in
+ * `src/components/date-format.ts` does: a fixed zone keeps the output
+ * deterministic rather than depending on the render environment's clock.
+ */
+export function formatRelativeTime(nowMs: number, thenMs: number): string {
+  const deltaMs = Math.max(0, nowMs - thenMs);
+  if (deltaMs < MINUTE_MS) return "just now";
+  if (deltaMs < HOUR_MS) return `${Math.floor(deltaMs / MINUTE_MS)}m ago`;
+  if (deltaMs < DAY_MS) return `${Math.floor(deltaMs / HOUR_MS)}h ago`;
+  if (deltaMs < RELATIVE_TIME_HORIZON_MS) return `${Math.floor(deltaMs / DAY_MS)}d ago`;
+  return format(new Date(thenMs), "UTC", { month: "short", day: "numeric", year: "numeric" });
+}
+
 /** "Friday, June 5, 2026 at 5:00 PM PDT" — deadlines are stored as instants. */
 export function formatDeadline(instant: Date, timeZone: string): string {
   const date = format(instant, timeZone, {

@@ -90,6 +90,34 @@ export function sortAssignmentViews(views: AssignmentView[]): AssignmentView[] {
   });
 }
 
+/**
+ * The task the speaker should tackle next: the earliest-due incomplete task
+ * (spec.md §6, W25 "4A" — the portal auto-expands this one so the speaker
+ * lands on what to do next instead of a wall of collapsed rows).
+ *
+ * Undated incomplete tasks sort behind every dated one — nothing to compare
+ * a missing due date against, so a task with a real deadline always wins.
+ * Ties (including undated-vs-undated) break on assignment id for a stable,
+ * deterministic pick rather than depending on array order. Returns null
+ * when there's nothing incomplete — no tasks at all, or everything's done.
+ */
+export function nextDueAssignmentId(views: AssignmentView[]): string | null {
+  let next: AssignmentView | null = null;
+  for (const view of views) {
+    if (view.state === "complete") continue;
+    if (!next) {
+      next = view;
+      continue;
+    }
+    const dueA = view.task.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+    const dueB = next.task.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+    if (dueA < dueB || (dueA === dueB && view.assignment.id.localeCompare(next.assignment.id) < 0)) {
+      next = view;
+    }
+  }
+  return next?.assignment.id ?? null;
+}
+
 export interface SpeakerRollup {
   speaker: User;
   /** Has a session for this event — CFP-accepted or entered directly

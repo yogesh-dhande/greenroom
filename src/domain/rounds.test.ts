@@ -14,6 +14,7 @@ import {
   canScoreSubmission,
   criterionIdFromLabel,
   criterionRange,
+  criterionScalePoints,
   criterionWeight,
   csvHeader,
   csvRow,
@@ -137,6 +138,21 @@ describe("criteria", () => {
     expect(criterionWeight({ id: "a", label: "A", type: "number", weight: 2 })).toBe(2);
     expect(criterionWeight({ id: "a", label: "A", type: "select", options: ["x"] })).toBe(0);
     expect(criterionWeight({ id: "a", label: "A", type: "text" })).toBe(0);
+  });
+
+  it("offers a rating scale as discrete points, defaulting to 1-5", () => {
+    expect(criterionScalePoints({ id: "a", label: "A", type: "number" })).toEqual([1, 2, 3, 4, 5]);
+    expect(
+      criterionScalePoints({ id: "a", label: "A", type: "number", min: 0, max: 3 }),
+    ).toEqual([0, 1, 2, 3]);
+  });
+
+  it("has no points for a scale a segmented control can't carry", () => {
+    // Too many buttons, a fractional scale, and a criterion that isn't rated
+    // at all all fall back to whatever control the caller uses instead.
+    expect(criterionScalePoints({ id: "a", label: "A", type: "number", min: 1, max: 100 })).toBeNull();
+    expect(criterionScalePoints({ id: "a", label: "A", type: "number", min: 0.5, max: 3 })).toBeNull();
+    expect(criterionScalePoints({ id: "a", label: "A", type: "text" })).toBeNull();
   });
 
   it("normalizes a rating to a share of its own scale, clamping out-of-range values", () => {

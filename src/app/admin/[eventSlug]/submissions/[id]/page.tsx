@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeftIcon } from "lucide-react";
-import { createsSessionsDirectly, type FormField } from "@/db/entities";
+import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { createsSessionsDirectly, RESERVED_FIELD_IDS, type FormField } from "@/db/entities";
 import { DIRECT_TO_SESSION_LABEL, prefillValues, publicFields } from "@/domain/forms";
-import { loadSubmissionDetail } from "@/domain/submissions";
+import { loadSubmissionDetail, queuePosition, type QueuePosition } from "@/domain/submissions";
 import { canRecordDecision, canViewSubmission, tallyReviews } from "@/domain/review";
 import {
   BLIND_REVIEW_NOTICE,
@@ -17,7 +17,6 @@ import { requireAdminOrReviewer } from "@/lib/session";
 import { fileUrl, filenameFromKey } from "@/lib/uploads";
 import { formatDate } from "@/components/date-format";
 import { PageHeader } from "@/components/page-header";
-import { SubmissionStatusBadge } from "@/components/submission-status-badge";
 import {
   Card,
   CardContent,
@@ -31,13 +30,15 @@ import { Separator } from "@/components/ui/separator";
 import { ScorecardForm } from "../../rounds/[roundId]/score/[submissionId]/scorecard-form";
 import {
   loadRoundRollups,
+  loadSubmissionOrder,
   loadViewerScorecards,
   personName,
   reviewerTrackIdsFor,
   rollupFor,
   type SubmissionRollup,
 } from "../queue";
-import { DecisionPanel } from "./decision-panel";
+import { DecisionBar } from "./decision-panel";
+import { DecisionOutcome } from "./decision-outcome";
 import { ReviewPanel } from "./review-panel";
 
 /**
@@ -76,11 +77,16 @@ export default async function SubmissionDetailPage({
   const { submission, form, tracks } = detail;
   const isDirectToSession = createsSessionsDirectly(form);
 
-  const [reviews, session, decider] = await Promise.all([
+  const [reviews, session, decider, queueOrder] = await Promise.all([
     repos.reviews.listBySubmission(id),
     repos.sessions.getBySubmission(id),
     submission.decidedBy ? repos.users.getById(submission.decidedBy) : Promise.resolve(null),
+    // The pager walks the submissions list's own order and membership: the same
+    // loader, so "4 of 17" counts exactly the rows that list would show this
+    // viewer, and Next never lands on a record their queue doesn't hold.
+    loadSubmissionOrder(repos, event, viewer),
   ]);
+  const pager = queuePosition(queueOrder, id);
   const reviewers = await repos.users.listByIds([...new Set(reviews.map((r) => r.reviewerId))]);
   const reviewerById = new Map(reviewers.map((person) => [person.id, person]));
   const tally = tallyReviews(reviews);
@@ -131,47 +137,75 @@ export default async function SubmissionDetailPage({
     .flat()
     .filter((assignment) => taskById.has(assignment.taskId)).length;
 
+  // Abstract first, and only once. The title question is dropped outright (the
+  // h1 above already is the answer, printed larger) and the abstract is lifted
+  // out of the answer list so the thing being judged reads as prose instead of
+  // as one more label/value row between the format and the code of conduct.
+  const abstractField = fields.find((field) => field.id === RESERVED_FIELD_IDS.description);
+  const abstract = abstractField ? values[abstractField.id] : null;
+  const abstractText = typeof abstract === "string" ? abstract.trim() : "";
+  const detailFields = fields.filter(
+    (field) =>
+      field.id !== RESERVED_FIELD_IDS.title && field.id !== RESERVED_FIELD_IDS.description,
+  );
+
   return (
     <div>
-      <Link
-        href={`/admin/${eventSlug}/submissions`}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeftIcon className="size-4" />
-        All submissions
-      </Link>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href={`/admin/${eventSlug}/submissions`}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" />
+          All submissions
+        </Link>
+        <QueuePager eventSlug={eventSlug} pager={pager} />
+      </div>
 
       <PageHeader
         title={submission.title}
         description={`Submitted ${formatDate(submission.createdAt)} via ${form.name}`}
         action={
-          <div className="flex flex-wrap items-center gap-1.5">
-            <SubmissionStatusBadge status={submission.status} />
-            {isDirectToSession ? <Badge variant="outline">{DIRECT_TO_SESSION_LABEL}</Badge> : null}
-          </div>
+          isDirectToSession ? <Badge variant="outline">{DIRECT_TO_SESSION_LABEL}</Badge> : undefined
         }
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex flex-col gap-6">
           <Card>
-            <CardHeader>
-              <CardTitle>The proposal</CardTitle>
-            </CardHeader>
             <CardContent className="flex flex-col gap-4">
               {/* One marker where the author would have been, so the gap reads
                   as a rule rather than as missing data (D-049). */}
               {blind ? (
-                <div className="flex flex-col gap-1">
-                  <p className="text-xs font-semibold tracking-wider uppercase text-muted-foreground">
-                    Speaker
-                  </p>
-                  <p className="text-sm text-muted-foreground">{BLIND_REVIEW_NOTICE}</p>
-                </div>
+                <p className="text-sm text-muted-foreground">{BLIND_REVIEW_NOTICE}</p>
               ) : null}
-              <AnswerList fields={fields} values={values} />
+              {abstractText ? (
+                <p className="max-w-prose text-base leading-7 whitespace-pre-line text-foreground">
+                  {abstractText}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">
+                  {abstractField
+                    ? `No ${abstractField.label.toLowerCase()} was given.`
+                    : "This form didn't ask for an abstract."}
+                </p>
+              )}
             </CardContent>
           </Card>
+
+          {detailFields.length === 0 ? null : (
+            <Card>
+              <CardHeader>
+                <CardTitle>The rest of the proposal</CardTitle>
+                <CardDescription>
+                  Everything else this form asked for, as the speaker answered it.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <AnswerList fields={detailFields} values={values} />
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -355,14 +389,13 @@ export default async function SubmissionDetailPage({
             />
           )}
 
-          <DecisionPanel
+          {/* What the decision already set off (spec.md section 5): reference
+              material, so it stays on the page with the rest of the record
+              while the buttons themselves live in the bar below. */}
+          <DecisionOutcome
             eventSlug={eventSlug}
-            submissionId={submission.id}
             status={submission.status}
             note={submission.decisionNote}
-            decidedBy={decider ? personName(decider) : null}
-            decidedAt={submission.decidedAt ? formatDate(submission.decidedAt) : null}
-            canDecide={canRecordDecision(viewer.role)}
             session={
               session
                 ? {
@@ -377,7 +410,71 @@ export default async function SubmissionDetailPage({
           />
         </div>
       </div>
+
+      {/* The decision is the reason this page exists, so it stops being
+          something you scroll to find: the bar rides the bottom of the
+          viewport with the record scrolling underneath it. */}
+      <DecisionBar
+        eventSlug={eventSlug}
+        submissionId={submission.id}
+        status={submission.status}
+        note={submission.decisionNote}
+        decidedBy={decider ? personName(decider) : null}
+        decidedAt={submission.decidedAt ? formatDate(submission.decidedAt) : null}
+        canDecide={canRecordDecision(viewer.role)}
+        speakerCount={detail.speakerIds.length}
+      />
     </div>
+  );
+}
+
+/**
+ * "4 of 17", with the record either side of this one (wave W25).
+ *
+ * Plain links to sibling ids, no client state and no cursor in the URL, so the
+ * pager is as reloadable and as shareable as the record itself. `pager` is
+ * null when this record isn't in the viewer's queue at all (an out-of-queue
+ * record still opens; it just has nothing to page through).
+ */
+function QueuePager({ eventSlug, pager }: { eventSlug: string; pager: QueuePosition | null }) {
+  if (!pager) return null;
+  const href = (id: string) => `/admin/${eventSlug}/submissions/${id}`;
+  return (
+    <nav aria-label="Submissions" className="flex items-center gap-2">
+      <span className="text-sm tabular-nums text-muted-foreground">
+        {pager.position} of {pager.total}
+      </span>
+      <div className="flex items-center gap-1">
+        {/* Disabled rather than hidden at either end: the pair keeps its
+            shape, so Next doesn't slide under the pointer on the last record. */}
+        {pager.previousId ? (
+          <Button asChild variant="outline" size="sm">
+            <Link href={href(pager.previousId)} rel="prev">
+              <ChevronLeftIcon />
+              Prev
+            </Link>
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" disabled>
+            <ChevronLeftIcon />
+            Prev
+          </Button>
+        )}
+        {pager.nextId ? (
+          <Button asChild variant="outline" size="sm">
+            <Link href={href(pager.nextId)} rel="next">
+              Next
+              <ChevronRightIcon />
+            </Link>
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" disabled>
+            Next
+            <ChevronRightIcon />
+          </Button>
+        )}
+      </div>
+    </nav>
   );
 }
 
@@ -390,20 +487,25 @@ function RecommendationBadge({ recommendation }: { recommendation: "approve" | "
 /**
  * The submitted answers, rendered from the form's own field schema (D-009) so
  * a custom question an organizer added shows up here without any code change.
+ *
+ * Everything here is supporting detail now that the abstract has been lifted
+ * out above it, so it is set two-up and in the same muted weight the queue
+ * table uses for its own data cells: still perfectly readable, and no longer
+ * competing with the thing actually being judged.
  */
 function AnswerList({ fields, values }: { fields: FormField[]; values: Record<string, unknown> }) {
   return (
-    <dl className="flex flex-col gap-4">
+    <dl className="grid gap-4 sm:grid-cols-2">
       {fields.map((field) => {
         const value = values[field.id];
         const rendered = renderAnswer(field, value);
         if (rendered === null) return null;
         return (
-          <div key={field.id} className="flex flex-col gap-1">
+          <div key={field.id} className="flex min-w-0 flex-col gap-1">
             <dt className="text-xs font-semibold tracking-wider uppercase text-muted-foreground">
               {field.label}
             </dt>
-            <dd className="text-sm whitespace-pre-line text-foreground">{rendered}</dd>
+            <dd className="text-sm whitespace-pre-line text-muted-foreground">{rendered}</dd>
           </div>
         );
       })}

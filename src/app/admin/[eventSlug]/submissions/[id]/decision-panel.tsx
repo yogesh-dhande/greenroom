@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { SubmissionDecision, SubmissionStatus } from "@/db/entities";
+import { SubmissionStatusBadge } from "@/components/submission-status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,10 +22,17 @@ import { decideSubmission } from "../actions";
 import { RequestChangesDialog } from "./request-changes-dialog";
 
 /**
- * The binding decision (spec.md §4) and everything it sets off (spec.md §5).
+ * The binding decision (spec.md section 4), as a bar that rides the bottom of
+ * the viewport while the record scrolls underneath it (wave W25).
+ *
+ * Deciding is the job this page is open for, so the controls are always in
+ * reach rather than six hundred pixels down beside the review notes. What the
+ * decision *produced* (the session, the tasks, the note that went out) is
+ * reference material and stays on the page in DecisionOutcome; the bar carries
+ * only the current status and the actions.
  *
  * Admin-only by design — see canRecordDecision in src/domain/review.ts. A
- * reviewer sees this panel read-only: they get to know the outcome of the talk
+ * reviewer sees the bar read-only: they get to know the outcome of the talk
  * they reviewed, they just don't get to declare it.
  *
  * The options mirror DECISION_OPTIONS in src/domain/review.ts. They are spelled
@@ -71,7 +77,7 @@ const DECIDED: Partial<Record<SubmissionStatus, string>> = {
   denied: "Declined",
 };
 
-export function DecisionPanel({
+export function DecisionBar({
   eventSlug,
   submissionId,
   status,
@@ -79,8 +85,6 @@ export function DecisionPanel({
   decidedBy,
   decidedAt,
   canDecide,
-  session,
-  taskCount,
   speakerCount,
 }: {
   eventSlug: string;
@@ -90,8 +94,6 @@ export function DecisionPanel({
   decidedBy: string | null;
   decidedAt: string | null;
   canDecide: boolean;
-  session: { id: string; scheduled: boolean; cancelled: boolean } | null;
-  taskCount: number;
   speakerCount: number;
 }) {
   const [draftNote, setDraftNote] = useState(note ?? "");
@@ -134,82 +136,51 @@ export function DecisionPanel({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Decision</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {decided ? (
-          <p className="text-sm text-muted-foreground" data-testid="decision-summary">
-            <span className="font-medium text-foreground">{decided}</span>
-            {decidedBy ? ` by ${decidedBy}` : ""}
-            {decidedAt ? ` on ${decidedAt}` : ""}.
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground" data-testid="decision-summary">
-            No decision recorded yet.
-          </p>
-        )}
-
-        {decided && note && (
-          <p className="text-sm whitespace-pre-line text-muted-foreground">
-            <span className="font-medium text-foreground">Note to speakers: </span>
-            {note}
-          </p>
-        )}
-
-        {session && (
-          <p className="text-sm text-muted-foreground" data-testid="decision-session">
-            {session.cancelled ? (
-              "The session made from this talk has been cancelled."
-            ) : (
-              <>
-                <Link
-                  href={`/admin/${eventSlug}/agenda`}
-                  className="text-primary underline underline-offset-4"
-                >
-                  Session created
-                </Link>
-                {session.scheduled
-                  ? " and placed on the agenda."
-                  : " — not yet placed on the agenda."}{" "}
-                {/* The session row is the record the public program reads —
-                    a typo'd title or abstract gets fixed there, not by
-                    forking content onto this submission (decisions.md
-                    D-054(5)). Deep-links into the agenda board's own edit
-                    dialog for this session. */}
-                <Link
-                  href={`/admin/${eventSlug}/agenda?session=${session.id}`}
-                  className="text-primary underline underline-offset-4"
-                  data-testid="edit-session-link"
-                >
-                  Edit title, abstract & track
-                </Link>
-                .
-              </>
-            )}
-          </p>
-        )}
-
-        {taskCount > 0 && (
-          <p className="text-sm text-muted-foreground" data-testid="decision-tasks">
-            {taskCount} onboarding task{taskCount === 1 ? "" : "s"} assigned across {speakerCount}{" "}
-            speaker{speakerCount === 1 ? "" : "s"}.
-          </p>
-        )}
+    <div
+      // Sticky rather than fixed, so it belongs to the page's own scroll
+      // container (the admin shell's <main>) instead of the window: it spans
+      // exactly the content area, and keeps its place in the flow, so nothing
+      // is ever stranded underneath it at the foot of the record. The negative
+      // inline margin lets the top border and the page background run the full
+      // width, so content scrolls under a clean edge.
+      className="sticky bottom-0 z-10 -mx-6 mt-6 border-t border-border bg-background px-6 py-3"
+      data-testid="decision-bar"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <SubmissionStatusBadge status={status} />
+          {decided ? (
+            <p className="text-sm text-muted-foreground" data-testid="decision-summary">
+              <span className="font-medium text-foreground">{decided}</span>
+              {decidedBy ? ` by ${decidedBy}` : ""}
+              {decidedAt ? ` on ${decidedAt}` : ""}.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground" data-testid="decision-summary">
+              No decision recorded yet.
+            </p>
+          )}
+        </div>
 
         {!canDecide ? (
           <p className="text-sm text-muted-foreground">
-            An event admin records the final decision. Your recommendation above is what feeds it.
+            An event admin records the final decision. Your recommendation is what feeds it.
           </p>
         ) : (
-          <>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="decision-note">Note to the speakers</Label>
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+            <div className="flex min-w-56 flex-1 items-center gap-2">
+              <Label htmlFor="decision-note" className="sr-only">
+                Note to the speakers
+              </Label>
+              {/* One row until it's typed in (field-sizing-content grows it),
+                  because a three-row box would cost a third of the bar for a
+                  field that is usually left empty. The confirmation dialog
+                  repeats it full-size. */}
               <Textarea
                 id="decision-note"
-                rows={3}
-                placeholder="Optional — included in the decision email."
+                rows={1}
+                className="min-h-9 resize-none py-1.5"
+                placeholder="Optional note to the speakers, included in the decision email."
                 value={draftNote}
                 onChange={(event) => setDraftNote(event.target.value)}
               />
@@ -221,7 +192,7 @@ export function DecisionPanel({
                 checked={notify}
                 onCheckedChange={(value) => setNotify(value === true)}
               />
-              <Label htmlFor="decision-notify" className="font-normal">
+              <Label htmlFor="decision-notify" className="font-normal whitespace-nowrap">
                 Email the speakers
               </Label>
             </div>
@@ -246,9 +217,9 @@ export function DecisionPanel({
                 hasCoSpeakers={speakerCount > 1}
               />
             </div>
-          </>
+          </div>
         )}
-      </CardContent>
+      </div>
 
       <AlertDialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>
         <AlertDialogContent>
@@ -303,7 +274,7 @@ export function DecisionPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </div>
   );
 }
 

@@ -21,7 +21,10 @@ test("a reviewer gets no Team link and is bounced from the page", async ({ page 
 
   await page.goto(`/admin/${EVENT_SLUG}`);
   const nav = page.getByRole("navigation");
-  await expect(nav.getByRole("link", { name: "Communications" })).toBeVisible();
+  // Positive control from the reviewer's own workspace (D-047): Communications
+  // is admin-only, so it can't play that part.
+  await expect(nav.getByRole("link", { name: "Review rounds" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Communications" })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Team" })).toHaveCount(0);
 
   // The nav hiding is convenience; the page itself must refuse the URL.
@@ -78,7 +81,7 @@ test("a reviewer's tracks are edited from the roster", async ({ page }) => {
   await page.goto(TEAM);
 
   const row = page.getByRole("row").filter({ hasText: INVITED_EMAIL });
-  await row.getByRole("button", { name: "Edit" }).click();
+  await row.getByRole("button", { name: "Edit tracks" }).click();
 
   await page.getByRole("checkbox", { name: "AI Engineering" }).click();
   await page.getByRole("button", { name: /^Save/ }).click();

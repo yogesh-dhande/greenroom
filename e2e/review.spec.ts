@@ -82,9 +82,12 @@ test("the admin queue lists every submission, with filters and review activity",
   // The seeded review on the multi-agent talk shows without opening it.
   await expect(page.getByRole("row", { name: MULTI_AGENT })).toContainText("1 maybe");
 
-  // Filtering narrows the table and says so.
-  await page.getByLabel("Filter by status").click();
-  await page.getByRole("option", { name: "Denied" }).click();
+  // Filtering narrows the table and says so. Status is a row of count chips
+  // (W25) — the chip carries its count in its accessible name.
+  await page
+    .getByRole("group", { name: "Filter by status" })
+    .getByRole("button", { name: /^Denied/ })
+    .click();
   await expect(page).toHaveURL(/status=denied/);
   await expect(page.getByText(/of \d+ submissions/)).toBeVisible();
   await expect(page.getByRole("link", { name: PROMPT_LIBRARY })).toHaveCount(0);

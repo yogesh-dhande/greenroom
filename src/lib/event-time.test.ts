@@ -4,12 +4,15 @@ import {
   formatDayRange,
   formatDueDate,
   formatEventWhen,
+  formatRelativeTime,
   wallClockDurationMinutes,
   zoneOffsetMs,
   zonedWallClockToInstant,
 } from "@/lib/event-time";
 
+const MINUTE = 60 * 1000;
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 
 describe("zonedWallClockToInstant", () => {
   it("interprets the wall clock in the event's zone, not the server's", () => {
@@ -115,5 +118,36 @@ describe("formatDueDate", () => {
 
   it("includes the year, unlike the zone-less formatShortDate sibling", () => {
     expect(formatDueDate(dueMidnightTokyo, "Asia/Tokyo")).toContain("2027");
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const now = Date.UTC(2026, 7, 9, 12, 0, 0); // 2026-08-09T12:00:00Z
+
+  it("reads as 'just now' for anything under a minute, including future skew", () => {
+    expect(formatRelativeTime(now, now)).toBe("just now");
+    expect(formatRelativeTime(now, now - 30 * 1000)).toBe("just now");
+    // A `thenMs` after `now` (clock skew) must not go negative.
+    expect(formatRelativeTime(now, now + 5000)).toBe("just now");
+  });
+
+  it("counts whole minutes up to the hour boundary", () => {
+    expect(formatRelativeTime(now, now - MINUTE)).toBe("1m ago");
+    expect(formatRelativeTime(now, now - 59 * MINUTE)).toBe("59m ago");
+  });
+
+  it("switches to hours at exactly 60 minutes and counts whole hours up to a day", () => {
+    expect(formatRelativeTime(now, now - HOUR)).toBe("1h ago");
+    expect(formatRelativeTime(now, now - 23 * HOUR)).toBe("23h ago");
+  });
+
+  it("switches to days at exactly 24 hours and counts whole days up to the horizon", () => {
+    expect(formatRelativeTime(now, now - DAY)).toBe("1d ago");
+    expect(formatRelativeTime(now, now - 6 * DAY)).toBe("6d ago");
+  });
+
+  it("falls back to an absolute UTC date at the 7-day horizon and beyond", () => {
+    expect(formatRelativeTime(now, now - 7 * DAY)).toBe("Aug 2, 2026");
+    expect(formatRelativeTime(now, now - 30 * DAY)).toBe("Jul 10, 2026");
   });
 });

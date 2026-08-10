@@ -358,3 +358,76 @@ export async function loadSubmissionDetail(
     speakerIds: links.map((link) => link.userId),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Review queue search + status chips (spec.md section 4, wave W25 triage bar)
+// ---------------------------------------------------------------------------
+
+/** Title or a speaker's display name matches the search text (case- and
+ * whitespace-insensitive) - the review queue's search box, mirroring the
+ * roster's own name search (see matchesSpeakerSearch in src/domain/onboarding.ts).
+ * A blind row's `speakerNames` already arrives empty from the queue loader
+ * (decisions.md D-049), so search can never leak a name blindness is hiding. */
+export function matchesSubmissionSearch(
+  row: { title: string; speakerNames: string[] },
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  if (row.title.toLowerCase().includes(needle)) return true;
+  return row.speakerNames.some((name) => name.toLowerCase().includes(needle));
+}
+
+/** How many submissions sit in each status - the review queue's status
+ * chips. Every status is present, even at zero, so a chip's count never has
+ * to be guessed from a missing key. */
+export function countSubmissionsByStatus(
+  statuses: SubmissionStatus[],
+): Record<SubmissionStatus, number> {
+  const counts: Record<SubmissionStatus, number> = {
+    draft: 0,
+    submitted: 0,
+    approved: 0,
+    maybe: 0,
+    denied: 0,
+    withdrawn: 0,
+  };
+  for (const status of statuses) counts[status]++;
+  return counts;
+}
+
+// ---------------------------------------------------------------------------
+// Record-to-record paging (spec.md section 4, wave W25 submission record)
+// ---------------------------------------------------------------------------
+
+/** Where one record sits in the queue it was opened from, and the records
+ * either side of it: "4 of 17", with Prev and Next. */
+export interface QueuePosition {
+  /** 1-based, the way the pager reads it out. */
+  position: number;
+  total: number;
+  /** null at either end of the queue, where the pager has nowhere to go. */
+  previousId: string | null;
+  nextId: string | null;
+}
+
+/**
+ * The pager for one record over the queue's own ordered ids.
+ *
+ * Pure list arithmetic: the ordering, and the visibility rules behind it,
+ * belong to whoever built `orderedIds` (the submissions queue loader), so a
+ * reviewer's pager walks a reviewer's queue and nobody's pager can step onto a
+ * record their queue never contained. A record that isn't in the list at all
+ * (an admin opening a draft that a filter dropped, say) gets no pager rather
+ * than a made-up position.
+ */
+export function queuePosition(orderedIds: string[], currentId: string): QueuePosition | null {
+  const index = orderedIds.indexOf(currentId);
+  if (index === -1) return null;
+  return {
+    position: index + 1,
+    total: orderedIds.length,
+    previousId: index > 0 ? orderedIds[index - 1] : null,
+    nextId: index < orderedIds.length - 1 ? orderedIds[index + 1] : null,
+  };
+}

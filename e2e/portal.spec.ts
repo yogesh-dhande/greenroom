@@ -42,11 +42,22 @@ const HEADSHOT = Buffer.from(
   "base64",
 );
 
-/** Each task renders as its own accessible region, labelled by its title —
- * scopes a locator so two "form" tasks' identical "Submit" buttons (or two
- * speakers' identically-titled tasks) don't collide. */
+/** Each task renders as a `<details>` row labelled by its title (role
+ * "group" since the W25 collapse) — scopes a locator so two "form" tasks'
+ * identical "Submit" buttons (or two speakers' identically-titled tasks)
+ * don't collide. */
 function taskRegion(page: import("@playwright/test").Page, title: string) {
-  return page.getByRole("region", { name: title });
+  return page.getByRole("group", { name: title });
+}
+
+/** Tasks start collapsed (only the next-due one opens itself), and a closed
+ * `<details>` hides its controls — expand before interacting. */
+async function openTask(page: import("@playwright/test").Page, title: string) {
+  const details = taskRegion(page, title);
+  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await details.locator("summary").click();
+  }
+  return details;
 }
 
 test("a speaker signs in and sees their onboarding tasks", async ({ page }) => {
@@ -83,7 +94,7 @@ test("a speaker completes a form task and a file task, and it reflects on the ad
   await page.goto("/portal");
 
   // --- the "hotel stay" must-have: a structured form, not a plain upload ---
-  const hotel = taskRegion(page, HOTEL_TASK);
+  const hotel = await openTask(page, HOTEL_TASK);
   await hotel.getByLabel("Do you need us to book your hotel room?").click();
   await page.getByRole("option", { name: "Yes, book me a room" }).click();
   await hotel.getByLabel("Check-in date (YYYY-MM-DD)").fill("2026-08-10");
@@ -95,7 +106,7 @@ test("a speaker completes a form task and a file task, and it reflects on the ad
   await expect(hotel).toContainText("Complete");
 
   // --- "finalize bio & photos": the file-upload task type ---
-  const bio = taskRegion(page, FINALIZE_BIO_TASK);
+  const bio = await openTask(page, FINALIZE_BIO_TASK);
   await bio.getByLabel("Upload a file").setInputFiles({
     name: "headshot.png",
     mimeType: "image/png",
@@ -107,6 +118,9 @@ test("a speaker completes a form task and a file task, and it reflects on the ad
   await bio.getByRole("button", { name: "Upload", exact: true }).click();
   await expect(page.getByText("Uploaded — thanks!")).toBeVisible();
   await expect(bio).toContainText("Complete");
+  // Completion re-renders the row collapsed (only the next due task starts
+  // open), so reopen it to reach the uploaded-file link.
+  await openTask(page, FINALIZE_BIO_TASK);
   const uploaded = bio.getByRole("link", { name: "View what you uploaded" });
   await expect(uploaded).toBeVisible();
   const fileHref = await uploaded.getAttribute("href");
@@ -162,10 +176,11 @@ test("the portal denies access to another speaker's materials", async ({ page })
   for (const email of otherSpeakers) {
     await signIn(page, email);
     await page.goto("/portal");
-    const herHotel = taskRegion(page, HOTEL_TASK);
-    const stillOpen = (await herHotel.textContent())?.includes("Open") ?? false;
+    const stillOpen =
+      ((await taskRegion(page, HOTEL_TASK).textContent())?.includes("Open")) ?? false;
     if (!stillOpen) continue;
     foundOpenHotelTask = true;
+    const herHotel = await openTask(page, HOTEL_TASK);
     await herHotel.getByLabel("Do you need us to book your hotel room?").click();
     await page.getByRole("option", { name: "Yes, book me a room" }).click();
     await expect(herHotel.getByLabel("Check-in date (YYYY-MM-DD)")).toHaveValue("");

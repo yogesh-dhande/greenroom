@@ -11,7 +11,14 @@ import type {
 } from "@/db/entities";
 import type { Repos } from "@/db/repos";
 import { DEFAULT_CFP_FIELDS, publicFields } from "@/domain/forms";
-import { newResumeToken, saveSubmission, speakerLimitState } from "@/domain/submissions";
+import {
+  countSubmissionsByStatus,
+  matchesSubmissionSearch,
+  newResumeToken,
+  queuePosition,
+  saveSubmission,
+  speakerLimitState,
+} from "@/domain/submissions";
 
 const NOW = new Date("2026-05-01T17:00:00.000Z");
 
@@ -475,5 +482,105 @@ describe("editing speakers on an already-accepted submission", () => {
 
     expect(result.ok).toBe(true);
     expect(Object.keys(sessionSpeakerLinks)).toHaveLength(0);
+  });
+});
+
+describe("matchesSubmissionSearch", () => {
+  it("matches on title, case- and whitespace-insensitively", () => {
+    const row = { title: "Scaling Vector Search", speakerNames: ["Priya Raman"] };
+    expect(matchesSubmissionSearch(row, "  VECTOR  ")).toBe(true);
+    expect(matchesSubmissionSearch(row, "graphql")).toBe(false);
+  });
+
+  it("matches on any speaker's name", () => {
+    const row = { title: "Scaling Vector Search", speakerNames: ["Priya Raman", "Dan Cho"] };
+    expect(matchesSubmissionSearch(row, "dan")).toBe(true);
+  });
+
+  it("treats an empty or blank query as matching everything", () => {
+    const row = { title: "Anything", speakerNames: [] };
+    expect(matchesSubmissionSearch(row, "")).toBe(true);
+    expect(matchesSubmissionSearch(row, "   ")).toBe(true);
+  });
+
+  it("never matches a name a blind row already withheld", () => {
+    // The queue loader empties `speakerNames` for a blind row (D-049) before
+    // this ever runs - searching the speaker's name then finds nothing,
+    // which is the point: blindness must hold for the search box too.
+    const row = { title: "Scaling Vector Search", speakerNames: [] };
+    expect(matchesSubmissionSearch(row, "priya")).toBe(false);
+  });
+});
+
+describe("countSubmissionsByStatus", () => {
+  it("tallies each status, including zero for statuses absent from the input", () => {
+    expect(
+      countSubmissionsByStatus(["submitted", "submitted", "approved", "denied", "denied", "denied"]),
+    ).toEqual({
+      draft: 0,
+      submitted: 2,
+      approved: 1,
+      maybe: 0,
+      denied: 3,
+      withdrawn: 0,
+    });
+  });
+
+  it("returns all-zero counts for an empty queue", () => {
+    expect(countSubmissionsByStatus([])).toEqual({
+      draft: 0,
+      submitted: 0,
+      approved: 0,
+      maybe: 0,
+      denied: 0,
+      withdrawn: 0,
+    });
+  });
+});
+
+describe("queuePosition", () => {
+  const ids = ["a", "b", "c", "d"];
+
+  it("reads out a 1-based position in the queue, with both neighbours", () => {
+    expect(queuePosition(ids, "b")).toEqual({
+      position: 2,
+      total: 4,
+      previousId: "a",
+      nextId: "c",
+    });
+  });
+
+  it("has nowhere to go back to on the first record", () => {
+    expect(queuePosition(ids, "a")).toEqual({
+      position: 1,
+      total: 4,
+      previousId: null,
+      nextId: "b",
+    });
+  });
+
+  it("has nowhere to go forward to on the last record", () => {
+    expect(queuePosition(ids, "d")).toEqual({
+      position: 4,
+      total: 4,
+      previousId: "c",
+      nextId: null,
+    });
+  });
+
+  it("gives a single-record queue no neighbours at all", () => {
+    expect(queuePosition(["only"], "only")).toEqual({
+      position: 1,
+      total: 1,
+      previousId: null,
+      nextId: null,
+    });
+  });
+
+  it("returns null for a record the queue never contained", () => {
+    // Rather than inventing a position: a record outside this viewer's queue
+    // has no place in it, and the page shows no pager.
+    expect(queuePosition(ids, "nope")).toBeNull();
+    expect(queuePosition([], "a")).toBeNull();
   });
 });

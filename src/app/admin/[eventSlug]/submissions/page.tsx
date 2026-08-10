@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { countSubmissionsByStatus } from "@/domain/submissions";
 import { ALL } from "./filters";
 import { filterQueue, loadSubmissionQueue, personName, summarizeTally } from "./queue";
 import { SubmissionFilters } from "./submission-filters";
@@ -33,10 +34,10 @@ export default async function SubmissionsPage({
   searchParams,
 }: {
   params: Promise<{ eventSlug: string }>;
-  searchParams: Promise<{ status?: string; track?: string }>;
+  searchParams: Promise<{ status?: string; track?: string; q?: string }>;
 }) {
   const { eventSlug } = await params;
-  const { status = ALL, track = ALL } = await searchParams;
+  const { status = ALL, track = ALL, q = "" } = await searchParams;
   const viewer = await requireAdminOrReviewer(`/admin/${eventSlug}/submissions`);
 
   const repos = await getRepos();
@@ -44,7 +45,12 @@ export default async function SubmissionsPage({
   if (!event) notFound();
 
   const queue = await loadSubmissionQueue(repos, event, viewer);
-  const rows = filterQueue(queue.rows, { status, track });
+  const rows = filterQueue(queue.rows, { status, track, q });
+  // Chip counts track the track filter (so a reviewer's own tracks stay
+  // honest) but not the search box or the status itself - a chip always
+  // says how many rows are one click away, not how many are currently shown.
+  const trackRows = filterQueue(queue.rows, { status: ALL, track, q: "" });
+  const statusCounts = countSubmissionsByStatus(trackRows.map((row) => row.submission.status));
 
   const isReviewer = viewer.role === "reviewer";
   const trackOptions = isReviewer
@@ -87,14 +93,17 @@ export default async function SubmissionsPage({
             tracks={trackOptions}
             status={status}
             track={track}
+            q={q}
             total={queue.rows.length}
             shown={rows.length}
+            statusCounts={statusCounts}
+            allCount={trackRows.length}
           />
 
           {rows.length === 0 ? (
             <EmptyState
               title="Nothing matches those filters"
-              description="Try a different status or track."
+              description="Try a different search, status, or track."
             />
           ) : (
             <Table>

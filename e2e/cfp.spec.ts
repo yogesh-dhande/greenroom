@@ -339,7 +339,9 @@ test("a draft is not offered to reviewers but is visible to admins", async ({ pa
 // Per-form submission limits (decisions.md D-034, D-038)
 // ---------------------------------------------------------------------------
 
-test("a one-proposal-per-speaker form turns a second attempt away", async ({ page }) => {
+test("a two-proposal-per-speaker form turns the third attempt away", async ({ page }) => {
+  // The seeded lightning call allows two per speaker (D-046 headroom), so the
+  // limit trips on the third attempt, not the second.
   await page.goto(`/submit/${LIGHTNING_SLUG}`);
   await page.getByLabel("Lightning talk title").fill("Five minutes on flaky retries");
   await page.getByLabel("What's the idea?").fill("The retry that made the outage worse.");
@@ -348,17 +350,25 @@ test("a one-proposal-per-speaker form turns a second attempt away", async ({ pag
   await page.getByRole("button", { name: "Submit proposal" }).click();
   await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
 
-  // Same address, second go: refused server-side, since a logged-out visitor
+  await page.goto(`/submit/${LIGHTNING_SLUG}`);
+  await page.getByLabel("Lightning talk title").fill("Five more minutes");
+  await page.getByLabel("What's the idea?").fill("The second idea, still within the limit.");
+  await page.getByLabel("Your name").fill("E2E Lightning");
+  await page.getByLabel("Your email").fill("e2e.lightning@example.com");
+  await page.getByRole("button", { name: "Submit proposal" }).click();
+  await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
+
+  // Same address, third go: refused server-side, since a logged-out visitor
   // is only identifiable by what they type.
   await page.goto(`/submit/${LIGHTNING_SLUG}`);
   await page.getByLabel("Lightning talk title").fill("Another five minutes");
-  await page.getByLabel("What's the idea?").fill("A second idea, one too many.");
+  await page.getByLabel("What's the idea?").fill("A third idea, one too many.");
   await page.getByLabel("Your name").fill("E2E Lightning");
   await page.getByLabel("Your email").fill("e2e.lightning@example.com");
   await page.getByRole("button", { name: "Submit proposal" }).click();
   // The refusal shows twice — inline alert and toast — so pick the alert.
   await expect(
-    page.getByRole("alert").filter({ hasText: /accepts one proposal per speaker/ }),
+    page.getByRole("alert").filter({ hasText: /accepts up to 2 proposals per speaker/ }),
   ).toBeVisible();
 
   // And a speaker we can already identify never sees the form at all.

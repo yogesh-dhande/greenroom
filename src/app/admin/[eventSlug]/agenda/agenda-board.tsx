@@ -376,109 +376,109 @@ export function AgendaBoard({
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 items-start gap-4">
-          {/* The grid */}
-          <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-border bg-card">
-            <div className="flex min-w-max">
-              {/* Time gutter */}
-              <div className="w-16 shrink-0 border-r border-border">
-                <div className="h-9 border-b border-border" />
-                <div className="relative" style={{ height: gridHeight }}>
-                  {hours.map((minute) => (
-                    <span
-                      key={minute}
-                      className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-muted-foreground"
-                      style={{ top: (minute - timeWindow.startMinute) * PX_PER_MINUTE }}
-                    >
-                      {formatTime(timeOfMinutes(minute))}
-                    </span>
-                  ))}
-                </div>
+        {/* Unscheduled tray — a full-width strip above the grid so every room
+            column below gets equal, uncramped width (W25 5B). */}
+        <Tray
+          sessions={unscheduled}
+          trackById={trackById}
+          conflictsFor={conflictsFor}
+          speakersOf={speakersOf}
+          canEdit={canEdit}
+          onOpen={setEditing}
+          eventSlug={eventSlug}
+          tracks={tracks}
+          directory={directory}
+          dragging={dragging}
+        />
+
+        {/* The grid */}
+        <div className="min-w-0 overflow-x-auto rounded-lg border border-border bg-card">
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: `4rem repeat(${columns.length}, minmax(0, 1fr))` }}
+          >
+            {/* Time gutter */}
+            <div className="border-r border-border">
+              <div className="h-9 border-b border-border" />
+              <div className="relative" style={{ height: gridHeight }}>
+                {hours.map((minute) => (
+                  <span
+                    key={minute}
+                    className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-muted-foreground"
+                    style={{ top: (minute - timeWindow.startMinute) * PX_PER_MINUTE }}
+                  >
+                    {formatTime(timeOfMinutes(minute))}
+                  </span>
+                ))}
               </div>
-
-              {columns.map((column) => {
-                const columnSessions = daySessions.filter((s) =>
-                  column.id === NO_ROOM_COLUMN
-                    ? !s.roomId || !rooms.some((r) => r.id === s.roomId)
-                    : s.roomId === column.id,
-                );
-                const laid = assignLanes(
-                  columnSessions.map((session) => ({
-                    session,
-                    startMinute: minutesOfDay(session.startTime as string),
-                    endMinute: minutesOfDay(session.endTime as string),
-                  })),
-                );
-
-                return (
-                  <div key={column.id} className="w-52 shrink-0 border-r border-border last:border-r-0">
-                    <div className="flex h-9 items-center justify-between gap-2 border-b border-border px-2">
-                      <span className="truncate text-xs font-medium text-foreground">
-                        {column.name}
-                      </span>
-                      {column.capacity != null && (
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {column.capacity}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="relative" style={{ height: gridHeight }}>
-                      {slots.map((minute) => (
-                        <Slot
-                          key={minute}
-                          id={slotId(column.id, minute)}
-                          minute={minute}
-                          top={(minute - timeWindow.startMinute) * PX_PER_MINUTE}
-                          disabled={!canEdit}
-                        />
-                      ))}
-
-                      {laid.map(({ session, startMinute, endMinute, lane, lanes }) => {
-                        const { top, height } = cardGeometry({ startMinute, endMinute }, timeWindow);
-                        return (
-                          <SessionCard
-                            key={session.id}
-                            session={session}
-                            speakers={speakersOf(session)}
-                            track={
-                              session.trackId ? trackById.get(session.trackId) : undefined
-                            }
-                            conflicts={conflictsFor.get(session.id) ?? []}
-                            variant="grid"
-                            draggable={canEdit}
-                            onOpen={setEditing}
-                            isGhost={dragging?.id === session.id}
-                            className="absolute"
-                            style={{
-                              top,
-                              height,
-                              left: `calc(${(lane / lanes) * 100}% + 2px)`,
-                              width: `calc(${100 / lanes}% - 4px)`,
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
             </div>
-          </div>
 
-          {/* Unscheduled tray */}
-          <Tray
-            sessions={unscheduled}
-            trackById={trackById}
-            conflictsFor={conflictsFor}
-            speakersOf={speakersOf}
-            canEdit={canEdit}
-            onOpen={setEditing}
-            eventSlug={eventSlug}
-            tracks={tracks}
-            directory={directory}
-            dragging={dragging}
-          />
+            {columns.map((column) => {
+              const columnSessions = daySessions.filter((s) =>
+                column.id === NO_ROOM_COLUMN
+                  ? !s.roomId || !rooms.some((r) => r.id === s.roomId)
+                  : s.roomId === column.id,
+              );
+              const laid = assignLanes(
+                columnSessions.map((session) => ({
+                  session,
+                  startMinute: minutesOfDay(session.startTime as string),
+                  endMinute: minutesOfDay(session.endTime as string),
+                })),
+              );
+
+              return (
+                <div key={column.id} className="min-w-0 border-r border-border last:border-r-0">
+                  <div className="flex h-9 items-center justify-between gap-2 border-b border-border px-2">
+                    <span className="truncate text-xs font-medium text-foreground">
+                      {column.name}
+                    </span>
+                    {column.capacity != null && (
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {column.capacity}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="relative" style={{ height: gridHeight }}>
+                    {slots.map((minute) => (
+                      <Slot
+                        key={minute}
+                        id={slotId(column.id, minute)}
+                        minute={minute}
+                        top={(minute - timeWindow.startMinute) * PX_PER_MINUTE}
+                        disabled={!canEdit}
+                      />
+                    ))}
+
+                    {laid.map(({ session, startMinute, endMinute, lane, lanes }) => {
+                      const { top, height } = cardGeometry({ startMinute, endMinute }, timeWindow);
+                      return (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          speakers={speakersOf(session)}
+                          track={session.trackId ? trackById.get(session.trackId) : undefined}
+                          conflicts={conflictsFor.get(session.id) ?? []}
+                          variant="grid"
+                          draggable={canEdit}
+                          onOpen={setEditing}
+                          isGhost={dragging?.id === session.id}
+                          className="absolute"
+                          style={{
+                            top,
+                            height,
+                            left: `calc(${(lane / lanes) * 100}% + 2px)`,
+                            width: `calc(${100 / lanes}% - 4px)`,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {rooms.length === 0 && (
@@ -584,11 +584,11 @@ function Tray({
   const { setNodeRef, isOver } = useDroppable({ id: TRAY_DROPPABLE_ID, disabled: !canEdit });
 
   return (
-    <aside
+    <div
       ref={setNodeRef}
       data-testid="unscheduled-tray"
       className={cn(
-        "flex w-64 shrink-0 flex-col gap-2 rounded-lg border border-border bg-card p-3 transition-colors",
+        "flex flex-col gap-2 rounded-lg border border-border bg-card p-3 transition-colors",
         isOver && "border-primary bg-accent",
       )}
     >
@@ -603,27 +603,35 @@ function Tray({
         )}
       </div>
 
-      {sessions.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
-          Everything is programmed. Drag a session here to take it off the schedule.
-        </p>
-      ) : (
-        <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto">
-          {sessions.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              speakers={speakersOf(session)}
-              track={session.trackId ? trackById.get(session.trackId) : undefined}
-              conflicts={conflictsFor.get(session.id) ?? []}
-              variant="tray"
-              draggable={canEdit}
-              onOpen={onOpen}
-              isGhost={dragging?.id === session.id}
-            />
-          ))}
+      {/* Cards lay out left to right and wrap; the dashed zone is the whole
+          tray's drop target (see useDroppable above) made visible, and fills
+          whatever width the cards don't use. */}
+      <div className="flex max-h-48 flex-wrap items-stretch gap-2 overflow-y-auto">
+        {sessions.map((session) => (
+          <SessionCard
+            key={session.id}
+            session={session}
+            speakers={speakersOf(session)}
+            track={session.trackId ? trackById.get(session.trackId) : undefined}
+            conflicts={conflictsFor.get(session.id) ?? []}
+            variant="tray"
+            draggable={canEdit}
+            onOpen={onOpen}
+            isGhost={dragging?.id === session.id}
+            className="w-52 shrink-0"
+          />
+        ))}
+        <div
+          className={cn(
+            "flex min-w-40 flex-1 items-center justify-center rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground transition-colors",
+            isOver && "border-primary text-foreground",
+          )}
+        >
+          {sessions.length === 0
+            ? "Everything is programmed. Drag a session here to take it off the schedule."
+            : "Drop here to unschedule"}
         </div>
-      )}
-    </aside>
+      </div>
+    </div>
   );
 }

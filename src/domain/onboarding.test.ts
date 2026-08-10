@@ -4,6 +4,7 @@ import {
   buildSpeakerRollups,
   deriveTaskState,
   findDuplicateNameSpeakerIds,
+  nextDueAssignmentId,
   sortAssignmentViews,
   filterSpeakerRollups,
   matchesSpeakerSearch,
@@ -159,6 +160,60 @@ describe("sortAssignmentViews", () => {
       "later",
       "no-date",
     ]);
+  });
+});
+
+describe("nextDueAssignmentId", () => {
+  function view(
+    state: AssignmentView["state"],
+    dueAt: Date | null,
+    id: string,
+  ): AssignmentView {
+    return {
+      assignment: assignment({ id, taskId: id, status: state === "complete" ? "completed" : "pending" }),
+      task: task({ id, dueAt }),
+      state,
+    };
+  }
+
+  it("returns null when there are no tasks", () => {
+    expect(nextDueAssignmentId([])).toBeNull();
+  });
+
+  it("returns null when every task is complete", () => {
+    const views = [
+      view("complete", new Date("2026-08-01T00:00:00Z"), "a"),
+      view("complete", null, "b"),
+    ];
+    expect(nextDueAssignmentId(views)).toBeNull();
+  });
+
+  it("picks the earliest-due incomplete task over a later one", () => {
+    const views = [
+      view("open", new Date("2026-09-01T00:00:00Z"), "later"),
+      view("overdue", new Date("2026-08-01T00:00:00Z"), "sooner"),
+      view("complete", new Date("2026-07-01T00:00:00Z"), "done-earliest"),
+    ];
+    expect(nextDueAssignmentId(views)).toBe("sooner");
+  });
+
+  it("breaks a tie on the same due date by assignment id", () => {
+    const sameDue = new Date("2026-08-15T00:00:00Z");
+    const views = [view("open", sameDue, "zzz"), view("open", sameDue, "aaa")];
+    expect(nextDueAssignmentId(views)).toBe("aaa");
+  });
+
+  it("puts undated incomplete tasks behind dated ones", () => {
+    const views = [
+      view("open", null, "no-date"),
+      view("open", new Date("2026-12-01T00:00:00Z"), "dated"),
+    ];
+    expect(nextDueAssignmentId(views)).toBe("dated");
+  });
+
+  it("falls back to a stable pick by id when every incomplete task is undated", () => {
+    const views = [view("open", null, "zzz"), view("open", null, "aaa")];
+    expect(nextDueAssignmentId(views)).toBe("aaa");
   });
 });
 

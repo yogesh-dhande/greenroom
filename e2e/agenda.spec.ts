@@ -6,7 +6,7 @@ import { signIn } from "./helpers";
  * grid, moving them, live conflict detection that warns without blocking, and
  * direct session entry for speakers who never went through the CFP
  * (spec.md §5). Runs against the seeded demo event, whose agenda starts with
- * three scheduled and three unscheduled sessions.
+ * six scheduled sessions and one unscheduled invited keynote.
  *
  * Tests run in file order on one worker and build on each other's state.
  */
@@ -25,11 +25,24 @@ function eventDayLabel(dayIndex = 0): string {
   });
 }
 
+/** The day switcher's buttons render formatDay without the year ("Sep 25"),
+ * unlike the schedule dialog's day options — so they get their own label. */
+function dayButtonLabel(dayIndex = 0): string {
+  return new Date(Date.now() + (45 + dayIndex) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 /** The seeded 45-minute talk on Main Stage at 10:00 on event day 1, with
  * Priya Raman speaking — the fixture every conflict here is built against. */
 const RETRIEVAL = "Retrieval that survives production traffic";
 const EVALS = "Evals you'll actually keep running";
 const TOOL_SCHEMAS = "Tool schemas are your real prompt";
+/** The one session the seed leaves unscheduled (invited directly, never
+ * through the CFP) — the tray's only occupant on a fresh seed. */
+const KEYNOTE = "Keynote: the second year of an AI product";
 
 function card(page: Page, title: string): Locator {
   return page.locator("[data-session-id]").filter({ hasText: title });
@@ -70,10 +83,10 @@ test("admin places an unscheduled session with the time dialog", async ({ page }
   await page.goto(AGENDA);
 
   const tray = page.getByTestId("unscheduled-tray");
-  await expect(tray.getByText(EVALS)).toBeVisible();
+  await expect(tray.getByText(KEYNOTE)).toBeVisible();
   await expect(page.getByText("No scheduling conflicts")).toBeVisible();
 
-  await schedule(page, EVALS, {
+  await schedule(page, KEYNOTE, {
     day: eventDayLabel(),
     room: "Workshop A",
     start: "09:00",
@@ -81,13 +94,13 @@ test("admin places an unscheduled session with the time dialog", async ({ page }
   });
 
   // It leaves the tray for the grid, showing the exact time it was given.
-  await expect(trayCard(page, EVALS)).toHaveCount(0);
-  await expect(card(page, EVALS)).toContainText("9:00 AM");
-  await expect(card(page, EVALS)).toContainText("9:45 AM");
+  await expect(trayCard(page, KEYNOTE)).toHaveCount(0);
+  await expect(card(page, KEYNOTE)).toContainText("9:00 AM");
+  await expect(card(page, KEYNOTE)).toContainText("9:45 AM");
 
   // Written through immediately — no save button, so a reload proves it.
   await page.reload();
-  await expect(card(page, EVALS)).toContainText("9:00 AM");
+  await expect(card(page, KEYNOTE)).toContainText("9:00 AM");
 });
 
 test("admin moves a placed session to another room", async ({ page }) => {
@@ -146,7 +159,14 @@ test("admin drags a session from the tray onto the grid", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(AGENDA);
 
+  // The seed leaves nothing in the tray by this point (the keynote was placed
+  // in the first test), so free up the seeded day-2 talk first: unschedule it
+  // through its own dialog, then drag it back onto day 1.
+  await page.getByRole("button", { name: new RegExp(dayButtonLabel(1)) }).click();
+  await card(page, TOOL_SCHEMAS).first().click();
+  await page.getByRole("dialog").getByRole("button", { name: "Unschedule" }).click();
   await expect(trayCard(page, TOOL_SCHEMAS)).toBeVisible();
+  await page.getByRole("button", { name: new RegExp(dayButtonLabel(0)) }).click();
 
   // Column ids come from the rendered slots, in room order.
   const columns = await page.evaluate(() => [
@@ -156,9 +176,10 @@ test("admin drags a session from the tray onto the grid", async ({ page }) => {
       ),
     ),
   ]);
-  // 9:30 in Workshop A (rooms are listed alphabetically, so columns[2] is
-  // Workshop A: Community Hall, Main Stage, Workshop A, Workshop B).
-  const target = page.locator(`[data-slot-id="slot|${columns[2]}|570"]`);
+  // 15:00 in Workshop A (rooms are listed alphabetically, so columns[2] is
+  // Workshop A: Community Hall, Main Stage, Workshop A, Workshop B). Day 1's
+  // Workshop A column is clear from 13:45 on, so the drop lands conflict-free.
+  const target = page.locator(`[data-slot-id="slot|${columns[2]}|900"]`);
 
   const source = await trayCard(page, TOOL_SCHEMAS).boundingBox();
   const drop = await target.boundingBox();
@@ -174,10 +195,10 @@ test("admin drags a session from the tray onto the grid", async ({ page }) => {
   await page.mouse.up();
 
   await expect(trayCard(page, TOOL_SCHEMAS)).toHaveCount(0);
-  await expect(card(page, TOOL_SCHEMAS)).toContainText("9:30 AM");
+  await expect(card(page, TOOL_SCHEMAS)).toContainText("3:00 PM");
 
   await page.reload();
-  await expect(card(page, TOOL_SCHEMAS)).toContainText("9:30 AM");
+  await expect(card(page, TOOL_SCHEMAS)).toContainText("3:00 PM");
 });
 
 test("admin creates a session directly, with a speaker who is new to Greenroom", async ({
@@ -255,14 +276,12 @@ test("admin sends a session back to the unscheduled tray", async ({ page }) => {
   await expect(trayCard(page, "Fireside chat")).toBeVisible();
 });
 
-test("reviewers can read the agenda but not rearrange it", async ({ page }) => {
+test("reviewers are bounced from the agenda entirely", async ({ page }) => {
+  // D-047: a reviewer's workspace is Overview / Submissions / Review rounds —
+  // the agenda builder is admin-only, so the page refuses the URL outright.
   await signIn(page, "dana@greenroom.dev");
   await page.goto(AGENDA);
 
-  await expect(page.getByTestId("unscheduled-tray")).toBeVisible();
-  await expect(page.getByRole("button", { name: "New session" })).toHaveCount(0);
-
-  // The time dialog opens read-only.
-  await card(page, RETRIEVAL).first().click();
-  await expect(page.getByRole("dialog").getByRole("button", { name: "Save time" })).toBeDisabled();
+  await expect(page).not.toHaveURL(/\/agenda/);
+  await expect(page.getByTestId("unscheduled-tray")).toHaveCount(0);
 });

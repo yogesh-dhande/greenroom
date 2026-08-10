@@ -194,6 +194,17 @@ export default async function CommunicationsPage({
   // number before the admin commits to the click.
   const digestPreviewCount = await previewTaskDigestCount(comms, event);
 
+  // Captured once, server-side, and handed down as a prop rather than read
+  // via `Date.now()` inside the client log table: the log table hydrates
+  // with the exact same value the server rendered, so the log's relative
+  // "2h ago" timestamps never mismatch between SSR and hydration the way a
+  // client-computed "now" would (see LogRow's sentAtLabel comment on the
+  // same class of bug for absolute timestamps). `new Date().getTime()`
+  // rather than `Date.now()` because React's purity lint flags the latter as
+  // a known-impure call during render, even here where it only runs once per
+  // request.
+  const now = new Date().getTime();
+
   return (
     <div>
       <PageHeader
@@ -208,6 +219,7 @@ export default async function CommunicationsPage({
         templates={templates}
         invites={inviteRows}
         digestPreviewCount={digestPreviewCount}
+        now={now}
       />
     </div>
   );
