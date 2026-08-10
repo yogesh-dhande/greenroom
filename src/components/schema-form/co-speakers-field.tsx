@@ -4,6 +4,7 @@ import { useFormContext, useWatch } from "react-hook-form";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import type { FormField } from "@/db/entities";
 import { coSpeakerRows, type CoSpeakerValue, type FormValues } from "@/domain/forms";
+import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,9 +52,7 @@ export function CoSpeakersField({ field }: { field: FormField }) {
       ) : null}
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No co-speakers yet — that&apos;s completely fine.
-        </p>
+        <EmptyState variant="inline" title="No co-speakers yet — that's completely fine." />
       ) : null}
 
       {rows.map((row, index) => (

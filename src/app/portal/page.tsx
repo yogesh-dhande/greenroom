@@ -7,9 +7,10 @@ import { buildAssignmentViews, nextDueAssignmentId, sortAssignmentViews } from "
 import { buildCommentThread, buildFileHistory, groupByAssignment } from "@/domain/files";
 import { speakerFacingStatus } from "@/domain/evaluation";
 import { formatEventWhen } from "@/lib/event-time";
+import { CompletionMeter } from "@/components/completion-meter";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
 import { TaskItem } from "./task-item";
@@ -137,7 +138,8 @@ export default async function PortalHomePage() {
                   <CardContent>
                     {eventSubmissions.length === 0 ? (
                       <EmptyState
-                        title="Nothing submitted yet"
+                        variant="inline"
+                        title="Nothing submitted yet."
                         description="Talks you submit to a call for speakers will show up here."
                       />
                     ) : (
@@ -165,7 +167,8 @@ export default async function PortalHomePage() {
                   <CardContent>
                     {eventSessions.length === 0 ? (
                       <EmptyState
-                        title="No sessions yet"
+                        variant="inline"
+                        title="No sessions yet."
                         description="Accepted talks turn into scheduled sessions here."
                       />
                     ) : (
@@ -198,11 +201,23 @@ export default async function PortalHomePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Your tasks</CardTitle>
+                  {/* The same meter an organizer sees against this speaker on
+                      the roster, so "how far along am I" reads identically on
+                      both sides of the event. */}
+                  {eventViews.length > 0 ? (
+                    <CardAction>
+                      <CompletionMeter
+                        done={eventViews.filter((view) => view.state === "complete").length}
+                        total={eventViews.length}
+                      />
+                    </CardAction>
+                  ) : null}
                 </CardHeader>
                 <CardContent>
                   {eventViews.length === 0 ? (
                     <EmptyState
-                      title="Nothing to do yet"
+                      variant="inline"
+                      title="Nothing to do yet."
                       description="Onboarding tasks — forms, uploads, confirmations — will appear here."
                     />
                   ) : (

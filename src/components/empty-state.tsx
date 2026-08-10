@@ -5,10 +5,20 @@ export interface EmptyStateProps extends React.ComponentProps<"div"> {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  /**
+   * "panel" (default) is the dashed, padded placeholder for a whole page or
+   * a standalone section with nothing in it yet. "inline" is one muted
+   * line — title, then the description in the same run, then the action —
+   * with no border and no padding, for an emptiness that already lives
+   * inside a Card, a table cell, or a board column: a second bordered box
+   * in there would be a box inside a box rather than "nothing here".
+   */
+  variant?: "panel" | "inline";
 }
 
 /**
- * Quiet placeholder for a page/section with no data yet.
+ * Quiet placeholder for a page/section (or, inline, a smaller slot within
+ * one) with no data yet.
  *
  * App-level composite rather than a shadcn registry component (shadcn has no
  * empty-state primitive), so it lives outside src/components/ui — that
@@ -16,7 +26,26 @@ export interface EmptyStateProps extends React.ComponentProps<"div"> {
  * can never clobber our own components. Colors come from the semantic token
  * set only.
  */
-export function EmptyState({ title, description, action, className, ...props }: EmptyStateProps) {
+export function EmptyState({
+  title,
+  description,
+  action,
+  variant = "panel",
+  className,
+  ...props
+}: EmptyStateProps) {
+  if (variant === "inline") {
+    return (
+      <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1", className)} {...props}>
+        <span className="text-sm text-muted-foreground">
+          {title}
+          {description ? ` ${description}` : ""}
+        </span>
+        {action}
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(

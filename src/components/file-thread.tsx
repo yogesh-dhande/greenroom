@@ -5,6 +5,7 @@ import { HistoryIcon, PaperclipIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { CommentView, FileRef } from "@/domain/files";
 import { formatFileMoment, MAX_COMMENT_LENGTH } from "@/domain/files";
+import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -100,7 +101,7 @@ export function FileCommentThread({
       </Label>
 
       {comments.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No comments yet.</p>
+        <EmptyState variant="inline" title="No comments yet." />
       ) : (
         <ul className="flex flex-col gap-2">
           {comments.map((comment) => (

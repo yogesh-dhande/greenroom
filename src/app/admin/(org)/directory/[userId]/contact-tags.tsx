@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { TAG_MAX_LENGTH } from "@/domain/crm";
+import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,9 +56,11 @@ export function ContactTags({ userId, tags }: { userId: string; tags: string[] }
   return (
     <div className="flex flex-col gap-3">
       {tags.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No tags yet. Tags are yours, not the speaker&apos;s — use them to slice the directory.
-        </p>
+        <EmptyState
+          variant="inline"
+          title="No tags yet."
+          description="Tags are yours, not the speaker's — use them to slice the directory."
+        />
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {tags.map((tag) => (

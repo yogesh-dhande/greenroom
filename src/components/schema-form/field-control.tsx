@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
 import {
   Select,
   SelectContent,
@@ -293,7 +294,7 @@ export function FieldControl({
                 className="flex flex-col gap-2 rounded-md border border-border p-3"
               >
                 {(field.options ?? []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No options are set up yet.</p>
+                  <EmptyState variant="inline" title="No options are set up yet." />
                 ) : null}
                 {(field.options ?? []).map((option) => {
                   const optionId = `${field.id}-${option.replace(/\W+/g, "-").toLowerCase()}`;

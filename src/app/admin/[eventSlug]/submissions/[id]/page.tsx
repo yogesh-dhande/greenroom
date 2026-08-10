@@ -16,6 +16,7 @@ import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
 import { fileUrl, filenameFromKey } from "@/lib/uploads";
 import { formatDate } from "@/components/date-format";
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import {
   Card,
@@ -214,15 +215,18 @@ export default async function SubmissionDetailPage({
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               {reviews.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  {/* Only when *neither* source holds anything: a filed
-                      scorecard is a reviewer weighing in (D-048). */}
-                  {rollup.scorecards > 0
-                    ? `No written recommendation yet — ${rollup.scorecards} round scorecard${
-                        rollup.scorecards === 1 ? "" : "s"
-                      } filed — see Round results below.`
-                    : "No reviewer has weighed in yet."}
-                </p>
+                // Only when *neither* source holds anything: a filed scorecard
+                // is a reviewer weighing in (D-048).
+                <EmptyState
+                  variant="inline"
+                  title={
+                    rollup.scorecards > 0
+                      ? `No written recommendation yet — ${rollup.scorecards} round scorecard${
+                          rollup.scorecards === 1 ? "" : "s"
+                        } filed — see Round results below.`
+                      : "No reviewer has weighed in yet."
+                  }
+                />
               ) : (
                 reviews.map((review, index) => {
                   const person = reviewerById.get(review.reviewerId);

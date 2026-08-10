@@ -8,7 +8,6 @@ import {
   otherSpeakersWithSameName,
   TASK_STATE_LABEL,
   type AssignmentView,
-  type TaskState,
 } from "@/domain/onboarding";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
@@ -16,6 +15,9 @@ import { fileUrl, filenameFromKey, isImageKey, keyFromFileUrl } from "@/lib/uplo
 import { cn } from "@/lib/utils";
 import { formatDay, formatTime } from "@/components/date-format";
 import { formatDueDate } from "@/lib/event-time";
+import { CompletionMeter } from "@/components/completion-meter";
+import { EmptyState } from "@/components/empty-state";
+import { TASK_STATE_BADGE_CLASS } from "@/components/task-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,14 +34,6 @@ import { SpeakerProfileForm } from "./speaker-profile-form";
  * a speaker who's been through a few events can otherwise produce a card
  * that's mostly scroll. */
 const EMAIL_HISTORY_LIMIT = 20;
-
-/** Same task-state palette as the roster (decisions.md D-018 semantic tokens). */
-const STATE_BADGE_CLASS: Record<TaskState, string> = {
-  complete: "border-border text-muted-foreground",
-  open: "border-border text-foreground",
-  due_soon: "border-warning bg-warning/10 text-warning",
-  overdue: "border-destructive bg-destructive/10 text-destructive",
-};
 
 interface SpeakerUpload {
   /** Stored object key, or null for a value that was saved as an absolute
@@ -322,9 +316,11 @@ export default async function SpeakerRecordPage({
             </CardHeader>
             <CardContent>
               {sessions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No sessions yet. Accepting one of their proposals creates the session record.
-                </p>
+                <EmptyState
+                  variant="inline"
+                  title="No sessions yet."
+                  description="Accepting one of their proposals creates the session record."
+                />
               ) : (
                 <ul className="flex flex-col gap-3">
                   {sessions.map((session) => (
@@ -347,14 +343,18 @@ export default async function SpeakerRecordPage({
             <CardHeader>
               <CardTitle>Onboarding tasks</CardTitle>
               <CardDescription>
-                {rollup.totalTasks === 0
-                  ? "Nothing assigned yet — hand them one below, or assign to everyone from the Tasks page."
-                  : `${rollup.completedTasks} of ${rollup.totalTasks} done (${rollup.completionPercent}%).`}
+                {rollup.totalTasks === 0 ? (
+                  "Nothing assigned yet — hand them one below, or assign to everyone from the Tasks page."
+                ) : (
+                  // The same meter the roster row shows, so the record and
+                  // the row this speaker was clicked from read alike.
+                  <CompletionMeter done={rollup.completedTasks} total={rollup.totalTasks} />
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {rollup.views.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No tasks assigned.</p>
+                <EmptyState variant="inline" title="No tasks assigned." />
               ) : (
                 <ul className="flex flex-col gap-3">
                   {rollup.views.map((view) => (
@@ -375,7 +375,7 @@ export default async function SpeakerRecordPage({
                             : ""}
                         </span>
                       </div>
-                      <Badge variant="outline" className={cn(STATE_BADGE_CLASS[view.state])}>
+                      <Badge variant="outline" className={cn(TASK_STATE_BADGE_CLASS[view.state])}>
                         {TASK_STATE_LABEL[view.state]}
                       </Badge>
                     </li>
@@ -405,7 +405,7 @@ export default async function SpeakerRecordPage({
             </CardHeader>
             <CardContent>
               {uploads.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nothing uploaded yet.</p>
+                <EmptyState variant="inline" title="Nothing uploaded yet." />
               ) : (
                 <ul className="flex flex-col gap-3">
                   {uploads.map((upload) => (
@@ -512,7 +512,7 @@ export default async function SpeakerRecordPage({
             </CardHeader>
             <CardContent>
               {emailHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No email logged for this address yet.</p>
+                <EmptyState variant="inline" title="No email logged for this address yet." />
               ) : (
                 <>
                   <ul className="flex flex-col gap-3">

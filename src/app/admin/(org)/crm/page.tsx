@@ -41,8 +41,11 @@ export default async function CrmOverviewPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total contacts" value={kpis.totalContacts} />
-        <StatCard label="Events" value={kpis.totalEvents} />
+        {/* None of these is work anybody owes — they describe the org, they
+            don't ask for anything — so they stay in the default tone and only
+            gain the link into the surface each number is counted from. */}
+        <StatCard label="Total contacts" value={kpis.totalContacts} href="/admin/directory" />
+        <StatCard label="Events" value={kpis.totalEvents} href="/admin" />
         <StatCard
           label="Returning speakers"
           value={kpis.returningSpeakers}
@@ -52,6 +55,7 @@ export default async function CrmOverviewPage() {
           label="In pipeline"
           value={kpis.pipelineTotal}
           sublabel={`${kpis.pipelineByStage.confirmed} confirmed`}
+          href="/admin/pipeline"
         />
       </div>
 
@@ -103,9 +107,7 @@ export default async function CrmOverviewPage() {
             </CardHeader>
             <CardContent>
               {kpis.topCompanies.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No contact has a company recorded yet.
-                </p>
+                <EmptyState variant="inline" title="No contact has a company recorded yet." />
               ) : (
                 <ul className="flex flex-col">
                   {kpis.topCompanies.map((entry) => (

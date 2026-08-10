@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
 import { SpeakerProfileLinks } from "./speaker-profile-links";
 import { SpeakerHeadshot } from "./speaker-headshot";
 
@@ -59,7 +60,7 @@ export function SpeakerDialog({
                 {speaker.bio}
               </p>
             ) : (
-              <p className="text-sm text-muted-foreground">No biography yet.</p>
+              <EmptyState variant="inline" title="No biography yet." />
             )}
 
             {speaker.talks.length > 0 && (

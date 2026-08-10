@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { SearchIcon } from "lucide-react";
 import { filterSpeakers, type GallerySpeaker } from "@/domain/program";
 import { EmptyState } from "@/components/empty-state";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SpeakerDialog } from "./speaker-dialog";
 import { SpeakerHeadshot } from "./speaker-headshot";
@@ -93,6 +94,11 @@ export function SpeakerGallery({
         <EmptyState
           title="No speakers match"
           description="Try a different name, or clear the search to see the whole lineup."
+          action={
+            <Button variant="outline" size="sm" onClick={() => setQuery("")}>
+              Clear search
+            </Button>
+          }
         />
       ) : variant === "embed" ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
