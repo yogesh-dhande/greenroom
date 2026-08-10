@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RESERVED_FIELD_IDS } from "@/db/entities";
 import type {
   Event,
   Form,
@@ -18,6 +19,7 @@ import {
   queuePosition,
   saveSubmission,
   speakerLimitState,
+  updateSubmissionTracks,
 } from "@/domain/submissions";
 
 const NOW = new Date("2026-05-01T17:00:00.000Z");
@@ -109,11 +111,17 @@ function answers(overrides: Record<string, unknown> = {}) {
  * promote / limit code rather than assert against mocks.
  */
 function fakeRepos(
-  seed: { submissions?: Submission[]; users?: User[]; sessions?: Session[] } = {},
+  seed: {
+    submissions?: Submission[];
+    users?: User[];
+    sessions?: Session[];
+    tracks?: Track[];
+  } = {},
 ) {
   const submissions: Submission[] = [...(seed.submissions ?? [])];
   const users: User[] = [...(seed.users ?? [])];
   const sessions: Session[] = [...(seed.sessions ?? [])];
+  const tracks: Track[] = [...(seed.tracks ?? [])];
   const speakerLinks: SubmissionSpeaker[] = [];
   const trackLinks: Record<string, string[]> = {};
   const sessionSpeakerLinks: Record<string, string[]> = {};
@@ -161,6 +169,7 @@ function fakeRepos(
       setTracks: async (submissionId: string, trackIds: string[]) => {
         trackLinks[submissionId] = trackIds;
       },
+      listTrackIds: async (submissionId: string) => trackLinks[submissionId] ?? [],
       listSpeakers: async (submissionId: string) =>
         speakerLinks.filter((link) => link.submissionId === submissionId),
       addSpeaker: async (submissionId: string, userId: string, role: "primary" | "co") => {
@@ -183,6 +192,9 @@ function fakeRepos(
       setSpeakers: async (sessionId: string, userIds: string[]) => {
         sessionSpeakerLinks[sessionId] = [...userIds];
       },
+    },
+    tracks: {
+      listByEvent: async (eventId: string) => tracks.filter((row) => row.eventId === eventId),
     },
   };
 
@@ -483,6 +495,98 @@ describe("editing speakers on an already-accepted submission", () => {
 
     expect(result.ok).toBe(true);
     expect(Object.keys(sessionSpeakerLinks)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateSubmissionTracks (a submission with zero tracks is unreachable by
+// every reviewer — isRoutedToReviewer in src/domain/review.ts — so an admin
+// must be able to repair its routing after intake)
+// ---------------------------------------------------------------------------
+
+describe("updateSubmissionTracks", () => {
+  const OTHER_TRACK: Track = {
+    id: "track-2",
+    eventId: "event-1",
+    name: "Platform",
+    color: null,
+    ...timestamps(),
+  };
+
+  /** A form that never asks the reserved tracks question at all — the exact
+   * shape that leaves a submission with zero `submission_tracks` rows, since
+   * `selectedTrackNames` (src/domain/forms.ts) finds no track field to read
+   * an answer from. */
+  function formWithoutTracksQuestion(): Form {
+    return form({ fields: DEFAULT_CFP_FIELDS.filter((f) => f.id !== RESERVED_FIELD_IDS.tracks) });
+  }
+
+  async function submissionWithNoTracks(extraTracks: Track[] = []) {
+    const { repos, submissions } = fakeRepos({ tracks: [...TRACKS, ...extraTracks] });
+    const result = await saveSubmission(
+      { repos },
+      {
+        form: formWithoutTracksQuestion(),
+        event: event(),
+        tracks: TRACKS,
+        values: answers(),
+        status: "submitted",
+      },
+    );
+    if (!result.ok) throw new Error("fixture submission failed to save");
+    return { repos, submissions, submissionId: result.submission.id };
+  }
+
+  it("routes a track-less submission to a reviewer by writing its tracks", async () => {
+    const { repos, submissionId } = await submissionWithNoTracks();
+
+    const result = await updateSubmissionTracks({ repos }, submissionId, [TRACKS[0].id]);
+
+    expect(result).toEqual({ ok: true });
+    const trackLinks = await repos.submissions.listTrackIds(submissionId);
+    expect(trackLinks).toEqual([TRACKS[0].id]);
+  });
+
+  it("writes more than one track and de-duplicates repeats", async () => {
+    const { repos, submissionId } = await submissionWithNoTracks([OTHER_TRACK]);
+
+    await updateSubmissionTracks({ repos }, submissionId, [
+      TRACKS[0].id,
+      OTHER_TRACK.id,
+      TRACKS[0].id,
+    ]);
+
+    const trackLinks = await repos.submissions.listTrackIds(submissionId);
+    expect(trackLinks.sort()).toEqual([OTHER_TRACK.id, TRACKS[0].id].sort());
+  });
+
+  it("drops a track id that isn't on this submission's event", async () => {
+    const { repos, submissionId } = await submissionWithNoTracks();
+
+    const result = await updateSubmissionTracks({ repos }, submissionId, [
+      TRACKS[0].id,
+      "track-from-another-event",
+    ]);
+
+    expect(result).toEqual({ ok: true });
+    const trackLinks = await repos.submissions.listTrackIds(submissionId);
+    expect(trackLinks).toEqual([TRACKS[0].id]);
+  });
+
+  it("can clear a submission back to no tracks", async () => {
+    const { repos, submissionId } = await submissionWithNoTracks();
+    await updateSubmissionTracks({ repos }, submissionId, [TRACKS[0].id]);
+
+    await updateSubmissionTracks({ repos }, submissionId, []);
+
+    const trackLinks = await repos.submissions.listTrackIds(submissionId);
+    expect(trackLinks).toEqual([]);
+  });
+
+  it("reports failure for a submission that doesn't exist", async () => {
+    const { repos } = fakeRepos({ tracks: TRACKS });
+    const result = await updateSubmissionTracks({ repos }, "no-such-submission", [TRACKS[0].id]);
+    expect(result).toEqual({ ok: false, error: "Submission not found" });
   });
 });
 

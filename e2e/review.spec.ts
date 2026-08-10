@@ -60,6 +60,14 @@ async function devEmailsSince(since: number): Promise<string[]> {
   return bodies.filter(Boolean);
 }
 
+/** Reads one Overview stat card's number by its exact title. */
+async function statValue(page: Page, label: string): Promise<number> {
+  const card = page.locator('[data-slot="card"]').filter({
+    has: page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${label}$`) }),
+  });
+  return Number(await card.locator("p.tabular-nums").innerText());
+}
+
 /** Runs a decision from the detail page and waits for it to land. */
 async function decide(page: Page, action: "Accept" | "Waitlist" | "Decline", note: string) {
   await page.locator("#decision-note").fill(note);
@@ -288,4 +296,63 @@ test("a declined talk gets its own notice, and no session", async ({ page }) => 
     // The admin's personal note rides along in the decision email.
     expect(declined[0]).toContain("the streaming track was oversubscribed");
   }).toPass({ timeout: 15_000 });
+});
+
+test("an admin re-routes a talk into a reviewer's tracks, and her queue follows", async ({
+  page,
+}) => {
+  // Routing lives on the record's Tracks card — the escape hatch for a talk
+  // no reviewer can reach (a form without the reserved tracks question leaves
+  // a submission with zero tracks, routed to nobody).
+  await signIn(page, "admin@greenroom.dev");
+  await openSubmission(page, MULTI_AGENT);
+
+  const dialog = page.getByRole("dialog", { name: "Edit tracks" });
+  await page.getByRole("button", { name: "Edit tracks" }).click();
+  await dialog.getByRole("checkbox", { name: "AI Engineering" }).click();
+  await dialog.getByRole("button", { name: /^Save/ }).click();
+  await expect(page.getByText("Tracks updated")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+
+  // Dana reviews AI Engineering, so the talk is now hers to see.
+  await signIn(page, "dana@greenroom.dev");
+  await page.goto(`${SUBMISSIONS}?view=all`);
+  await expect(queueLink(page, MULTI_AGENT)).toBeVisible();
+
+  // Put the routing back the way the seed had it; her view follows again.
+  await signIn(page, "admin@greenroom.dev");
+  await openSubmission(page, MULTI_AGENT);
+  await page.getByRole("button", { name: "Edit tracks" }).click();
+  await dialog.getByRole("checkbox", { name: "AI Engineering" }).click();
+  await dialog.getByRole("button", { name: /^Save/ }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await signIn(page, "dana@greenroom.dev");
+  await page.goto(`${SUBMISSIONS}?view=all`);
+  await expect(queueLink(page, MULTI_AGENT)).toHaveCount(0);
+});
+
+test("a reviewer's overview stops at the submissions they can see", async ({ page }) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}`);
+  // Positive control: the admin gets the whole-event cards...
+  await expect(
+    page.locator('[data-slot="card-title"]', { hasText: /^Scheduled sessions$/ }),
+  ).toBeVisible();
+  const adminSubmissions = await statValue(page, "Submissions");
+
+  await signIn(page, "dana@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}`);
+
+  // ...while the admin-only surfaces' numbers are gone for her, not zeroed.
+  for (const label of ["Sessions", "Scheduled sessions", "Speakers", "Tasks"]) {
+    await expect(
+      page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${label}$`) }),
+    ).toHaveCount(0);
+  }
+
+  // And her submission count is the track-scoped queue, not the event's.
+  const reviewerSubmissions = await statValue(page, "Submissions");
+  expect(reviewerSubmissions).toBeGreaterThan(0);
+  expect(reviewerSubmissions).toBeLessThan(adminSubmissions);
 });

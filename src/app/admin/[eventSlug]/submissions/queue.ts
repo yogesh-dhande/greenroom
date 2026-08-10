@@ -271,9 +271,13 @@ export async function reviewerTrackIdsFor(
  *
  * Shared so that anything walking the queue, the table itself and the record
  * page's prev/next pager alike, agrees on both the membership and the order,
- * without a second opinion about either.
+ * without a second opinion about either. Exported so anything else that needs
+ * "exactly the submissions this viewer may see" — the event Overview's stat
+ * cards, say — reuses this instead of growing a second copy of the predicate
+ * (an admin gets `all` back unfiltered, so callers don't need their own
+ * role branch either).
  */
-async function loadVisible(repos: Repos, event: Event, viewer: SessionUser) {
+export async function loadVisibleSubmissions(repos: Repos, event: Event, viewer: SessionUser) {
   const [all, tracks, reviewerTrackIds, directFormIds] = await Promise.all([
     repos.submissions.listByEvent(event.id),
     repos.tracks.listByEvent(event.id),
@@ -312,7 +316,7 @@ export async function loadSubmissionOrder(
   event: Event,
   viewer: SessionUser,
 ): Promise<string[]> {
-  const { submissions } = await loadVisible(repos, event, viewer);
+  const { submissions } = await loadVisibleSubmissions(repos, event, viewer);
   return submissions.map((submission) => submission.id);
 }
 
@@ -327,7 +331,7 @@ export async function loadSubmissionQueue(
   viewer: SessionUser,
 ): Promise<SubmissionQueue> {
   const { submissions, trackIdsBySubmission, tracks, reviewerTrackIds, directFormIds } =
-    await loadVisible(repos, event, viewer);
+    await loadVisibleSubmissions(repos, event, viewer);
 
   const [speakerLinks, reviews, rollups, scoping] = await Promise.all([
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((s) => s.id)),

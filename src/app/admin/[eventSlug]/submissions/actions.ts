@@ -10,6 +10,7 @@ import {
   recordDecision,
   saveReview,
 } from "@/domain/review";
+import { updateSubmissionTracks } from "@/domain/submissions";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer, type SessionUser } from "@/lib/session";
@@ -260,4 +261,51 @@ export async function requestChanges(
     ok: true as const,
     data: { emailsSent: deliveries.length - failed.length, emailsFailed: failed.length },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Tracks (product gap: a submission with none is unreachable by every
+// reviewer — see updateSubmissionTracks in src/domain/submissions.ts)
+// ---------------------------------------------------------------------------
+
+const updateTracksInputSchema = z.object({
+  trackIds: z.array(z.string()),
+});
+export type UpdateSubmissionTracksInput = z.infer<typeof updateTracksInputSchema>;
+
+/**
+ * Sets a submission's tracks from the admin record (spec.md §4). Admin-only —
+ * routing a talk isn't a reviewer's call, and a reviewer widening their own
+ * reach by adding one of their tracks to a submission is exactly the access
+ * this guards against.
+ */
+export async function setSubmissionTracks(
+  eventSlug: string,
+  submissionId: string,
+  input: UpdateSubmissionTracksInput,
+) {
+  const auth = await authorize(eventSlug, submissionId);
+  if (!auth.ok) return fail(auth.error);
+  if (auth.viewer.role !== "admin") {
+    return fail("Only an event admin can set a submission's tracks.");
+  }
+
+  const parsed = updateTracksInputSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid tracks");
+
+  const result = await updateSubmissionTracks(
+    { repos: auth.repos },
+    submissionId,
+    parsed.data.trackIds,
+  );
+  if (!result.ok) return fail(result.error);
+
+  // Tracks are the routing key a reviewer's queue is built from
+  // (isRoutedToReviewer, src/domain/review.ts), so every surface built on
+  // them has to see the change: the queue itself, this record, and the
+  // Overview counts that now reuse the same visibility predicate.
+  revalidatePath(`/admin/${eventSlug}/submissions`);
+  revalidatePath(`/admin/${eventSlug}/submissions/${submissionId}`);
+  revalidatePath(`/admin/${eventSlug}`);
+  return { ok: true as const };
 }

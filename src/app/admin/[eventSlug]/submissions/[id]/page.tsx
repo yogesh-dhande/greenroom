@@ -40,6 +40,7 @@ import {
 import { DecisionBar } from "./decision-panel";
 import { DecisionOutcome } from "./decision-outcome";
 import { ReviewPanel } from "./review-panel";
+import { TracksCard } from "./tracks-card";
 
 /**
  * One submission, in full (spec.md §4): every answer as the speaker gave it,
@@ -325,6 +326,18 @@ export default async function SubmissionDetailPage({
         </div>
 
         <div className="flex flex-col gap-6">
+          {/* Not a reviewer's call — routing a talk into or out of their own
+              tracks would be them widening their own reach. Admin-only,
+              matching the DecisionBar's canDecide gate below. */}
+          {viewer.role === "admin" ? (
+            <TracksCard
+              eventSlug={eventSlug}
+              submissionId={submission.id}
+              tracks={tracks}
+              trackIds={trackIds}
+            />
+          ) : null}
+
           {myScorecards.map((card) => (
             <Card key={card.round.id}>
               <CardHeader>

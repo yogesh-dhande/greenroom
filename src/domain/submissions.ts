@@ -299,6 +299,39 @@ export async function saveSubmission(
   return { ok: true, submission, created, primarySpeaker: primary };
 }
 
+export type UpdateSubmissionTracksResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Sets which tracks a submission belongs to — the same `submissions.setTracks`
+ * write `saveSubmission` runs at intake, callable again afterward.
+ *
+ * A submission whose form has no reserved `tracks` field (or whose submitter
+ * picked none) lands with zero `submission_tracks` rows. `isRoutedToReviewer`
+ * (src/domain/review.ts) treats an empty track list as routed to nobody, so
+ * that submission is unreachable by every reviewer forever, with no UI to fix
+ * it — this is that fix, for an admin to run from the submission record after
+ * intake.
+ *
+ * `trackIds` is filtered down to tracks that actually belong to this
+ * submission's event: a stale id from a deleted track, or a track from a
+ * different event, is dropped rather than written.
+ */
+export async function updateSubmissionTracks(
+  ctx: SubmissionContext,
+  submissionId: string,
+  trackIds: string[],
+): Promise<UpdateSubmissionTracksResult> {
+  const submission = await ctx.repos.submissions.getById(submissionId);
+  if (!submission) return { ok: false, error: "Submission not found" };
+
+  const tracks = await ctx.repos.tracks.listByEvent(submission.eventId);
+  const validIds = new Set(tracks.map((track) => track.id));
+  const deduped = [...new Set(trackIds)].filter((id) => validIds.has(id));
+
+  await ctx.repos.submissions.setTracks(submission.id, deduped);
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Reads for the edit view
 // ---------------------------------------------------------------------------
