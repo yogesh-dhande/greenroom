@@ -209,15 +209,23 @@ const RELATIVE_TIME_HORIZON_MS = 7 * DAY_MS;
 
 /**
  * "2h ago" / "3d ago" for the communications log's Sent column (wave W25
- * 6A) — a glance answer to "how recently did this go out?" that a raw
- * "Aug 9 8:33 PM UTC" per row doesn't give. Beyond the horizon the count of
- * days stops being the useful fact, so it falls back to a calendar date; the
- * exact instant always still belongs in the caller's `title` attribute
- * (`formatDeadline`/the caller's own timestamp formatter), not here.
+ * 6A) and the sourcing table's Last touch column (decisions.md D-077) — a
+ * glance answer to "how recently?" that a raw "Aug 9 8:33 PM UTC" per row
+ * doesn't give. Past `horizonMs` the count of days stops being the useful
+ * fact, so it falls back to a calendar date; the exact instant always still
+ * belongs in the caller's `title` attribute (`formatDeadline`/the caller's
+ * own timestamp formatter), not here.
  *
  * Takes `now` as a parameter rather than reading `Date.now()` internally so
  * this stays pure: deterministic to test, and safe to call from a
  * server-rendered value without a server/client clock mismatch.
+ *
+ * The horizon is a parameter because how long "N days ago" stays the useful
+ * fact depends on the question being asked. A sent email past a week is
+ * better placed on the calendar, so the log keeps the default; the sourcing
+ * table's "Last touch" is a staleness measure, where "34d ago" is precisely
+ * the point and "Jul 5, 2026" makes the reader do the subtraction — it passes
+ * `Infinity`. One helper either way: two would drift.
  *
  * Zone-less by design — a *duration* between two instants is the same
  * number regardless of which timezone either end is viewed in, so this has
@@ -226,12 +234,16 @@ const RELATIVE_TIME_HORIZON_MS = 7 * DAY_MS;
  * `src/components/date-format.ts` does: a fixed zone keeps the output
  * deterministic rather than depending on the render environment's clock.
  */
-export function formatRelativeTime(nowMs: number, thenMs: number): string {
+export function formatRelativeTime(
+  nowMs: number,
+  thenMs: number,
+  { horizonMs = RELATIVE_TIME_HORIZON_MS }: { horizonMs?: number } = {},
+): string {
   const deltaMs = Math.max(0, nowMs - thenMs);
   if (deltaMs < MINUTE_MS) return "just now";
   if (deltaMs < HOUR_MS) return `${Math.floor(deltaMs / MINUTE_MS)}m ago`;
   if (deltaMs < DAY_MS) return `${Math.floor(deltaMs / HOUR_MS)}h ago`;
-  if (deltaMs < RELATIVE_TIME_HORIZON_MS) return `${Math.floor(deltaMs / DAY_MS)}d ago`;
+  if (deltaMs < horizonMs) return `${Math.floor(deltaMs / DAY_MS)}d ago`;
   return format(new Date(thenMs), "UTC", { month: "short", day: "numeric", year: "numeric" });
 }
 

@@ -2,8 +2,10 @@
  * The sourcing pipeline's rules (spec.md "Org-level speaker CRM",
  * decisions.md D-077).
  *
- * Pure: the stage vocabulary, its board order and labels, and the one
- * transition rule that matters. No repos, no dates, nothing to mock.
+ * Pure: the stage vocabulary, its board order and labels, the one transition
+ * rule that matters, and the presentation rules the board and the table share
+ * (which view a URL asks for, how a score reads, how rows are filtered and
+ * ordered). No repos, no clock, nothing to mock.
  */
 import { pipelineStageSchema, type PipelineStage } from "@/db/entities";
 
@@ -60,6 +62,58 @@ export type StageMovePlan =
 export function planStageMove(current: PipelineStage, next: PipelineStage): StageMovePlan {
   if (current === next) return { moved: false, stage: current };
   return { moved: true, from: current, to: next };
+}
+
+/**
+ * The fit score's upper bound (the enrol action validates 0-100).
+ *
+ * Exported so the scale travels with the number: a bare "85" is unreadable
+ * without knowing whether the board scores out of 5, 10 or 100.
+ */
+export const PIPELINE_SCORE_MAX = 100;
+
+/** "85/100" for a recorded fit score, an em dash for an unscored card. */
+export function formatPipelineScore(score: number | null): string {
+  return score === null ? "—" : `${score}/${PIPELINE_SCORE_MAX}`;
+}
+
+/**
+ * The two shapes the same pipeline data is offered in: the funnel board and
+ * the outreach table. Board is the default — the funnel is the question the
+ * page exists to answer, and the table is the second read.
+ */
+export type PipelineView = "board" | "table";
+
+export const PIPELINE_VIEW_BOARD: PipelineView = "board";
+export const PIPELINE_VIEW_TABLE: PipelineView = "table";
+
+/** Which view the URL's `view` parameter asks for; anything unknown is the board. */
+export function resolvePipelineView(requested: string | undefined | null): PipelineView {
+  return requested === PIPELINE_VIEW_TABLE ? PIPELINE_VIEW_TABLE : PIPELINE_VIEW_BOARD;
+}
+
+/**
+ * The table's stage filter: a stage keeps only its own rows, null keeps
+ * everything ("All stages").
+ */
+export function filterByStage<T extends { stage: PipelineStage }>(
+  rows: readonly T[],
+  stage: PipelineStage | null,
+): T[] {
+  return stage === null ? [...rows] : rows.filter((row) => row.stage === stage);
+}
+
+/**
+ * Stalest first: the oldest last-touch at the top.
+ *
+ * That is the order an outreach pass wants — the table exists to answer "who
+ * has nobody spoken to in a while?", and a list that opens on the contact
+ * someone messaged this morning answers the opposite question. Sorting is
+ * stable, so rows touched at the same instant keep the order they arrived in
+ * (the board's newest-updated-first) rather than shuffling between renders.
+ */
+export function sortByLastTouch<T extends { lastTouchedAt: Date }>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => a.lastTouchedAt.getTime() - b.lastTouchedAt.getTime());
 }
 
 /** Card counts per stage, with every stage present (zeros included). */

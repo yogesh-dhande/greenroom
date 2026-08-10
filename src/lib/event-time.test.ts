@@ -150,4 +150,19 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(now, now - 7 * DAY)).toBe("Aug 2, 2026");
     expect(formatRelativeTime(now, now - 30 * DAY)).toBe("Jul 10, 2026");
   });
+
+  it("keeps counting days when the caller pushes the horizon out", () => {
+    // The sourcing table's Last touch column: staleness is the whole point,
+    // so a month-old prospect reads "34d ago" rather than as a calendar date.
+    const forever = { horizonMs: Number.POSITIVE_INFINITY };
+    expect(formatRelativeTime(now, now - 34 * DAY, forever)).toBe("34d ago");
+    expect(formatRelativeTime(now, now - 400 * DAY, forever)).toBe("400d ago");
+  });
+
+  it("keeps the smaller units under a custom horizon", () => {
+    const forever = { horizonMs: Number.POSITIVE_INFINITY };
+    expect(formatRelativeTime(now, now, forever)).toBe("just now");
+    expect(formatRelativeTime(now, now - 5 * MINUTE, forever)).toBe("5m ago");
+    expect(formatRelativeTime(now, now - 5 * HOUR, forever)).toBe("5h ago");
+  });
 });

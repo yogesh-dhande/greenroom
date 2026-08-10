@@ -37,6 +37,19 @@ export interface StageMoveResult {
   stageEvent: PipelineStageEvent | null;
 }
 
+/**
+ * When a card was last moved — the newest row in its stage history.
+ *
+ * A card with no history at all simply doesn't appear in the result; the
+ * caller decides what "never touched" falls back to (the table falls back to
+ * the card's enrolment date), because the repo has no business inventing a
+ * timestamp for a row that isn't there.
+ */
+export interface PipelineCardTouch {
+  cardId: string;
+  lastTouchedAt: Date;
+}
+
 export interface PipelineRepo {
   getCard(id: string): Promise<PipelineCard | null>;
   getCardByUser(userId: string): Promise<PipelineCard | null>;
@@ -65,4 +78,13 @@ export interface PipelineRepo {
   getCardWithHistory(cardId: string): Promise<PipelineCardWithHistory | null>;
   /** Stage history for one contact, newest first; empty when unenrolled. */
   listHistoryByUser(userId: string): Promise<PipelineStageEvent[]>;
+  /**
+   * The newest stage event per card, for a set of cards — what the table view
+   * reads to sort by staleness.
+   *
+   * A batch read rather than one `getCardWithHistory` per row: the table shows
+   * the whole board at once, so the per-card shape would be a query per
+   * prospect, and none of the history rows below the newest are wanted.
+   */
+  listLastTouchByCards(cardIds: string[]): Promise<PipelineCardTouch[]>;
 }

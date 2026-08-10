@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { pipelineCardSchema, pipelineStageEventSchema } from "@/db/entities";
 import { pipelineCards, pipelineStageEvents } from "@/db/schema";
 import type { EnrollInput, PipelineRepo } from "@/db/repos/pipeline";
@@ -125,6 +125,27 @@ export function createPipelineRepo(db: DrizzleD1): PipelineRepo {
       });
       if (!card) return [];
       return historyFor(card.id);
+    },
+
+    async listLastTouchByCards(cardIds) {
+      const rows = await inIdChunks(cardIds, (chunk) =>
+        db
+          .select({
+            cardId: pipelineStageEvents.cardId,
+            // `max()` over the stored epoch seconds rather than a per-card
+            // "newest row" lookup: one grouped statement answers the whole
+            // table. The column's timestamp decoder doesn't reach through an
+            // aggregate, so the epoch comes back raw and is converted below.
+            lastTouchedAtSeconds: sql<number>`max(${pipelineStageEvents.createdAt})`,
+          })
+          .from(pipelineStageEvents)
+          .where(inArray(pipelineStageEvents.cardId, chunk))
+          .groupBy(pipelineStageEvents.cardId),
+      );
+      return rows.map((row) => ({
+        cardId: row.cardId,
+        lastTouchedAt: new Date(Number(row.lastTouchedAtSeconds) * 1000),
+      }));
     },
   };
 }

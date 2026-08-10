@@ -7,7 +7,7 @@ import {
   contactDisplayName,
   type ContactActivityItem,
 } from "@/domain/crm";
-import { PIPELINE_STAGE_LABELS } from "@/domain/pipeline";
+import { formatPipelineScore, PIPELINE_STAGE_LABELS } from "@/domain/pipeline";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { isImageKey, keyFromFileUrl } from "@/lib/uploads";
@@ -246,7 +246,7 @@ export default async function ContactProfilePage({
               <ContactNoteForm userId={user.id} />
 
               {notes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No notes yet.</p>
+                <EmptyState variant="inline" title="No notes yet." />
               ) : (
                 <ul className="flex flex-col gap-3">
                   {notes.map((note) => (
@@ -273,9 +273,11 @@ export default async function ContactProfilePage({
             </CardHeader>
             <CardContent>
               {activity.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Nothing yet. Emails, pipeline moves and notes all show up here.
-                </p>
+                <EmptyState
+                  variant="inline"
+                  title="Nothing yet."
+                  description="Emails, pipeline moves and notes all show up here."
+                />
               ) : (
                 <>
                   <ul className="flex flex-col gap-3">
@@ -330,7 +332,8 @@ export default async function ContactProfilePage({
             <CardContent>
               {events.length === 0 ? (
                 <EmptyState
-                  title="Not on any event yet"
+                  variant="inline"
+                  title="Not on any event yet."
                   description="Use Add to event to put them on a roster — their profile carries over."
                 />
               ) : (
@@ -373,7 +376,9 @@ export default async function ContactProfilePage({
                 <>
                   <Badge variant="outline">{PIPELINE_STAGE_LABELS[card.stage]}</Badge>
                   {card.score !== null ? (
-                    <p className="text-sm text-muted-foreground">Score {card.score}</p>
+                    <p className="text-sm tabular-nums text-muted-foreground">
+                      Score {formatPipelineScore(card.score)}
+                    </p>
                   ) : null}
                   <Link
                     href={`/admin/pipeline/${card.id}`}
@@ -383,15 +388,18 @@ export default async function ContactProfilePage({
                   </Link>
                 </>
               ) : (
-                <>
-                  <p className="text-sm text-muted-foreground">Not on the sourcing board.</p>
-                  <Link
-                    href="/admin/pipeline"
-                    className="text-sm text-foreground underline-offset-4 hover:underline"
-                  >
-                    Open the pipeline
-                  </Link>
-                </>
+                <EmptyState
+                  variant="inline"
+                  title="Not on the sourcing board."
+                  action={
+                    <Link
+                      href="/admin/pipeline"
+                      className="text-sm text-foreground underline-offset-4 hover:underline"
+                    >
+                      Open the pipeline
+                    </Link>
+                  }
+                />
               )}
             </CardContent>
           </Card>

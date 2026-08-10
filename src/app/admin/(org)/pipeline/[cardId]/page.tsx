@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 import type { User } from "@/db/entities";
 import { contactDisplayName } from "@/domain/crm";
-import { PIPELINE_STAGE_LABELS } from "@/domain/pipeline";
+import { formatPipelineScore, PIPELINE_STAGE_LABELS } from "@/domain/pipeline";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -135,13 +136,13 @@ export default async function PipelineCardPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 text-sm">
-            <p className="text-foreground">
-              {card.score !== null ? (
-                <span className="tabular-nums">Score {card.score}</span>
-              ) : (
-                <span className="text-muted-foreground">No score recorded</span>
-              )}
-            </p>
+            {card.score !== null ? (
+              <p className="text-foreground tabular-nums">
+                Score {formatPipelineScore(card.score)}
+              </p>
+            ) : (
+              <EmptyState variant="inline" title="No score recorded" />
+            )}
             <p className={card.rationale ? "whitespace-pre-wrap text-foreground" : "text-muted-foreground"}>
               {card.rationale ?? "No rationale recorded"}
             </p>
@@ -156,9 +157,11 @@ export default async function PipelineCardPage({
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {notes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No notes yet. Only organizers ever see these.
-              </p>
+              <EmptyState
+                variant="inline"
+                title="No notes yet."
+                description="Only organizers ever see these."
+              />
             ) : (
               <ul className="flex flex-col gap-3">
                 {notes.map((note) => (
@@ -183,7 +186,7 @@ export default async function PipelineCardPage({
           </CardHeader>
           <CardContent>
             {history.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No stage changes recorded.</p>
+              <EmptyState variant="inline" title="No stage changes recorded." />
             ) : (
               <ul className="flex flex-col gap-3">
                 {history.map((event) => (
