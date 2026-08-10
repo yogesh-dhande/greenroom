@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_SESSION_MINUTES,
+  MAX_SESSION_MINUTES,
+  MIN_SESSION_MINUTES,
   conflictsBySession,
   detectConflicts,
   durationMinutes,
   enumerateDays,
   firstConflictFreeSlot,
+  isValidSessionDuration,
   minutesOfDay,
+  preferredSessionDuration,
   snapToGrid,
   timeOfMinutes,
   timeRangesOverlap,
@@ -283,5 +288,65 @@ describe("firstConflictFreeSlot (decisions.md D-067)", () => {
 
   it("suggests a roomless slot when the event has no rooms yet", () => {
     expect(suggest(unplaced(), [], { roomIds: [] })?.roomId).toBeNull();
+  });
+});
+
+describe("preferredSessionDuration (bug: 'Suggest a slot' reset duration to the default)", () => {
+  it("preserves a scheduled session's own duration, not the generic default", () => {
+    // A 15-minute lightning talk, already placed on the agenda.
+    const lightningTalk = session({ id: "a", startTime: "09:00", endTime: "09:15" });
+    expect(preferredSessionDuration(lightningTalk, DEFAULT_SESSION_MINUTES)).toBe(15);
+  });
+
+  it("preserves a duration shorter than the default just as readily as a longer one", () => {
+    const workshop = session({ id: "a", startTime: "13:00", endTime: "14:30" });
+    expect(preferredSessionDuration(workshop, DEFAULT_SESSION_MINUTES)).toBe(90);
+  });
+
+  it("falls back to the given default only when the session has no placement yet", () => {
+    const unplaced = session({ id: "a", day: null, startTime: null, endTime: null });
+    expect(preferredSessionDuration(unplaced, DEFAULT_SESSION_MINUTES)).toBe(
+      DEFAULT_SESSION_MINUTES,
+    );
+    expect(preferredSessionDuration(unplaced, 45)).toBe(45);
+  });
+
+  it("falls back when only one of startTime/endTime is set", () => {
+    const partial = session({ id: "a", startTime: "09:00", endTime: null });
+    expect(preferredSessionDuration(partial, DEFAULT_SESSION_MINUTES)).toBe(
+      DEFAULT_SESSION_MINUTES,
+    );
+  });
+
+  it("falls back on a non-positive stored duration rather than returning zero or negative", () => {
+    const zeroLength = session({ id: "a", startTime: "09:00", endTime: "09:00" });
+    expect(preferredSessionDuration(zeroLength, DEFAULT_SESSION_MINUTES)).toBe(
+      DEFAULT_SESSION_MINUTES,
+    );
+  });
+
+  it("defaults the fallback parameter to DEFAULT_SESSION_MINUTES when omitted", () => {
+    const unplaced = session({ id: "a", day: null, startTime: null, endTime: null });
+    expect(preferredSessionDuration(unplaced)).toBe(DEFAULT_SESSION_MINUTES);
+  });
+});
+
+describe("isValidSessionDuration (custom duration entry bounds)", () => {
+  it("accepts whole minutes inside the bounds, including below the smallest preset", () => {
+    expect(isValidSessionDuration(10)).toBe(true);
+    expect(isValidSessionDuration(MIN_SESSION_MINUTES)).toBe(true);
+    expect(isValidSessionDuration(MAX_SESSION_MINUTES)).toBe(true);
+  });
+
+  it("rejects anything outside [MIN_SESSION_MINUTES, MAX_SESSION_MINUTES]", () => {
+    expect(isValidSessionDuration(MIN_SESSION_MINUTES - 1)).toBe(false);
+    expect(isValidSessionDuration(MAX_SESSION_MINUTES + 1)).toBe(false);
+    expect(isValidSessionDuration(0)).toBe(false);
+    expect(isValidSessionDuration(-15)).toBe(false);
+  });
+
+  it("rejects a non-integer number of minutes", () => {
+    expect(isValidSessionDuration(15.5)).toBe(false);
+    expect(isValidSessionDuration(NaN)).toBe(false);
   });
 });

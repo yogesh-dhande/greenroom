@@ -28,6 +28,16 @@ export const SNAP_MINUTES = 15;
 /** Length given to a session that gets placed without one (spec.md §9). */
 export const DEFAULT_SESSION_MINUTES = 30;
 
+/**
+ * Bounds on a session's length, whether picked from the duration presets or
+ * typed in as a custom value. 5 minutes is short enough for a lightning talk
+ * a couple of minutes under the smallest preset; 480 (8 hours) is generous
+ * enough for an all-day workshop while still catching an obvious typo (e.g.
+ * "4800" or a stray extra digit).
+ */
+export const MIN_SESSION_MINUTES = 5;
+export const MAX_SESSION_MINUTES = 480;
+
 /** Minutes in a day, and the last wall-clock minute a session may start at. */
 export const MINUTES_PER_DAY = 24 * 60;
 
@@ -52,6 +62,38 @@ export function snapToGrid(minutes: number, snap: number = SNAP_MINUTES): number
 /** Length of a placed session in minutes (end after start on the same day). */
 export function durationMinutes(startTime: string, endTime: string): number {
   return minutesOfDay(endTime) - minutesOfDay(startTime);
+}
+
+/** Whole minutes, inside the bounds a preset or a custom entry must both
+ * respect (the duration dialog's "Custom…" number input, and the server-side
+ * placement check that backs it up). */
+export function isValidSessionDuration(minutes: number): boolean {
+  return (
+    Number.isInteger(minutes) && minutes >= MIN_SESSION_MINUTES && minutes <= MAX_SESSION_MINUTES
+  );
+}
+
+/**
+ * The duration a placement assist (e.g. "Suggest a slot", decisions.md
+ * D-067) should work with: the session's own already-placed length when it
+ * has one, so re-suggesting a spot for a scheduled 15-minute lightning talk
+ * never balloons it to the generic default. Only a session with no placement
+ * yet — nothing to preserve — falls through to `fallback`.
+ *
+ * Bug fixed here: the assist used to reach for `DEFAULT_SESSION_MINUTES`
+ * any time a duration wasn't threaded through explicitly, which silently
+ * overwrote a short format's length once a session lost its placement (e.g.
+ * after being sent back to the unscheduled tray).
+ */
+export function preferredSessionDuration(
+  session: Pick<Session, "startTime" | "endTime">,
+  fallback: number = DEFAULT_SESSION_MINUTES,
+): number {
+  if (session.startTime && session.endTime) {
+    const minutes = durationMinutes(session.startTime, session.endTime);
+    if (minutes > 0) return minutes;
+  }
+  return fallback;
 }
 
 /** Every "YYYY-MM-DD" from `start` to `end` inclusive — the agenda's day tabs.

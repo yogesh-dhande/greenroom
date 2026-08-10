@@ -7,6 +7,7 @@ import {
   buildSchedule,
   compareBySurname,
   countScheduleSessions,
+  describeProgramPublishPlan,
   filterScheduleDays,
   filterSpeakers,
   flattenSchedule,
@@ -16,6 +17,7 @@ import {
   itinerarySessions,
   itineraryStorageKey,
   parseStarredIds,
+  planProgramPublish,
   resolveFeedAssetUrl,
   scheduleFacetOptions,
   scheduleFeedEntries,
@@ -164,6 +166,112 @@ describe("isPubliclyVisible / gallerySessions / scheduleSessions", () => {
     expect(
       scheduleSessions([scheduled, unscheduled, cancelled, partiallyPlaced]),
     ).toEqual([scheduled]);
+  });
+});
+
+describe("planProgramPublish (publish-time held-back visibility)", () => {
+  it("splits scheduled sessions into published vs held back on content status", () => {
+    const approvedOne = session({ id: "a", title: "Retrieval that survives production traffic" });
+    const approvedTwo = session({ id: "b", title: "Evals you'll actually keep running" });
+    const approvedThree = session({ id: "c", title: "Tool schemas are your real prompt" });
+    const inReview = session({
+      id: "d",
+      title: "Lightning round: shipping evals",
+      contentStatus: "in_review",
+    });
+
+    const plan = planProgramPublish([approvedOne, approvedTwo, approvedThree, inReview]);
+
+    expect(plan.totalScheduled).toBe(4);
+    expect(plan.toPublish.map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(plan.heldBack).toEqual([
+      {
+        id: "d",
+        title: "Lightning round: shipping evals",
+        reason: 'content status is "In review" - awaiting sign-off',
+      },
+    ]);
+  });
+
+  it("holds back draft content the same way as in-review", () => {
+    const draft = session({ id: "a", contentStatus: "draft" });
+    const plan = planProgramPublish([draft]);
+    expect(plan.toPublish).toEqual([]);
+    expect(plan.heldBack).toEqual([
+      { id: "a", title: "a", reason: 'content status is "Draft" - awaiting sign-off' },
+    ]);
+  });
+
+  it("reports a cancelled-but-scheduled session with its own reason", () => {
+    const cancelled = session({ id: "a", status: "cancelled" });
+    const plan = planProgramPublish([cancelled]);
+    expect(plan.heldBack).toEqual([
+      { id: "a", title: "a", reason: "the session was cancelled" },
+    ]);
+  });
+
+  it("ignores unscheduled sessions entirely — nothing to publish or hold back", () => {
+    const unscheduled = session({
+      id: "a",
+      contentStatus: "in_review",
+      day: null,
+      startTime: null,
+      endTime: null,
+    });
+    const plan = planProgramPublish([unscheduled]);
+    expect(plan).toEqual({ toPublish: [], heldBack: [], totalScheduled: 0 });
+  });
+
+  it("holds nothing back and reports every scheduled session when all are approved", () => {
+    const a = session({ id: "a" });
+    const b = session({ id: "b" });
+    const plan = planProgramPublish([a, b]);
+    expect(plan.heldBack).toEqual([]);
+    expect(plan.toPublish.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(plan.totalScheduled).toBe(2);
+  });
+});
+
+describe("describeProgramPublishPlan", () => {
+  it("names the held-back session by title, matching the required copy", () => {
+    const plan = planProgramPublish([
+      session({ id: "a" }),
+      session({ id: "b" }),
+      session({ id: "c" }),
+      session({ id: "d", title: "Lightning round: shipping evals", contentStatus: "in_review" }),
+    ]);
+    expect(describeProgramPublishPlan(plan)).toBe(
+      "Publishing 3 of 4 scheduled sessions - 1 held back awaiting content sign-off: " +
+        "Lightning round: shipping evals",
+    );
+  });
+
+  it("lists every held-back title when more than one is excluded", () => {
+    const plan = planProgramPublish([
+      session({ id: "a" }),
+      session({ id: "b", title: "Draft talk", contentStatus: "draft" }),
+      session({ id: "c", title: "In-review talk", contentStatus: "in_review" }),
+    ]);
+    expect(describeProgramPublishPlan(plan)).toBe(
+      "Publishing 1 of 3 scheduled sessions - 2 held back awaiting content sign-off: " +
+        "Draft talk, In-review talk",
+    );
+  });
+
+  it("says everything is publishing when nothing is held back", () => {
+    const plan = planProgramPublish([session({ id: "a" }), session({ id: "b" })]);
+    expect(describeProgramPublishPlan(plan)).toBe("Publishing all 2 scheduled sessions.");
+  });
+
+  it("uses singular phrasing for exactly one scheduled session", () => {
+    const plan = planProgramPublish([session({ id: "a" })]);
+    expect(describeProgramPublishPlan(plan)).toBe("Publishing all 1 scheduled session.");
+  });
+
+  it("calls out an empty agenda rather than a hollow 'publishing 0 of 0'", () => {
+    expect(describeProgramPublishPlan({ toPublish: [], heldBack: [], totalScheduled: 0 })).toBe(
+      "No sessions are scheduled yet - publishing now announces an empty program.",
+    );
   });
 });
 

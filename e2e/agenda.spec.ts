@@ -268,12 +268,28 @@ test("admin sends a session back to the unscheduled tray", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(AGENDA);
 
+  // Give it a custom length first — deliberately not a preset — so the tray
+  // round-trip below can prove the length survives unscheduling.
+  await card(page, "Fireside chat").first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await choose(page, "#session-duration", "Custom...");
+  await page.locator("#session-duration-custom").fill("25");
+  await dialog.getByRole("button", { name: "Save time" }).click();
+  await expect(dialog).toHaveCount(0);
+
   await card(page, "Fireside chat").first().click();
   await page.getByRole("dialog").getByRole("button", { name: "Unschedule" }).click();
 
   await expect(trayCard(page, "Fireside chat")).toBeVisible();
   await page.reload();
   await expect(trayCard(page, "Fireside chat")).toBeVisible();
+
+  // The tray kept the session's length: reopening shows the same 25 minutes,
+  // not the generic default (a 15-minute lightning talk must not come back
+  // from the tray as a 30-minute slot).
+  await trayCard(page, "Fireside chat").click();
+  await expect(page.locator("#session-duration-custom")).toHaveValue("25");
 });
 
 test("reviewers are bounced from the agenda entirely", async ({ page }) => {

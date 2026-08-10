@@ -9,7 +9,7 @@ import {
   sessionContentStatusSchema,
   timeStringSchema,
 } from "@/db/entities";
-import { minutesOfDay } from "@/domain/scheduling";
+import { durationMinutes, isValidSessionDuration, minutesOfDay } from "@/domain/scheduling";
 import { planAbstractRestore, planAbstractRevision } from "@/domain/session-content";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
@@ -46,6 +46,12 @@ const placementSchema = z
   })
   .refine((v) => minutesOfDay(v.endTime) > minutesOfDay(v.startTime), {
     message: "The end time has to be after the start time",
+  })
+  // Defense-in-depth for the custom-duration entry in session-edit-dialog.tsx:
+  // the client already blocks out-of-range values, but a placement can also
+  // arrive from drag/resize on the board, so the bound is enforced here too.
+  .refine((v) => isValidSessionDuration(durationMinutes(v.startTime, v.endTime)), {
+    message: "Session length must be a whole number of minutes, between 5 and 480",
   });
 export type PlacementInput = z.infer<typeof placementSchema>;
 
@@ -85,7 +91,13 @@ export async function placeSession(
   }
 }
 
-/** Returns a session to the unscheduled tray, keeping everything else. */
+/** Returns a session to the unscheduled tray, keeping everything else —
+ * including its start/end times. A session's length is only recorded as that
+ * span (`sessionFormatLabel` derives the format from it), so nulling the
+ * times would turn a 15-minute lightning talk back into the default length
+ * on its next placement. "Placed" everywhere means day+times together
+ * (`isPlacedOnAgenda`), so a day-less session with times still sits in the
+ * tray and can't conflict with anything. */
 export async function unscheduleSession(eventSlug: string, sessionId: string) {
   await requireAdmin(agendaPath(eventSlug));
 
@@ -99,8 +111,6 @@ export async function unscheduleSession(eventSlug: string, sessionId: string) {
   try {
     await repos.sessions.update(sessionId, {
       day: null,
-      startTime: null,
-      endTime: null,
       roomId: null,
     });
     revalidatePath(agendaPath(eventSlug));

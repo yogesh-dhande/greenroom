@@ -12,8 +12,12 @@ import {
 import type { Room, SessionContentStatus, Track } from "@/db/entities";
 import {
   DEFAULT_SESSION_MINUTES,
+  MAX_SESSION_MINUTES,
+  MIN_SESSION_MINUTES,
   firstConflictFreeSlot,
+  isValidSessionDuration,
   minutesOfDay,
+  preferredSessionDuration,
   timeOfMinutes,
   type SuggestionWindow,
 } from "@/domain/scheduling";
@@ -46,11 +50,15 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { NO_ROOM_COLUMN, sessionMinutes } from "./board-layout";
+import { NO_ROOM_COLUMN } from "./board-layout";
 import type { PlacementInput, SessionContentInput } from "./actions";
 import type { BoardPerson, BoardSession, SessionRevisionView } from "./types";
 
 const DURATION_CHOICES = [15, 20, 30, 45, 60, 75, 90, 120, 180];
+/** Sentinel select value that reveals the custom-minutes input below it
+ * (defect fix: duration used to be locked to the preset list, so a 10-minute
+ * lightning talk couldn't be scheduled accurately). */
+const CUSTOM_DURATION = "__custom__"; // matches the "Custom..." SelectItem below
 const NO_TRACK = "__no_track__";
 
 export interface SessionEditDialogProps {
@@ -136,9 +144,20 @@ function SessionEditForm({
   const [day, setDay] = useState(session.day ?? defaultDay);
   const [roomId, setRoomId] = useState(session.roomId ?? NO_ROOM_COLUMN);
   const [startTime, setStartTime] = useState(session.startTime ?? "09:00");
+  // Preserves the session's own placed duration (e.g. a 15-minute lightning
+  // talk) rather than resetting to the generic default — see
+  // `preferredSessionDuration` in src/domain/scheduling.ts.
   const [duration, setDuration] = useState(() =>
-    sessionMinutes(session, DEFAULT_SESSION_MINUTES),
+    preferredSessionDuration(session, DEFAULT_SESSION_MINUTES),
   );
+  // Whether the Duration control is in its "Custom…" mode, showing the
+  // number input below instead of the preset dropdown's own value. Starts
+  // true when the session's current duration isn't one of the presets (e.g.
+  // a session someone already gave a custom length) so it doesn't silently
+  // snap to the nearest preset on open.
+  const [customDuration, setCustomDuration] = useState(() => !DURATION_CHOICES.includes(duration));
+  const [customDurationText, setCustomDurationText] = useState(() => String(duration));
+  const [durationError, setDurationError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const initialTitle = session.title;
@@ -181,11 +200,6 @@ function SessionEditForm({
     () => [...new Set([...days, session.day, day].filter((d): d is string => Boolean(d)))].sort(),
     [days, session.day, day],
   );
-  const durationChoices = useMemo(
-    () => [...new Set([...DURATION_CHOICES, duration])].sort((a, b) => a - b),
-    [duration],
-  );
-
   // "Suggest a slot" (decisions.md D-067): the earliest day/time/room where
   // this session fits with no room or speaker double-booking, for the length
   // currently selected. It only fills the fields in; the organizer still
@@ -220,6 +234,19 @@ function SessionEditForm({
   }
 
   function save() {
+    // `duration` still holds the last valid value while the custom input has
+    // bad text in it — saving then would silently store a number other than
+    // the one on screen.
+    if (customDuration && durationError) {
+      setError(durationError);
+      return;
+    }
+    if (!isValidSessionDuration(duration)) {
+      setError(
+        `Duration must be a whole number between ${MIN_SESSION_MINUTES} and ${MAX_SESSION_MINUTES} minutes`,
+      );
+      return;
+    }
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
       setError("Enter a start time as HH:MM");
       return;
@@ -490,21 +517,62 @@ function SessionEditForm({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="session-duration">Duration</Label>
           <Select
-            value={String(duration)}
-            onValueChange={(v) => setDuration(Number(v))}
+            value={customDuration ? CUSTOM_DURATION : String(duration)}
+            onValueChange={(v) => {
+              if (v === CUSTOM_DURATION) {
+                // Reveal the number input below, seeded with the current
+                // duration so switching to "Custom…" doesn't blank it out.
+                setCustomDurationText(String(duration));
+                setCustomDuration(true);
+                return;
+              }
+              setCustomDuration(false);
+              setDurationError(null);
+              setDuration(Number(v));
+            }}
             disabled={!canEdit}
           >
             <SelectTrigger id="session-duration" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {durationChoices.map((minutes) => (
+              {DURATION_CHOICES.map((minutes) => (
                 <SelectItem key={minutes} value={String(minutes)}>
                   {minutes} minutes
                 </SelectItem>
               ))}
+              <SelectItem value={CUSTOM_DURATION}>Custom...</SelectItem>
             </SelectContent>
           </Select>
+          {customDuration && (
+            <div className="flex flex-col gap-1">
+              <Input
+                id="session-duration-custom"
+                type="number"
+                inputMode="numeric"
+                min={MIN_SESSION_MINUTES}
+                max={MAX_SESSION_MINUTES}
+                step={1}
+                aria-label="Custom duration in minutes"
+                value={customDurationText}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  const text = e.target.value;
+                  setCustomDurationText(text);
+                  const parsed = Number(text);
+                  if (text.trim() === "" || !isValidSessionDuration(parsed)) {
+                    setDurationError(
+                      `Enter a whole number between ${MIN_SESSION_MINUTES} and ${MAX_SESSION_MINUTES}`,
+                    );
+                    return;
+                  }
+                  setDurationError(null);
+                  setDuration(parsed);
+                }}
+              />
+              {durationError && <p className="text-xs text-destructive">{durationError}</p>}
+            </div>
+          )}
         </div>
       </div>
 

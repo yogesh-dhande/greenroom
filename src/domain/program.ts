@@ -8,6 +8,7 @@
  */
 import type { Session } from "@/db/entities";
 import { minutesOfDay } from "@/domain/scheduling";
+import { CONTENT_STATUS_LABEL } from "@/domain/session-content";
 import type { ItineraryEntry } from "@/lib/ics";
 
 export interface SessionWithSpeakers extends Session {
@@ -65,6 +66,99 @@ export function scheduleSessions<
   T extends Pick<Session, "status" | "contentStatus" | "day" | "startTime" | "endTime">,
 >(sessions: T[]): T[] {
   return sessions.filter((s) => isPubliclyVisible(s) && isPlacedOnAgenda(s));
+}
+
+// ---------------------------------------------------------------------------
+// Publishing the program (bug: publish silently dropped sessions whose
+// content wasn't signed off — an admin saw "Scheduled sessions: 4", publish
+// reported success, and the public schedule showed 3 with no explanation).
+// This is the single place that answers "what happens if I publish right
+// now?" so the confirm dialog and the post-publish state can both say it out
+// loud instead of attendees just seeing fewer sessions than the organizer
+// expected.
+// ---------------------------------------------------------------------------
+
+/** A scheduled session as the publish plan reports it — just enough to name
+ * it in a confirmation dialog or a held-back list. */
+export interface PublishPlanSession {
+  id: string;
+  title: string;
+}
+
+/** A held-back session plus why it isn't going out — the whole point of the
+ * fix: "held back" alone doesn't tell an organizer what to go do about it. */
+export interface HeldBackSession extends PublishPlanSession {
+  reason: string;
+}
+
+export interface ProgramPublishPlan {
+  /** Scheduled sessions that will appear on the public schedule. */
+  toPublish: PublishPlanSession[];
+  /** Scheduled sessions that stay off the public schedule, and why. */
+  heldBack: HeldBackSession[];
+  /** `toPublish.length + heldBack.length` — every session currently placed
+   * on the agenda, published or not (mirrors the Overview "Scheduled
+   * sessions" stat, so the two numbers can't quietly disagree). */
+  totalScheduled: number;
+}
+
+/** Why a scheduled session won't print, in organizer language. Content
+ * status (D-072) is the case this fix exists for; a scheduled-but-cancelled
+ * session is reported too rather than silently vanishing the same way. */
+function heldBackReason(
+  session: Pick<Session, "status" | "contentStatus">,
+): string {
+  if (session.status !== "confirmed") {
+    return "the session was cancelled";
+  }
+  return `content status is "${CONTENT_STATUS_LABEL[session.contentStatus]}" - awaiting sign-off`;
+}
+
+/**
+ * Splits every scheduled session (placed on the agenda, regardless of
+ * status) into what publishing right now would make public versus what it
+ * would hold back. Pure function over `isPubliclyVisible`/`isPlacedOnAgenda`
+ * above, so this can never drift from what the public schedule itself
+ * actually shows once `programPublished` is true.
+ */
+export function planProgramPublish<
+  T extends Pick<Session, "id" | "title" | "status" | "contentStatus" | "day" | "startTime" | "endTime">,
+>(sessions: T[]): ProgramPublishPlan {
+  const scheduled = sessions.filter(isPlacedOnAgenda);
+  const toPublish: PublishPlanSession[] = [];
+  const heldBack: HeldBackSession[] = [];
+
+  for (const session of scheduled) {
+    if (isPubliclyVisible(session)) {
+      toPublish.push({ id: session.id, title: session.title });
+    } else {
+      heldBack.push({ id: session.id, title: session.title, reason: heldBackReason(session) });
+    }
+  }
+
+  return { toPublish, heldBack, totalScheduled: scheduled.length };
+}
+
+/**
+ * The headline sentence for the publish confirm dialog and the post-publish
+ * note — e.g. "Publishing 3 of 4 scheduled sessions - 1 held back awaiting
+ * content sign-off: Lightning round: shipping evals". Titles are listed by
+ * name rather than just a count, so the organizer can go fix the right thing
+ * without a second trip to the agenda to find out which one it was.
+ */
+export function describeProgramPublishPlan(plan: ProgramPublishPlan): string {
+  const { toPublish, heldBack, totalScheduled } = plan;
+  if (totalScheduled === 0) {
+    return "No sessions are scheduled yet - publishing now announces an empty program.";
+  }
+  if (heldBack.length === 0) {
+    return `Publishing all ${totalScheduled} scheduled session${totalScheduled === 1 ? "" : "s"}.`;
+  }
+  const titles = heldBack.map((s) => s.title).join(", ");
+  return (
+    `Publishing ${toPublish.length} of ${totalScheduled} scheduled session` +
+    `${totalScheduled === 1 ? "" : "s"} - ${heldBack.length} held back awaiting content sign-off: ${titles}`
+  );
 }
 
 // ---------------------------------------------------------------------------

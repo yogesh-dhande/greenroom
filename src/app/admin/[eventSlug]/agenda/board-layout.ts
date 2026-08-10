@@ -4,7 +4,7 @@
  * is derived here so the React components stay about interaction.
  */
 import type { Session } from "@/db/entities";
-import { SNAP_MINUTES, durationMinutes, minutesOfDay } from "@/domain/scheduling";
+import { SNAP_MINUTES, minutesOfDay, preferredSessionDuration } from "@/domain/scheduling";
 
 /** Vertical scale: one 15-minute slot is 24px tall, an hour 96px. */
 export const PX_PER_MINUTE = 1.6;
@@ -114,11 +114,13 @@ export function cardGeometry(span: Span, window: TimeWindow) {
   return { top, height };
 }
 
-/** Session length, defaulting for rows that have no end time yet. */
+/** Session length, defaulting for rows that have no end time yet. Thin
+ * wrapper over `preferredSessionDuration` (src/domain/scheduling.ts) — kept
+ * here too since board geometry callers already import from this module, but
+ * the actual precedence (own duration first, fallback only when unplaced)
+ * lives in the domain layer where it's unit tested. */
 export function sessionMinutes(session: Session, fallback: number): number {
-  if (!session.startTime || !session.endTime) return fallback;
-  const minutes = durationMinutes(session.startTime, session.endTime);
-  return minutes > 0 ? minutes : fallback;
+  return preferredSessionDuration(session, fallback);
 }
 
 // ---------------------------------------------------------------------------
