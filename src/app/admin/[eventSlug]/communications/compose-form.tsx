@@ -42,7 +42,7 @@ export function ComposeForm({
 }: {
   eventSlug: string;
   /** This event's real dates/URLs/organizer name (decisions.md D-053) — see
-   * `previewData` below for how it overlays the generic placeholders. */
+   * `previewData` for how it overlays the generic placeholders. */
   eventMergeData: MergeData;
   speakers: SpeakerOption[];
   onSent: () => void;
@@ -53,9 +53,21 @@ export function ComposeForm({
   const [sending, startSend] = useTransition();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
+  /**
+   * What the preview renders with: this event's real fields, overlaid with the
+   * first picked recipient's own (decisions.md D-053 — a preview that shows a
+   * different person's name than the send will use is a lie the organizer only
+   * catches after sending). Nobody picked yet leaves `templatePreviewData`'s
+   * sample person in place, which is honest: no recipient has been chosen.
+   */
+  const previewData = useMemo(() => {
+    const first = speakers.find((speaker) => speaker.id === selected[0]);
+    return templatePreviewData({ ...eventMergeData, ...(first?.mergeData ?? {}) });
+  }, [speakers, selected, eventMergeData]);
+
   const check = useMemo(
-    () => checkTemplateDraft(subject, body, MANUAL_MERGE_FIELDS, previewData(eventMergeData)),
-    [subject, body, eventMergeData],
+    () => checkTemplateDraft(subject, body, MANUAL_MERGE_FIELDS, previewData),
+    [subject, body, previewData],
   );
 
   const ready = selected.length > 0 && check.errors.length === 0;
@@ -211,14 +223,3 @@ export function ComposeForm({
   );
 }
 
-/**
- * Preview data with this event's real dates, URLs and organizer name laid
- * over `templatePreviewData`'s generic defaults, so the on-screen preview
- * reads like the real thing (decisions.md D-053) rather than "June 16–18,
- * 2026" and "hello@example.com" for an event with different dates. Fields
- * this composer doesn't know yet — who the recipient is — stay placeholders
- * ("Priya Raman").
- */
-function previewData(eventMergeData: MergeData) {
-  return templatePreviewData(eventMergeData);
-}

@@ -691,6 +691,11 @@ export const emailKindSchema = z.enum([
   /** "Everything still open on your speaker checklist" — the weekly
    * per-speaker digest sent Mondays 07:00 UTC (D-039). */
   "task_digest",
+  /** "Something new is waiting on your checklist" — the one-time notification
+   * D-039 pairs with the weekly digest, sent when tasks are assigned to a
+   * speaker. Its own kind so the log distinguishes "we told them about this"
+   * from the recurring digest. */
+  "task_assigned",
   /** "Here's the link back to your unfinished proposal" (D-034, D-038). */
   "draft_saved",
   /** "Your draft proposal — this form closes soon" (D-034, D-038). */

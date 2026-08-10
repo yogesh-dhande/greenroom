@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { EMAIL_KIND_LABELS, LOG_KIND_ORDER, type LogRow, type SpeakerOption } from "./types";
+import { EMAIL_KIND_LABELS, LOG_KIND_ORDER, type LogRow, type PersonOption } from "./types";
 
 const ALL = "__all__";
 
@@ -47,11 +47,13 @@ const ALL = "__all__";
  */
 export function EmailLogTable({
   rows,
-  speakers,
+  people,
   now,
 }: {
   rows: LogRow[];
-  speakers: SpeakerOption[];
+  /** Everyone this event's mail concerns — wider than the composer's
+   * recipients, because a reviewer nudge (D-050) is in here too. */
+  people: PersonOption[];
   /** Server-captured `Date.now()`, threaded down for the Sent column's
    * relative-time formatting — see the page component for why. */
   now: number;
@@ -98,9 +100,9 @@ export function EmailLogTable({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>Everyone</SelectItem>
-            {speakers.map((speaker) => (
-              <SelectItem key={speaker.id} value={speaker.email}>
-                {speaker.name}
+            {people.map((person) => (
+              <SelectItem key={person.id} value={person.email}>
+                {person.name}
               </SelectItem>
             ))}
           </SelectContent>

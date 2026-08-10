@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createSendGridEmailSender,
+  getEmailSender,
+  MISSING_API_KEY_ERROR,
   toBase64,
   type EmailIdentity,
   type EmailMessage,
@@ -204,5 +206,66 @@ describe("toBase64", () => {
   it("survives unicode content", () => {
     const encoded = toBase64("café — café ☕ 日本語");
     expect(encoded).toBe(btoa(unescape(encodeURIComponent("café — café ☕ 日本語"))));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getEmailSender — what a production deployment with no API key does
+// ---------------------------------------------------------------------------
+
+describe("getEmailSender", () => {
+  /** Sets NODE_ENV for one test and puts it back afterwards. */
+  function withNodeEnv<T>(value: string | undefined, run: () => T): T {
+    if (value === undefined) vi.stubEnv("NODE_ENV", undefined);
+    else vi.stubEnv("NODE_ENV", value);
+    try {
+      return run();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }
+
+  it("uses SendGrid whenever a key is configured", () => {
+    const sender = withNodeEnv("production", () =>
+      getEmailSender({ SENDGRID_API_KEY: "sg-key", EMAIL_FROM_ADDRESS: "hello@greenroom.test" }),
+    );
+    expect(sender.from.email).toBe("hello@greenroom.test");
+  });
+
+  it("refuses to send in production when the key is missing", async () => {
+    // Silently "succeeding" here is the failure this guards: magic links,
+    // decisions and invitations would all be logged as sent and none of them
+    // would arrive (decisions.md D-030).
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const sender = withNodeEnv("production", () => getEmailSender({}));
+
+    await expect(
+      sender.send(baseMessage({ text: "Body", html: "<p>Body</p>" })),
+    ).rejects.toThrow(MISSING_API_KEY_ERROR);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("keeps the dev transport outside production, which e2e depends on", async () => {
+    // The Playwright suite reads magic links out of the dev transport's
+    // output — this branch must not change.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const sender = withNodeEnv("test", () => getEmailSender({}));
+
+    const result = await sender.send(baseMessage({ text: "Body", html: "<p>Body</p>" }));
+
+    expect(result.id).toMatch(/^dev-/);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("keeps the dev transport when NODE_ENV isn't set at all", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const sender = withNodeEnv(undefined, () => getEmailSender({}));
+
+    await expect(
+      sender.send(baseMessage({ text: "Body", html: "<p>Body</p>" })),
+    ).resolves.toBeTruthy();
+    log.mockRestore();
   });
 });

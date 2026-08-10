@@ -15,13 +15,22 @@
  * surprises.
  */
 import type { EmailKind } from "@/db/entities";
-import type { CommsTemplateId, MergeField } from "@/domain/comms-templates";
+import type { CommsTemplateId, MergeData, MergeField } from "@/domain/comms-templates";
 
-/** A person the composer can write to. */
-export interface SpeakerOption {
+/**
+ * Anyone this event's mail concerns — speakers, co-speakers, and the
+ * reviewers a round can nudge (decisions.md D-050). It's who the log can name,
+ * which is a wider set than who the composer offers to write to; see
+ * ./recipients.ts.
+ */
+export interface PersonOption {
   id: string;
   name: string;
   email: string;
+}
+
+/** A person the composer can write to. */
+export interface SpeakerOption extends PersonOption {
   /** Effective confirmation (decisions.md D-068): true once they're on a
    * session, unless the organizer has explicitly marked them Declined — the
    * rest are still just proposers. */
@@ -36,6 +45,14 @@ export interface SpeakerOption {
    * Names rather than ids: the chips are labelled with them, and a track with
    * nobody in it never earns a chip. */
   trackNames: string[];
+  /**
+   * This recipient's own merge values — their name and their outstanding
+   * tasks, computed server-side exactly as the send path computes them. The
+   * composer previews against the first person picked (decisions.md D-053: a
+   * preview shows what will actually be sent), so "Hi {{speakerFirstName}}"
+   * reads "Hi Dana" rather than the sample "Priya".
+   */
+  mergeData: MergeData;
 }
 
 /** One row of the communication log. */
@@ -105,6 +122,8 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
   /** Retired with D-039, but its history still shows in the log. */
   task_reminder: "Task reminder",
   task_digest: "Weekly task digest",
+  /** The one-time "new work landed on your checklist" note (D-039). */
+  task_assigned: "Task assigned",
   draft_saved: "Draft link",
   draft_reminder: "Draft closing soon",
   /** The manual "Remind reviewers" nudge from a round's assignments page (D-050). */
@@ -122,6 +141,7 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
 export const LOG_KIND_ORDER: EmailKind[] = [
   "decision",
   "change_request",
+  "task_assigned",
   "task_digest",
   "portal_invite",
   "round_reminder",

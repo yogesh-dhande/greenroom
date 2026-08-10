@@ -8,7 +8,7 @@ import {
   COMMS_TEMPLATES,
   MANUAL_MERGE_FIELDS,
   REMINDER_SKIP_LABELS,
-  runReminderJob,
+  runTaskDigestJob,
   sendCalendarInvite,
   sendManualEmail,
   speakerMergeData,
@@ -19,6 +19,7 @@ import {
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
+import { loadEventRecipientIds } from "./recipients";
 
 /**
  * Writes behind the admin Communications screen (spec.md §7).
@@ -99,7 +100,17 @@ export async function sendComposedEmail(eventSlug: string, input: ManualEmailInp
   const check = checkTemplateDraft(parsed.data.subject, parsed.data.body, MANUAL_MERGE_FIELDS);
   if (check.errors.length > 0) return fail(check.errors[0]);
 
-  const recipients = await auth.repos.users.listByIds(parsed.data.recipientIds);
+  // The picker only offers this event's speakers, but a server action is a
+  // public endpoint — so the offer is re-derived here and anything outside it
+  // refused. That keeps a reviewer (who is in the log, not in the recipient
+  // list) or another event's speaker from being mailed by a crafted request.
+  const allowed = await loadEventRecipientIds(auth.repos, auth.event.id);
+  const requested = parsed.data.recipientIds.filter((id) => allowed.has(id));
+  if (requested.length < parsed.data.recipientIds.length) {
+    return fail("Some of those recipients aren't speakers on this event");
+  }
+
+  const recipients = await auth.repos.users.listByIds(requested);
   if (recipients.length === 0) return fail("Couldn't find those recipients");
 
   const comms = await getCommsContext({
@@ -277,14 +288,20 @@ export async function sendSessionInvite(eventSlug: string, sessionId: string) {
 // ---------------------------------------------------------------------------
 
 /**
- * Sends this event's task digests on demand — the same `runReminderJob` the
- * cron calls (decisions.md D-013, D-039), so the button can never send
- * something the schedule wouldn't.
+ * Sends this event's task digests on demand — the digest half of the cron's
+ * job (decisions.md D-013, D-039), so the button can never send something the
+ * schedule wouldn't.
  *
- * `manual: true` is the only difference: it lifts the Monday 07:00 UTC window
- * (an admin pressing a button means "now"), and swaps the six-day cooldown for
- * a 24-hour one. Everything else still protects the speaker — a double-click
- * sends nothing the second time, and a cleared checklist sends nothing at all.
+ * Deliberately `runTaskDigestJob` and not the whole `runReminderJob`: the
+ * button says "task digest", and the draft-closing nudge is a different email
+ * to different people that each draft only ever gets once (D-038). The cron
+ * keeps running both halves.
+ *
+ * `manual: true` is the only difference from the scheduled digest: it lifts
+ * the Monday 07:00 UTC window (an admin pressing a button means "now"), and
+ * swaps the six-day cooldown for a 24-hour one. Everything else still protects
+ * the speaker — a double-click sends nothing the second time, and a cleared
+ * checklist sends nothing at all.
  */
 export async function sendRemindersNow(eventSlug: string) {
   const auth = await authorize(eventSlug);
@@ -298,7 +315,7 @@ export async function sendRemindersNow(eventSlug: string) {
 
   let result;
   try {
-    result = await runReminderJob({ ...comms, eventId: auth.event.id, manual: true });
+    result = await runTaskDigestJob({ ...comms, eventId: auth.event.id, manual: true });
   } catch {
     return fail("Couldn't send the digests — try again");
   }

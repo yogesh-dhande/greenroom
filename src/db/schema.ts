@@ -727,6 +727,9 @@ export const emailLog = sqliteTable(
         // The per-speaker "Send portal invite" from a speaker's record page
         // (D-070).
         "portal_invite",
+        // The one-time notification when an organizer hands a speaker a new
+        // onboarding task (D-039).
+        "task_assigned",
         "manual",
       ],
     }).notNull(),

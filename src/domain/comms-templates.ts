@@ -53,6 +53,16 @@ export const MERGE_FIELDS = [
   "taskInstructions",
   "taskDueDate",
   "outstandingTasks",
+  /** The tasks *just* assigned, for the one-time assignment notice (D-039).
+   * Distinct from `outstandingTasks`, which is the whole standing checklist. */
+  "assignedTasks",
+  /**
+   * A flag rather than prose: non-empty when the draft's form creates
+   * sessions directly (decisions.md D-041), so the draft copy can promise a
+   * committee read only when there is one. Used exclusively in
+   * `{{#directToSession}}` / `{{^directToSession}}` sections.
+   */
+  "directToSession",
   /** The round name and pending count on a reviewer completion nudge (D-050). */
   "roundName",
   "pendingScorecards",
@@ -226,6 +236,7 @@ export const COMMS_TEMPLATE_IDS = [
   "submission_waitlisted",
   "submission_declined",
   "change_request",
+  "task_assigned",
   "task_digest",
   "round_reminder",
   "calendar_invite",
@@ -279,12 +290,17 @@ Thanks for offering to share your work with our audience.
     id: "draft_saved",
     name: "Draft saved",
     description:
-      "Carries the link back to an unfinished proposal, saved from the public CFP form (D-034).",
+      "Carries the link back to an unfinished proposal, saved from the public CFP form (D-034). The committee sentences drop out on a session-type form, which has no review step (D-041).",
     kind: "draft_saved",
     subject: 'Your draft proposal for {{eventName}} — "{{submissionTitle}}"',
     body: `Hi {{speakerFirstName}},
 
+{{^directToSession}}
 We've saved your proposal as a draft. Nothing has been submitted yet — the review committee can't see it, and you can change anything you like before you send it.
+{{/directToSession}}
+{{#directToSession}}
+We've saved your proposal as a draft. Nothing has been submitted yet — it isn't on the programme, and you can change anything you like before you send it.
+{{/directToSession}}
 
 Pick up where you left off here:
 
@@ -293,7 +309,12 @@ Pick up where you left off here:
 Keep this link: it's how you get back in, so there's no password to remember.
 
 {{#changeDueDate}}
+{{^directToSession}}
 Submissions for {{eventName}} close on {{changeDueDate}}. A draft that isn't submitted by then doesn't go to the committee.
+{{/directToSession}}
+{{#directToSession}}
+Submissions for {{eventName}} close on {{changeDueDate}}. A draft that isn't submitted by then doesn't make it onto the programme.
+{{/directToSession}}
 
 {{/changeDueDate}}
 {{organizerName}}
@@ -303,14 +324,19 @@ Submissions for {{eventName}} close on {{changeDueDate}}. A draft that isn't sub
     id: "draft_reminder",
     name: "Draft closing soon",
     description:
-      "One nudge when a form with an unsubmitted draft on it is about to close (D-034). Sent by the reminder cron.",
+      "One nudge when a form with an unsubmitted draft on it is about to close (D-034). Sent by the reminder cron. Drops the review-committee promise on a session-type form (D-041).",
     kind: "draft_reminder",
     subject: 'Submissions close soon — your draft "{{submissionTitle}}" isn\'t in yet',
     body: `Hi {{speakerFirstName}},
 
 You started a proposal for {{eventName}} and saved it as a draft, but it hasn't been submitted{{#changeDueDate}}, and submissions close on {{changeDueDate}}{{/changeDueDate}}.
 
+{{^directToSession}}
 If you still want it considered, open it and hit submit — it's the same link as before:
+{{/directToSession}}
+{{#directToSession}}
+If you still want it on the programme, open it and hit submit — it's the same link as before:
+{{/directToSession}}
 
 {{resumeUrl}}
 
@@ -409,7 +435,8 @@ Thank you again for thinking of us.
   {
     id: "change_request",
     name: "Change / missing information request",
-    description: "Asks the submitter to fix or supply something before review can continue.",
+    description:
+      "Asks the submitter to fix or supply something before review can continue. The edit link is offered only while the form is still open — after it closes the proposal is read-only (D-022(3)), so the copy asks for a reply instead.",
     kind: "change_request",
     subject: 'A quick change needed on "{{submissionTitle}}"',
     body: `Hi {{speakerFirstName}},
@@ -418,15 +445,45 @@ We're reviewing "{{submissionTitle}}" for {{eventName}} and need one thing from 
 
 {{changeRequest}}
 
+{{#submissionUrl}}
 You can make the change yourself — this link opens your proposal, ready to edit:
 
 {{submissionUrl}}
 
+{{/submissionUrl}}
+{{^submissionUrl}}
+Submissions are closed, so the proposal is locked for editing now. Just reply to this email with the change and we'll make it for you.
+
+{{/submissionUrl}}
 {{#changeDueDate}}
 Please do it by {{changeDueDate}} so your proposal stays in this review round.
 
 {{/changeDueDate}}
 If anything is unclear, just reply to this email and we'll sort it out.
+
+{{organizerName}}
+{{eventName}}`,
+  },
+  {
+    id: "task_assigned",
+    name: "Task assigned",
+    description:
+      "The one-time notice that new work landed on a speaker's checklist (D-039). Sent when tasks are assigned; the weekly digest takes over from there.",
+    kind: "task_assigned",
+    subject: "New on your {{eventName}} speaker checklist",
+    body: `Hi {{speakerFirstName}},
+
+{{#assignedTasks}}
+We've added something to your speaker checklist for {{eventName}}:
+
+{{assignedTasks}}
+
+{{/assignedTasks}}
+Everything lives in your speaker portal — sign in with this email address and work through it in any order:
+
+{{portalUrl}}
+
+If anything is unclear or you can't do one of these, reply and tell us.
 
 {{organizerName}}
 {{eventName}}`,
@@ -594,6 +651,7 @@ export const TEMPLATE_TRIGGERS: Record<CommsTemplateId, EmailTrigger> = {
   submission_waitlisted: "manual",
   submission_declined: "on_denial",
   change_request: "manual",
+  task_assigned: "on_task_assignment",
   task_digest: "deadline_reminder",
   round_reminder: "manual",
   calendar_invite: "manual",
@@ -671,8 +729,22 @@ const SESSION_MERGE_FIELDS: MergeField[] = [
  */
 export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
   submission_confirmation: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeDueDate"],
-  draft_saved: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeDueDate", "resumeUrl"],
-  draft_reminder: [...COMMON_MERGE_FIELDS, "submissionTitle", "changeDueDate", "resumeUrl"],
+  // `directToSession` is the form-type flag the copy branches on (D-041) —
+  // the sender knows the form, so both draft mails can honour it.
+  draft_saved: [
+    ...COMMON_MERGE_FIELDS,
+    "submissionTitle",
+    "changeDueDate",
+    "resumeUrl",
+    "directToSession",
+  ],
+  draft_reminder: [
+    ...COMMON_MERGE_FIELDS,
+    "submissionTitle",
+    "changeDueDate",
+    "resumeUrl",
+    "directToSession",
+  ],
   submission_accepted: [
     ...COMMON_MERGE_FIELDS,
     "submissionTitle",
@@ -699,6 +771,9 @@ export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
     "changeRequest",
     "changeDueDate",
   ],
+  // The assignment notice speaks about the tasks that just landed, not the
+  // whole standing checklist — that's the digest's job (D-039).
+  task_assigned: [...COMMON_MERGE_FIELDS, "assignedTasks"],
   // The digest speaks about the whole checklist, so it has the task *list*
   // (`outstandingTasks`) but no single task's title, instructions or due date.
   task_digest: [...COMMON_MERGE_FIELDS, "outstandingTasks"],
@@ -763,6 +838,11 @@ export function templatePreviewData(overrides: MergeData = {}): MergeData {
     taskInstructions: "Square image, at least 800×800.",
     taskDueDate: "June 5, 2026",
     outstandingTasks: "- Upload your headshot (due June 5)\n- Complete the hotel form (due June 1)",
+    assignedTasks: "- Upload your headshot (due June 5)",
+    // Deliberately empty: `abstract` is the default form type, so the preview
+    // shows the review-committee wording unless a session-type send overrides
+    // it (decisions.md D-041).
+    directToSession: "",
     roundName: "Initial Review",
     pendingScorecards: "3 scorecards",
     roundQueueUrl: "https://example.com/admin/your-event/rounds/1/score",

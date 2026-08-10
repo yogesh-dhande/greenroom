@@ -14,6 +14,7 @@ import type {
   User,
 } from "@/db/entities";
 import type { Repos } from "@/db/repos";
+import type { FormWindow } from "@/domain/forms";
 import type { EmailSender } from "@/lib/email";
 import {
   buildCommunicationLog,
@@ -28,7 +29,10 @@ import {
   MANUAL_TASK_DIGEST_COOLDOWN_HOURS,
   previewTaskDigestCount,
   runReminderJob,
+  runTaskDigestJob,
+  sendChangeRequest,
   sendRoundReminders,
+  sendTaskAssignmentNotification,
   sendTeamInvite,
   summarizeSessionInvites,
   TASK_DIGEST_COOLDOWN_DAYS,
@@ -202,9 +206,19 @@ function draftReminderInput(
 ): DraftReminderDecisionInput {
   return {
     status: "draft",
-    closesAt: new Date(NOW.getTime() + 12 * HOUR),
+    form: { isPublished: true, opensAt: null, closesAt: new Date(NOW.getTime() + 12 * HOUR) },
     alreadyReminded: false,
     now: NOW,
+    ...overrides,
+  };
+}
+
+/** A `FormWindow` for the decision above, open by default. */
+function window_(overrides: Partial<FormWindow> = {}): FormWindow {
+  return {
+    isPublished: true,
+    opensAt: null,
+    closesAt: new Date(NOW.getTime() + 12 * HOUR),
     ...overrides,
   };
 }
@@ -243,6 +257,8 @@ function fakeRepos(seed: {
   submissions?: Submission[];
   /** submission id → speaker ids, primary first. */
   submissionSpeakers?: Record<string, string[]>;
+  /** The roster's stored confirmation overrides (decisions.md D-068). */
+  eventSpeakers?: Array<{ eventId: string; userId: string; confirmationStatus: string | null }>;
 }) {
   const emails: EmailLog[] = [...(seed.emailLog ?? [])];
   const forms = seed.forms ?? [];
@@ -271,7 +287,12 @@ function fakeRepos(seed: {
     tasks: {
       listByEvent: async (eventId: string) =>
         seed.tasks.filter((row) => row.eventId === eventId),
+      listByIds: async (ids: string[]) => seed.tasks.filter((row) => ids.includes(row.id)),
       getById: async (id: string) => seed.tasks.find((row) => row.id === id) ?? null,
+    },
+    eventSpeakers: {
+      listByEvent: async (eventId: string) =>
+        (seed.eventSpeakers ?? []).filter((row) => row.eventId === eventId),
     },
     taskAssignments: {
       listByEvent: async (eventId: string) => {
@@ -309,11 +330,16 @@ function fakeRepos(seed: {
 
 /** Records what it was asked to send instead of sending it. */
 function fakeSender() {
-  const sent: Array<{ to: string; subject: string; text: string }> = [];
+  const sent: Array<{ to: string; subject: string; text: string; replyTo?: string }> = [];
   const sender: EmailSender = {
     from: { name: "Greenroom", email: "hello@greenroom.test" },
     async send(message) {
-      sent.push({ to: message.to, subject: message.subject, text: message.text });
+      sent.push({
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        replyTo: message.replyTo,
+      });
       return { id: `msg-${sent.length}` };
     },
   };
@@ -485,7 +511,14 @@ describe("decideDraftReminder", () => {
   });
 
   it("says nothing about a draft on a call with no closing date", () => {
-    expect(decideDraftReminder(draftReminderInput({ closesAt: null }))).toEqual({
+    expect(decideDraftReminder(draftReminderInput({ form: window_({ closesAt: null }) }))).toEqual({
+      send: false,
+      reason: "not_due",
+    });
+  });
+
+  it("says nothing about a draft whose form has since been deleted", () => {
+    expect(decideDraftReminder(draftReminderInput({ form: null }))).toEqual({
       send: false,
       reason: "not_due",
     });
@@ -493,21 +526,42 @@ describe("decideDraftReminder", () => {
 
   it("waits until the close is inside the window", () => {
     const wellAhead = new Date(NOW.getTime() + (DRAFT_REMINDER_WINDOW_HOURS + 6) * 60 * 60 * 1000);
-    expect(decideDraftReminder(draftReminderInput({ closesAt: wellAhead }))).toEqual({
-      send: false,
-      reason: "not_due",
-    });
+    expect(
+      decideDraftReminder(draftReminderInput({ form: window_({ closesAt: wellAhead }) })),
+    ).toEqual({ send: false, reason: "not_due" });
 
     const justInside = new Date(NOW.getTime() + (DRAFT_REMINDER_WINDOW_HOURS - 1) * 60 * 60 * 1000);
-    expect(decideDraftReminder(draftReminderInput({ closesAt: justInside })).send).toBe(true);
+    expect(
+      decideDraftReminder(draftReminderInput({ form: window_({ closesAt: justInside }) })).send,
+    ).toBe(true);
   });
 
   it("doesn't chase a draft once the call has closed", () => {
     // Unlike a task, which stays actionable when overdue, a draft on a closed
     // form can't be submitted — the email would only be bad news.
     expect(
-      decideDraftReminder(draftReminderInput({ closesAt: new Date(NOW.getTime() - HOUR) })),
+      decideDraftReminder(
+        draftReminderInput({ form: window_({ closesAt: new Date(NOW.getTime() - HOUR) }) }),
+      ),
     ).toEqual({ send: false, reason: "closed" });
+  });
+
+  it("stays quiet about a draft on an unpublished form", () => {
+    // A close date on a form nobody can reach is not a deadline: the public
+    // submit page would turn the speaker away, so the nudge is a dead end.
+    expect(
+      decideDraftReminder(draftReminderInput({ form: window_({ isPublished: false }) })),
+    ).toEqual({ send: false, reason: "not_open" });
+  });
+
+  it("stays quiet about a draft on a form that hasn't opened yet", () => {
+    expect(
+      decideDraftReminder(
+        draftReminderInput({
+          form: window_({ opensAt: new Date(NOW.getTime() + 2 * HOUR) }),
+        }),
+      ),
+    ).toEqual({ send: false, reason: "not_open" });
   });
 
   it("only ever nudges once", () => {
@@ -862,6 +916,314 @@ describe("runReminderJob", () => {
 
       expect(await previewTaskDigestCount(ctxOf(repos, sender), event(), NOW)).toBe(0);
     });
+
+    it("excludes a speaker who has declined (decisions.md D-068)", async () => {
+      const { repos } = fakeRepos({
+        ...baseSeed(),
+        eventSpeakers: [
+          { eventId: "event-1", userId: "user-1", confirmationStatus: "declined" },
+        ],
+      });
+      const { sender } = fakeSender();
+
+      expect(await previewTaskDigestCount(ctxOf(repos, sender), event(), NOW)).toBe(0);
+    });
+  });
+
+  describe("confirmation overrides (decisions.md D-068)", () => {
+    it("stops chasing a speaker the organizer marked as declined", async () => {
+      const { repos } = fakeRepos({
+        ...baseSeed(),
+        eventSpeakers: [
+          { eventId: "event-1", userId: "user-1", confirmationStatus: "declined" },
+        ],
+      });
+      const { sender, sent } = fakeSender();
+
+      const result = await runReminderJob({ repos, sender, now: MONDAY });
+
+      expect(sent).toHaveLength(0);
+      expect(result.remindersSent).toBe(0);
+      // Reported rather than silently dropped, so the admin summary explains
+      // the quiet run.
+      expect(result.skippedByReason.declined).toBe(1);
+    });
+
+    it("keeps digesting a speaker whose stored answer is a confirmation", async () => {
+      const { repos } = fakeRepos({
+        ...baseSeed(),
+        eventSpeakers: [
+          { eventId: "event-1", userId: "user-1", confirmationStatus: "confirmed" },
+        ],
+      });
+      const { sender, sent } = fakeSender();
+
+      await runReminderJob({ repos, sender, now: MONDAY });
+
+      expect(sent).toHaveLength(1);
+    });
+
+    it("keeps digesting a speaker with no stored answer at all", async () => {
+      const { repos } = fakeRepos(baseSeed());
+      const { sender, sent } = fakeSender();
+
+      await runReminderJob({ repos, sender, now: MONDAY });
+
+      expect(sent).toHaveLength(1);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runTaskDigestJob — the admin button's half of the job
+// ---------------------------------------------------------------------------
+
+describe("runTaskDigestJob", () => {
+  /** A seed with work for both halves: one open draft *and* one open task. */
+  const bothSeed = () => ({
+    events: [event()],
+    tasks: [task()],
+    assignments: [assignment()],
+    users: [user()],
+    forms: [form()],
+    submissions: [submission()],
+    submissionSpeakers: { "submission-1": ["user-1"] },
+  });
+
+  it("sends the digest and nothing else", async () => {
+    const { repos } = fakeRepos(bothSeed());
+    const { sender, sent } = fakeSender();
+
+    const result = await runTaskDigestJob({ repos, sender, now: NOW, manual: true });
+
+    // The draft's call closes in 12 hours, so `runReminderJob` would also mail
+    // a draft reminder here — the bug this split fixes.
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toContain("speaker checklist");
+    expect(result.remindersSent).toBe(1);
+  });
+
+  it("leaves the draft's one allowed nudge unspent", async () => {
+    const { repos } = fakeRepos(bothSeed());
+    const { sender, sent } = fakeSender();
+
+    await runTaskDigestJob({ repos, sender, now: NOW, manual: true });
+    // The cron then runs both halves — the draft reminder is still available.
+    await runReminderJob({ repos, sender, now: NOW });
+
+    expect(sent.filter((mail) => mail.text.includes("submit"))).not.toHaveLength(0);
+  });
+
+  it("still sends both halves from the cron's entry point", async () => {
+    const { repos } = fakeRepos(bothSeed());
+    const { sender, sent } = fakeSender();
+
+    await runReminderJob({ repos, sender, now: NOW, manual: true });
+
+    expect(sent).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reply-To — a reply has to reach a person, not the transport
+// ---------------------------------------------------------------------------
+
+describe("Reply-To", () => {
+  const seed = () => ({
+    events: [event()],
+    tasks: [task()],
+    assignments: [assignment()],
+    users: [user()],
+  });
+
+  it("replies to the admin who triggered the send", async () => {
+    const { repos } = fakeRepos(seed());
+    const { sender, sent } = fakeSender();
+
+    await sendTaskAssignmentNotification(
+      { repos, sender, appUrl: "https://greenroom.test", now: NOW, organizerEmail: "dana@example.test" },
+      { assignmentIds: ["assignment-1"] },
+    );
+
+    expect(sent[0].replyTo).toBe("dana@example.test");
+  });
+
+  it("falls back to the transport's From for automated mail with no acting admin", async () => {
+    const { repos } = fakeRepos(seed());
+    const { sender, sent } = fakeSender();
+
+    await runReminderJob({ repos, sender, now: MONDAY });
+
+    expect(sent[0].replyTo).toBe(sender.from.email);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendChangeRequest — what it promises about editing (decisions.md D-022(3))
+// ---------------------------------------------------------------------------
+
+describe("sendChangeRequest", () => {
+  const seed = (formOverrides: Partial<Form> = {}) => ({
+    events: [event()],
+    tasks: [],
+    assignments: [],
+    users: [user()],
+    forms: [form(formOverrides)],
+    submissions: [submission({ status: "submitted" })],
+    submissionSpeakers: { "submission-1": ["user-1"] },
+  });
+
+  const ctxOf = (repos: Repos, sender: EmailSender): CommsContext => ({
+    repos,
+    sender,
+    appUrl: "https://greenroom.test",
+    now: NOW,
+  });
+
+  it("offers the edit link while the call is still open", async () => {
+    const { repos } = fakeRepos(seed());
+    const { sender, sent } = fakeSender();
+
+    await sendChangeRequest(ctxOf(repos, sender), {
+      submissionId: "submission-1",
+      request: "Add the runtime you benchmarked against.",
+    });
+
+    expect(sent[0].text).toContain("https://greenroom.test");
+    expect(sent[0].text).toContain("ready to edit");
+  });
+
+  it("asks the speaker to reply once the call has closed", async () => {
+    // The proposal is read-only after close (D-022(3)), so telling them to
+    // "make the change yourself" would send them to a locked page.
+    const { repos } = fakeRepos(seed({ closesAt: new Date(NOW.getTime() - HOUR) }));
+    const { sender, sent } = fakeSender();
+
+    await sendChangeRequest(ctxOf(repos, sender), {
+      submissionId: "submission-1",
+      request: "Add the runtime you benchmarked against.",
+    });
+
+    expect(sent[0].text).toContain("reply to this email");
+    expect(sent[0].text).not.toContain("ready to edit");
+  });
+
+  it("asks the speaker to reply when the form was never published", async () => {
+    const { repos } = fakeRepos(seed({ isPublished: false }));
+    const { sender, sent } = fakeSender();
+
+    await sendChangeRequest(ctxOf(repos, sender), {
+      submissionId: "submission-1",
+      request: "Add the runtime you benchmarked against.",
+    });
+
+    expect(sent[0].text).toContain("reply to this email");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendTaskAssignmentNotification — the one-time notice (decisions.md D-039)
+// ---------------------------------------------------------------------------
+
+describe("sendTaskAssignmentNotification", () => {
+  const seed = () => ({
+    events: [event()],
+    tasks: [task(), task({ id: "task-2", title: "Sign the speaker agreement", dueAt: null })],
+    assignments: [assignment(), assignment({ id: "assignment-2", taskId: "task-2" })],
+    users: [user(), user({ id: "user-2", email: "sam@example.test", name: "Sam Okafor" })],
+  });
+
+  const ctxOf = (repos: Repos, sender: EmailSender): CommsContext => ({
+    repos,
+    sender,
+    appUrl: "https://greenroom.test",
+    now: NOW,
+  });
+
+  it("sends one email per speaker listing everything just assigned", async () => {
+    const { repos } = fakeRepos(seed());
+    const { sender, sent } = fakeSender();
+
+    const deliveries = await sendTaskAssignmentNotification(ctxOf(repos, sender), {
+      assignmentIds: ["assignment-1", "assignment-2"],
+    });
+
+    expect(deliveries).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe("priya@example.test");
+    expect(sent[0].text).toContain("Upload your headshot");
+    expect(sent[0].text).toContain("Sign the speaker agreement");
+  });
+
+  it("gives each speaker their own email", async () => {
+    const { repos } = fakeRepos({
+      ...seed(),
+      assignments: [
+        assignment(),
+        assignment({ id: "assignment-2", taskId: "task-2", speakerId: "user-2" }),
+      ],
+    });
+    const { sender, sent } = fakeSender();
+
+    await sendTaskAssignmentNotification(ctxOf(repos, sender), {
+      assignmentIds: ["assignment-1", "assignment-2"],
+    });
+
+    expect(sent.map((mail) => mail.to).sort()).toEqual(["priya@example.test", "sam@example.test"]);
+    expect(sent.find((mail) => mail.to === "sam@example.test")?.text).not.toContain(
+      "Upload your headshot",
+    );
+  });
+
+  it("logs against the assignment, under its own kind", async () => {
+    const { repos, emails } = fakeRepos(seed());
+    const { sender } = fakeSender();
+
+    await sendTaskAssignmentNotification(ctxOf(repos, sender), {
+      assignmentIds: ["assignment-1"],
+    });
+
+    expect(emails).toHaveLength(1);
+    expect(emails[0]).toMatchObject({
+      kind: "task_assigned",
+      relatedType: "task_assignment",
+      relatedId: "assignment-1",
+      status: "sent",
+    });
+  });
+
+  it("skips ids that name nothing, and sends nothing at all for an empty list", async () => {
+    const { repos } = fakeRepos(seed());
+    const { sender, sent } = fakeSender();
+
+    expect(
+      await sendTaskAssignmentNotification(ctxOf(repos, sender), { assignmentIds: [] }),
+    ).toEqual([]);
+    expect(
+      await sendTaskAssignmentNotification(ctxOf(repos, sender), {
+        assignmentIds: ["assignment-does-not-exist"],
+      }),
+    ).toEqual([]);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("records a failed send rather than throwing at the caller", async () => {
+    // The assignment write has already happened by the time this runs; a
+    // transport outage must not look like a failed assignment.
+    const { repos, emails } = fakeRepos(seed());
+    const sender: EmailSender = {
+      from: { name: "Greenroom", email: "hello@greenroom.test" },
+      async send() {
+        throw new Error("transport is down");
+      },
+    };
+
+    const deliveries = await sendTaskAssignmentNotification(ctxOf(repos, sender), {
+      assignmentIds: ["assignment-1"],
+    });
+
+    expect(deliveries[0].status).toBe("failed");
+    expect(emails[0]).toMatchObject({ kind: "task_assigned", status: "failed" });
   });
 });
 

@@ -45,6 +45,7 @@ const FULL: MergeData = {
   taskInstructions: "Square image, at least 800×800.",
   taskDueDate: "Friday, June 5, 2026",
   outstandingTasks: "- Upload your headshot\n- Complete the A/V form",
+  assignedTasks: "- Upload your headshot (due June 5)",
   roundName: "Initial Review",
   pendingScorecards: "3 scorecards",
   roundQueueUrl: "https://example.test/admin/aie-2026/rounds/round-1/score",
@@ -311,6 +312,41 @@ describe("the built-in templates", () => {
       decisionNote: undefined,
     });
     expect(withoutNote.text).not.toContain("A note from the review committee:");
+  });
+
+  it("tells the speaker what just landed on their checklist", () => {
+    // The one-time notice D-039 pairs with the weekly digest.
+    const rendered = renderCommsTemplate("task_assigned", FULL);
+    expect(getCommsTemplate("task_assigned").kind).toBe("task_assigned");
+    expect(rendered.subject).toContain("AI Engineer Summit 2026");
+    expect(rendered.text).toContain("- Upload your headshot (due June 5)");
+    expect(rendered.text).toContain("https://example.test/portal");
+  });
+
+  it("keeps the change request honest once the call has closed", () => {
+    // D-022(3) makes a submission read-only after close, so a blank
+    // `submissionUrl` is the sender's way of saying "no editing" — the copy
+    // must then ask for a reply rather than promise an edit link.
+    const open = renderCommsTemplate("change_request", FULL);
+    expect(open.text).toContain("https://example.test/portal/submissions/sub-1");
+    expect(open.text).toContain("ready to edit");
+
+    const closed = renderCommsTemplate("change_request", { ...FULL, submissionUrl: "" });
+    expect(closed.text).toContain("reply to this email");
+    expect(closed.text).not.toContain("ready to edit");
+    expect(closed.text).not.toMatch(/\{\{|\}\}/);
+  });
+
+  it("promises a committee read only when there is one (decisions.md D-041)", () => {
+    for (const id of ["draft_saved", "draft_reminder"] as const) {
+      const abstract = renderCommsTemplate(id, FULL);
+      const sessionType = renderCommsTemplate(id, { ...FULL, directToSession: "yes" });
+
+      expect(sessionType.text, id).not.toMatch(/committee|considered/i);
+      expect(sessionType.text, id).toMatch(/programme/i);
+      expect(abstract.text, id).toMatch(/committee|considered/i);
+      expect(sessionType.text, id).not.toMatch(/\{\{|\}\}/);
+    }
   });
 
   it("falls back to schedule-pending copy on an acceptance with no slot yet", () => {

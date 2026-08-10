@@ -22,7 +22,7 @@ import { ComposeForm } from "./compose-form";
 import { EmailLogTable } from "./email-log-table";
 import { InvitesPanel } from "./invites-panel";
 import { TemplateEditor } from "./template-editor";
-import type { InviteRow, LogRow, SpeakerOption, TemplateRow } from "./types";
+import type { InviteRow, LogRow, PersonOption, SpeakerOption, TemplateRow } from "./types";
 
 /**
  * Shell for the four things an organizer does with communications: read what
@@ -37,6 +37,7 @@ export function CommsHub({
   eventSlug,
   eventMergeData,
   logRows,
+  people,
   speakers,
   templates,
   invites,
@@ -48,6 +49,9 @@ export function CommsHub({
    * ComposeForm for how it overlays `templatePreviewData`. */
   eventMergeData: MergeData;
   logRows: LogRow[];
+  /** Everyone the log's recipient filter can name — reviewers included. */
+  people: PersonOption[];
+  /** Who the composer may write to: the speaker half of `people`. */
   speakers: SpeakerOption[];
   templates: TemplateRow[];
   invites: InviteRow[];
@@ -138,7 +142,7 @@ export function CommsHub({
       </AlertDialog>
 
       <TabsContent value="log">
-        <EmailLogTable rows={logRows} speakers={speakers} now={now} />
+        <EmailLogTable rows={logRows} people={people} now={now} />
       </TabsContent>
 
       <TabsContent value="compose">

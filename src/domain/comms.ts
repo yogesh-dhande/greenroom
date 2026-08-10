@@ -24,6 +24,7 @@ import type {
   Form,
   Room,
   Session,
+  SpeakerConfirmation,
   Submission,
   SubmissionDecision,
   SubmissionStatus,
@@ -31,6 +32,9 @@ import type {
   TaskAssignment,
   User,
 } from "@/db/entities";
+import { createsSessionsDirectly } from "@/db/entities";
+import { acceptsSubmissions, formWindowState, type FormWindow } from "@/domain/forms";
+import { resolveConfirmation } from "@/domain/onboarding";
 import { pendingReviewers, pendingScorecardsLabel } from "@/domain/round-reminders";
 import type { Repos } from "@/db/repos";
 import {
@@ -154,7 +158,11 @@ async function deliver(
       subject: message.subject,
       text: message.text,
       html: message.html,
-      replyTo: ctx.sender.from.email,
+      // A reply must reach a person. When an admin triggered this send their
+      // address is in context (`organizerEmail`), and it is the honest
+      // Reply-To; automated mail has no acting admin and falls back to the
+      // transport's From, which in production is a no-reply mailbox.
+      replyTo: ctx.organizerEmail ?? ctx.sender.from.email,
       calendar: extras.calendar,
       log,
     });
@@ -241,8 +249,37 @@ export function eventFields(ctx: CommsContext, event: Event): MergeData {
   };
 }
 
-function speakerFields(user: User): MergeData {
+/**
+ * Per-recipient fields. Exported for the same reason as `eventFields`: the
+ * composer's preview renders the person actually picked (decisions.md D-053),
+ * and it must use this exact derivation rather than its own idea of a name.
+ */
+export function speakerFields(user: User): MergeData {
   return { speakerName: displayName(user), speakerFirstName: firstName(user) };
+}
+
+/**
+ * Has the organizer explicitly marked this speaker as declined (D-068)?
+ *
+ * A stored override wins over the derivation, and `resolveConfirmation` is the
+ * one place that reading lives. `derived: true` is the right argument at every
+ * call site here — automated recipient sets are built from speakers who are on
+ * one of the event's sessions or hold work on it, so the derivation already
+ * says "confirmed" and the only thing that can turn it false is a stored
+ * "declined". Sending a session invite or a task digest to someone who has
+ * declined is the specific failure D-068 exists to make impossible.
+ */
+function hasDeclined(stored: SpeakerConfirmation | null | undefined): boolean {
+  return !resolveConfirmation(stored ?? null, true);
+}
+
+/** `userId → stored confirmation`, for the declined filter above. */
+async function confirmationsBySpeaker(
+  ctx: CommsContext,
+  eventId: string,
+): Promise<Map<string, SpeakerConfirmation | null>> {
+  const members = await ctx.repos.eventSpeakers.listByEvent(eventId);
+  return new Map(members.map((member) => [member.userId, member.confirmationStatus]));
 }
 
 function sessionFields(session: Session, event: Event, room: Room | null): MergeData {
@@ -277,11 +314,14 @@ export function outstandingTasksOf(
     .filter((assignment) => assignment.status !== "completed")
     .map((assignment) => tasksById.get(assignment.taskId))
     .filter((task): task is Task => Boolean(task))
-    .sort((a, b) => {
-      const dueA = a.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
-      const dueB = b.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
-      return dueA - dueB || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
-    });
+    .sort(byDeadline);
+}
+
+/** Soonest deadline first, undated work last, ties broken so runs match. */
+function byDeadline(a: Task, b: Task): number {
+  const dueA = a.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  const dueB = b.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  return dueA - dueB || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
 }
 
 /** "- Upload your headshot (due June 5)" per outstanding item, or "". */
@@ -435,6 +475,9 @@ async function draftMailContext(
       submissionTitle: submission.title,
       resumeUrl: resumeUrl(ctx, form.slug, submission.resumeToken),
       changeDueDate: form.closesAt ? formatDeadline(form.closesAt, event.timezone) : "",
+      // The copy's branch flag (decisions.md D-041): a session-type form has
+      // no review committee, so neither draft email may promise one.
+      directToSession: createsSessionsDirectly(form) ? "yes" : "",
     },
   };
 }
@@ -572,11 +615,19 @@ export async function sendChangeRequest(
   if (!submission) throw new Error(`Submission ${input.submissionId} not found`);
 
   const event = await requireEvent(ctx, submission.eventId);
-  const [speakers, overrides] = await Promise.all([
+  const [form, speakers, overrides] = await Promise.all([
+    ctx.repos.forms.getById(submission.formId),
     submissionSpeakers(ctx, submission.id),
     eventTemplateOverrides(ctx, event.id),
   ]);
   const recipients = input.includeCoSpeakers ? speakers : speakers.slice(0, 1);
+
+  // A submission is editable only while its form is open (decisions.md
+  // D-022(3): read-only after the call closes). With no link to offer, the
+  // template's `{{^submissionUrl}}` branch asks the speaker to reply instead —
+  // which reaches the organizer, since an admin-triggered send sets Reply-To
+  // to their address.
+  const editable = form ? acceptsSubmissions(form, nowOf(ctx)) : false;
 
   const results: CommsDelivery[] = [];
   for (const user of recipients) {
@@ -584,7 +635,7 @@ export async function sendChangeRequest(
       ...eventFields(ctx, event),
       ...speakerFields(user),
       submissionTitle: submission.title,
-      submissionUrl: submissionUrl(ctx, submission.id),
+      submissionUrl: editable ? submissionUrl(ctx, submission.id) : "",
       changeRequest: input.request,
       changeDueDate: input.dueAt ? formatDeadline(input.dueAt, event.timezone) : "",
     };
@@ -671,6 +722,98 @@ export async function sendTaskDigest(
   if (outstanding.length === 0) return [];
 
   return [await deliverTaskDigest(ctx, { event, user, tasks: outstanding, overrides })];
+}
+
+/**
+ * The one-time "something new is waiting on your checklist" note that
+ * decisions.md D-039 pairs with the weekly digest: sent when tasks are
+ * assigned, so a speaker hears about work the day it lands rather than on the
+ * next Monday.
+ *
+ * Takes assignment ids rather than (speaker, task) pairs because that is what
+ * the caller has just written, and it means one email per speaker however the
+ * assignment was made — accepting a submission that auto-assigns six tasks
+ * sends one mail listing six, not six mails. Ids that name nothing (deleted in
+ * the meantime, a task whose event has gone, a speaker with no user record)
+ * are skipped without an error: a notification is a courtesy, and failing the
+ * assignment that triggered it would be a worse outcome than a missing email.
+ */
+export async function sendTaskAssignmentNotification(
+  ctx: CommsContext,
+  input: { assignmentIds: string[] },
+): Promise<CommsDelivery[]> {
+  const ids = [...new Set(input.assignmentIds)];
+  if (ids.length === 0) return [];
+
+  const assignments = (
+    await Promise.all(ids.map((id) => ctx.repos.taskAssignments.getById(id)))
+  ).filter((assignment): assignment is TaskAssignment => Boolean(assignment));
+  if (assignments.length === 0) return [];
+
+  const tasks = await ctx.repos.tasks.listByIds([
+    ...new Set(assignments.map((assignment) => assignment.taskId)),
+  ]);
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+
+  // An assignment is about a (speaker, task) pair, but the email is about a
+  // speaker's work *on one event* — the same reason the digest keys on the
+  // pair. The event comes from the task, since assignments carry no event.
+  const groups = new Map<string, { eventId: string; speakerId: string; assignments: TaskAssignment[] }>();
+  for (const assignment of assignments) {
+    const task = tasksById.get(assignment.taskId);
+    if (!task) continue;
+    const key = `${task.eventId}:${assignment.speakerId}`;
+    const group = groups.get(key) ?? {
+      eventId: task.eventId,
+      speakerId: assignment.speakerId,
+      assignments: [],
+    };
+    group.assignments.push(assignment);
+    groups.set(key, group);
+  }
+
+  const results: CommsDelivery[] = [];
+  const eventCache = new Map<string, { event: Event; overrides: TemplateOverrideRow[] } | null>();
+
+  for (const group of groups.values()) {
+    let loaded = eventCache.get(group.eventId);
+    if (loaded === undefined) {
+      const event = await ctx.repos.events.getById(group.eventId);
+      loaded = event ? { event, overrides: await eventTemplateOverrides(ctx, event.id) } : null;
+      eventCache.set(group.eventId, loaded);
+    }
+    if (!loaded) continue;
+
+    const user = await ctx.repos.users.getById(group.speakerId);
+    if (!user) continue;
+
+    const assigned = group.assignments
+      .map((assignment) => tasksById.get(assignment.taskId))
+      .filter((task): task is Task => Boolean(task))
+      .sort(byDeadline);
+    if (assigned.length === 0) continue;
+
+    const data: MergeData = {
+      ...eventFields(ctx, loaded.event),
+      ...speakerFields(user),
+      // Only what was just handed to them — the standing checklist is the
+      // weekly digest's job, and repeating it here blurs what's new.
+      assignedTasks: formatOutstandingTasks(assigned, loaded.event.timezone),
+    };
+
+    results.push(
+      await deliver(ctx, user.email, renderForEvent("task_assigned", loaded.overrides, data), {
+        kind: "task_assigned",
+        relatedType: "task_assignment",
+        // One row for a mail about several assignments: the log links to the
+        // first of them, which is the one the speaker's list opens with.
+        relatedId: group.assignments
+          .map((assignment) => assignment.id)
+          .sort()[0],
+      }),
+    );
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -904,14 +1047,20 @@ export async function sendCalendarInvite(
     requireEvent(ctx, session.eventId),
     ctx.repos.sessions.listSpeakerIds(session.id),
   ]);
-  const [speakers, room, overrides] = await Promise.all([
+  const [speakers, room, overrides, confirmations] = await Promise.all([
     requireUsers(ctx, speakerIds),
     session.roomId ? ctx.repos.rooms.getById(session.roomId) : Promise.resolve(null),
     eventTemplateOverrides(ctx, event.id),
+    confirmationsBySpeaker(ctx, event.id),
   ]);
   if (speakers.length === 0) {
     throw new Error(`Session ${session.id} has no speakers to invite`);
   }
+  // A speaker who has declined (decisions.md D-068) still belongs to the
+  // session's ATTENDEE list — the others should see who was billed — but gets
+  // no invitation of their own. Everyone declining is not an error, just an
+  // invite with nobody left to send to.
+  const recipients = speakers.filter((user) => !hasDeclined(confirmations.get(user.id)));
 
   const method = input.method ?? "REQUEST";
   const location = [room?.name, event.location].filter(Boolean).join(", ") || null;
@@ -924,7 +1073,7 @@ export async function sendCalendarInvite(
   ];
 
   const results: CalendarDelivery[] = [];
-  for (const user of speakers) {
+  for (const user of recipients) {
     const sequence = input.sequence ?? (await nextSequenceFor(ctx, session.id, user.email));
     const invite = buildCalendarInvite({
       uid: calendarUidForSession(session.id, ctx.uidDomain),
@@ -1180,6 +1329,14 @@ export const REMINDER_SKIP_REASONS = [
   "cooldown",
   /** Draft reminders only: the form has already shut (D-034, D-038). */
   "closed",
+  /**
+   * Draft reminders only: the form isn't taking submissions yet — unpublished,
+   * or scheduled to open later. There's nothing the speaker could act on, and
+   * the copy would point at a form the public guards would turn them away from.
+   */
+  "not_open",
+  /** The speaker has said no (decisions.md D-068), so automated mail stops. */
+  "declined",
 ] as const;
 export type ReminderSkipReason = (typeof REMINDER_SKIP_REASONS)[number];
 
@@ -1191,6 +1348,8 @@ export const REMINDER_SKIP_LABELS: Record<ReminderSkipReason, string> = {
   not_due: "not due yet",
   cooldown: "already emailed recently",
   closed: "submissions already closed",
+  not_open: "form not open for submissions",
+  declined: "declined their invitation",
 };
 
 export type ReminderDecision = { send: true } | { send: false; reason: ReminderSkipReason };
@@ -1257,8 +1416,12 @@ export const DRAFT_REMINDER_WINDOW_HOURS = 48;
 export interface DraftReminderDecisionInput {
   /** The draft's current status — a proposal already sent needs no nudge. */
   status: SubmissionStatus;
-  /** The form's close time; null means the call never closes. */
-  closesAt: Date | null;
+  /**
+   * The form this draft belongs to (its publish/open/close window), or null if
+   * it has since been deleted. Not just `closesAt`: a close date on an
+   * unpublished or not-yet-open form is a deadline nobody can meet.
+   */
+  form: FormWindow | null;
   /** True once a `draft_reminder` for this draft has been logged. */
   alreadyReminded: boolean;
   now: Date;
@@ -1277,9 +1440,19 @@ export interface DraftReminderDecisionInput {
  */
 export function decideDraftReminder(input: DraftReminderDecisionInput): ReminderDecision {
   if (input.status !== "draft") return { send: false, reason: "completed" };
-  if (!input.closesAt) return { send: false, reason: "not_due" };
+  if (!input.form) return { send: false, reason: "not_due" };
 
-  const millisLeft = input.closesAt.getTime() - input.now.getTime();
+  // "Finish before it closes" is only true of a form the speaker can actually
+  // submit to — the same `acceptsSubmissions` gate the public form uses. An
+  // unpublished or scheduled form with a close date would otherwise generate a
+  // deadline email for a page that turns the speaker away.
+  const state = formWindowState(input.form, input.now);
+  if (state === "unpublished" || state === "scheduled") {
+    return { send: false, reason: "not_open" };
+  }
+  if (!input.form.closesAt) return { send: false, reason: "not_due" };
+
+  const millisLeft = input.form.closesAt.getTime() - input.now.getTime();
   if (millisLeft < 0) return { send: false, reason: "closed" };
   if (millisLeft > (input.windowHours ?? DRAFT_REMINDER_WINDOW_HOURS) * 60 * 60 * 1000) {
     return { send: false, reason: "not_due" };
@@ -1323,6 +1496,8 @@ function emptyResult(): RunReminderJobResult {
       not_due: 0,
       cooldown: 0,
       closed: 0,
+      not_open: 0,
+      declined: 0,
     },
     sentTo: [],
   };
@@ -1345,19 +1520,51 @@ function emptyResult(): RunReminderJobResult {
  * simply reported as skipped.
  */
 export async function runReminderJob(input: RunReminderJobInput): Promise<RunReminderJobResult> {
-  const ctx: CommsContext = { ...input, appUrl: input.appUrl ?? "http://localhost:3000" };
-  const now = nowOf(ctx);
-  const result = emptyResult();
-
-  const allEvents = await ctx.repos.events.listAll();
-  const events = input.eventId
-    ? allEvents.filter((event) => event.id === input.eventId)
-    : allEvents;
+  const { ctx, now, events, result } = await jobContext(input);
 
   await remindAboutDrafts(ctx, events, now, result);
   await sendTaskDigests(ctx, events, now, input.manual ?? false, result);
 
   return result;
+}
+
+/**
+ * The task digest on its own — what the admin's "Send task digest now" button
+ * runs. Kept separate from `runReminderJob` because the button names one thing
+ * and must do only that: sending draft-closing reminders as a side effect of a
+ * digest click surprises the admin and burns each draft's single allowed nudge
+ * (D-038) at a moment they didn't choose. The cron still runs both halves.
+ */
+export async function runTaskDigestJob(input: RunReminderJobInput): Promise<RunReminderJobResult> {
+  const { ctx, now, events, result } = await jobContext(input);
+  await sendTaskDigests(ctx, events, now, input.manual ?? false, result);
+  return result;
+}
+
+/** The draft-closing nudge on its own, for symmetry with the digest half. */
+export async function runDraftReminderJob(
+  input: RunReminderJobInput,
+): Promise<RunReminderJobResult> {
+  const { ctx, now, events, result } = await jobContext(input);
+  await remindAboutDrafts(ctx, events, now, result);
+  return result;
+}
+
+/** The setup every half shares: context defaults, clock, and event scope. */
+async function jobContext(input: RunReminderJobInput): Promise<{
+  ctx: CommsContext;
+  now: Date;
+  events: Event[];
+  result: RunReminderJobResult;
+}> {
+  const ctx: CommsContext = { ...input, appUrl: input.appUrl ?? "http://localhost:3000" };
+  const allEvents = await ctx.repos.events.listAll();
+  return {
+    ctx,
+    now: nowOf(ctx),
+    events: input.eventId ? allEvents.filter((event) => event.id === input.eventId) : allEvents,
+    result: emptyResult(),
+  };
 }
 
 /**
@@ -1403,14 +1610,23 @@ async function sendTaskDigests(
     }
 
     const speakerIds = [...bySpeaker.keys()];
-    const [lastDigestAt, speakers, overrides] = await Promise.all([
+    const [lastDigestAt, speakers, overrides, confirmations] = await Promise.all([
       lastDigestTimes(ctx, event.id, speakerIds),
       requireUsers(ctx, speakerIds),
       eventTemplateOverrides(ctx, event.id),
+      confirmationsBySpeaker(ctx, event.id),
     ]);
     const usersById = new Map(speakers.map((user) => [user.id, user]));
 
     for (const speakerId of speakerIds) {
+      // Someone who has told us they're not coming (decisions.md D-068) keeps
+      // their open tasks in the admin views but stops getting chased for them.
+      if (hasDeclined(confirmations.get(speakerId))) {
+        result.skipped += 1;
+        result.skippedByReason.declined += 1;
+        continue;
+      }
+
       const outstanding = outstandingTasksOf(bySpeaker.get(speakerId) ?? [], tasks);
       const decision = decideTaskDigest({
         outstandingCount: outstanding.length,
@@ -1477,11 +1693,15 @@ export async function previewTaskDigestCount(
   }
 
   const speakerIds = [...bySpeaker.keys()];
-  const lastDigestAt = await lastDigestTimes(ctx, event.id, speakerIds);
+  const [lastDigestAt, confirmations] = await Promise.all([
+    lastDigestTimes(ctx, event.id, speakerIds),
+    confirmationsBySpeaker(ctx, event.id),
+  ]);
   const cooldownMs = MANUAL_TASK_DIGEST_COOLDOWN_HOURS * HOUR_MS;
 
   let count = 0;
   for (const speakerId of speakerIds) {
+    if (hasDeclined(confirmations.get(speakerId))) continue;
     const outstanding = outstandingTasksOf(bySpeaker.get(speakerId) ?? [], tasks);
     const decision = decideTaskDigest({
       outstandingCount: outstanding.length,
@@ -1532,7 +1752,7 @@ async function remindAboutDrafts(
     const form = forms.get(draft.formId) ?? null;
     const decision = decideDraftReminder({
       status: draft.status,
-      closesAt: form?.closesAt ?? null,
+      form,
       alreadyReminded: reminded.has(draft.id),
       now,
     });

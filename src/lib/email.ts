@@ -397,10 +397,60 @@ export function resolveEmailIdentity(env: EmailEnv): EmailIdentity {
   };
 }
 
-/** SendGrid when an API key is configured, otherwise the dev transport. */
+/**
+ * Is this a real production deployment?
+ *
+ * `NODE_ENV` is the signal src/lib/auth.ts already gates its dev magic-link
+ * capture on, so the two halves of the sign-in path can't disagree about which
+ * mode they're in. Guarded for runtimes without `process` (a bare worker
+ * bundle, a browser), which are never production by this definition.
+ */
+export function isProductionRuntime(): boolean {
+  return typeof process !== "undefined" && process.env?.NODE_ENV === "production";
+}
+
+export const MISSING_API_KEY_ERROR =
+  "Email is not configured: SENDGRID_API_KEY is unset in a production deployment (decisions.md D-030). Nothing was sent.";
+
+/**
+ * The transport a misconfigured production deployment gets: it refuses every
+ * send instead of pretending.
+ *
+ * The dev transport only *prints* a message, which in production means magic
+ * links, decisions and invitations are all reported as sent and none of them
+ * arrive — the worst possible failure for mail nobody can check. Failing at
+ * `send` rather than at construction is deliberate: every caller already has
+ * an error path (`deliver` returns `status: "failed"`, the `email_log`
+ * decorator records the failure, sign-in surfaces the rejection), whereas
+ * throwing while wiring the context would take down pages that merely *render*
+ * merge data and would hide the real cause.
+ */
+export function createUnconfiguredEmailSender(from: EmailIdentity): EmailSender {
+  return {
+    from,
+    async send() {
+      throw new Error(MISSING_API_KEY_ERROR);
+    },
+  };
+}
+
+/**
+ * SendGrid when an API key is configured, otherwise the dev transport — except
+ * in production, where a missing key is a misconfiguration rather than a
+ * development convenience and gets the refusing transport above.
+ *
+ * The dev-transport branch is load-bearing outside production: the Playwright
+ * suite reads magic links out of the console/`.dev-emails` output, so this
+ * must keep behaving exactly as before whenever `NODE_ENV` isn't "production".
+ */
 export function getEmailSender(env: EmailEnv): EmailSender {
   const from = resolveEmailIdentity(env);
-  return env.SENDGRID_API_KEY
-    ? createSendGridEmailSender({ apiKey: env.SENDGRID_API_KEY, from })
-    : createDevEmailSender({ from });
+  if (env.SENDGRID_API_KEY) {
+    return createSendGridEmailSender({ apiKey: env.SENDGRID_API_KEY, from });
+  }
+  if (isProductionRuntime()) {
+    console.error(MISSING_API_KEY_ERROR);
+    return createUnconfiguredEmailSender(from);
+  }
+  return createDevEmailSender({ from });
 }

@@ -4,10 +4,13 @@ import {
   COMMS_TEMPLATES,
   COMMS_TEMPLATE_IDS,
   eventFields,
+  formatOutstandingTasks,
   INVITE_BLOCKER_LABELS,
   inviteBlocker,
+  outstandingTasksOf,
   previewTaskDigestCount,
   resolveCommsTemplate,
+  speakerFields,
   summarizeSessionInvites,
   TEMPLATE_MERGE_FIELDS,
 } from "@/domain/comms";
@@ -19,7 +22,8 @@ import { requireEventAdmin } from "@/lib/session";
 import { formatDay } from "@/components/date-format";
 import { PageHeader } from "@/components/page-header";
 import { CommsHub } from "./comms-hub";
-import type { InviteRow, LogRow, SpeakerOption, TemplateRow } from "./types";
+import { eventRecipientIds } from "./recipients";
+import type { InviteRow, LogRow, PersonOption, SpeakerOption, TemplateRow } from "./types";
 
 /**
  * The admin Communications hub (spec.md §7).
@@ -44,7 +48,7 @@ export default async function CommunicationsPage({
   const { user, event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const [sessions, rooms, submissions, assignments, overrides, rounds, tracks, eventSpeakers] = await Promise.all([
+  const [sessions, rooms, submissions, assignments, overrides, rounds, tracks, eventSpeakers, tasks] = await Promise.all([
     repos.sessions.listByEvent(event.id),
     repos.rooms.listByEvent(event.id),
     repos.submissions.listByEvent(event.id),
@@ -60,6 +64,9 @@ export default async function CommunicationsPage({
     // recipient picker's "confirmed" badge can't call a speaker confirmed
     // after they've been explicitly marked Declined.
     repos.eventSpeakers.listByEvent(event.id),
+    // The tasks behind those assignments, so each recipient's `{{outstandingTasks}}`
+    // preview is their real list (decisions.md D-053).
+    repos.tasks.listByEvent(event.id),
   ]);
 
   // --- who this event's mail concerns -------------------------------------
@@ -83,13 +90,20 @@ export default async function CommunicationsPage({
   const confirmationBySpeaker = new Map(
     eventSpeakers.map((member) => [member.userId, member.confirmationStatus]),
   );
+  // Who the composer may write to (see ./recipients.ts): the roster row is the
+  // only trace of a speaker added by hand or imported from a CSV (D-051), so
+  // leaving `event_speakers` out of this dropped them from the picker
+  // entirely. Reviewers are deliberately *not* here.
+  const recipientIds = eventRecipientIds({
+    sessionSpeakerIds: derivedConfirmedIds,
+    submissionSpeakerIds: submissionLinks.map((link) => link.userId),
+    assignedSpeakerIds: assignments.map((assignment) => assignment.speakerId),
+    rosterSpeakerIds: eventSpeakers.map((member) => member.userId),
+  });
+  // The log is about a wider set than the composer offers — reviewers get
+  // nudges too (D-050), and their rows still need a name against them.
   const personIds = [
-    ...new Set([
-      ...derivedConfirmedIds,
-      ...submissionLinks.map((link) => link.userId),
-      ...assignments.map((assignment) => assignment.speakerId),
-      ...roundAssignments.map((assignment) => assignment.reviewerId),
-    ]),
+    ...new Set([...recipientIds, ...roundAssignments.map((a) => a.reviewerId)]),
   ];
   const people = await repos.users.listByIds(personIds);
 
@@ -141,7 +155,12 @@ export default async function CommunicationsPage({
     trackNamesBySpeaker.set(link.userId, collected);
   }
   const pendingTasksBySpeaker = new Map<string, number>();
+  const assignmentsBySpeaker = new Map<string, typeof assignments>();
   for (const assignment of assignments) {
+    assignmentsBySpeaker.set(assignment.speakerId, [
+      ...(assignmentsBySpeaker.get(assignment.speakerId) ?? []),
+      assignment,
+    ]);
     if (assignment.status === "completed") continue;
     pendingTasksBySpeaker.set(
       assignment.speakerId,
@@ -150,6 +169,7 @@ export default async function CommunicationsPage({
   }
 
   const speakers: SpeakerOption[] = people
+    .filter((person) => recipientIds.has(person.id))
     .map((person) => ({
       id: person.id,
       name: person.name?.trim() || person.email,
@@ -167,6 +187,24 @@ export default async function CommunicationsPage({
         confirmationBySpeaker.get(person.id) ?? null,
         derivedConfirmedIds.has(person.id),
       ),
+      // Only the fields that vary by person: the composer lays these over the
+      // event-level ones rather than shipping a copy of them per recipient.
+      mergeData: {
+        ...speakerFields(person),
+        outstandingTasks: formatOutstandingTasks(
+          outstandingTasksOf(assignmentsBySpeaker.get(person.id) ?? [], tasks),
+          event.timezone,
+        ),
+      },
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  /** Everyone the log can put a name to, reviewers included. */
+  const logPeople: PersonOption[] = people
+    .map((person) => ({
+      id: person.id,
+      name: person.name?.trim() || person.email,
+      email: person.email,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -279,6 +317,7 @@ export default async function CommunicationsPage({
         eventSlug={eventSlug}
         eventMergeData={eventMergeData}
         logRows={logRows}
+        people={logPeople}
         speakers={speakers}
         templates={templates}
         invites={inviteRows}
