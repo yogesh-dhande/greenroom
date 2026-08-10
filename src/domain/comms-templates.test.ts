@@ -300,6 +300,9 @@ describe("the built-in templates", () => {
     expect(withoutRoom.text).not.toContain("Main Stage");
 
     const withRoom = renderCommsTemplate("calendar_invite", FULL);
+    expect(withRoom.subject).toBe(
+      "Your session at AI Engineer Summit 2026: Retrieval that survives production traffic",
+    );
     expect(withRoom.text).toContain("Room: Main Stage");
     expect(withRoom.text).not.toContain("to be confirmed");
   });

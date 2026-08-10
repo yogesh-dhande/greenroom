@@ -511,6 +511,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** The latest evaluator found two paths around D-061: the wider "All talks in your tracks" list printed names on unassigned rows, and a decided submission's speaker note addressed the author by name below an otherwise blinded proposal. Because the wider list has no round context, per-submission blinding cannot keep that mixed workspace safe. Event-wide reviewer blinding is conservative, easy to explain, and prevents identity from leaking through list rows, records, search values, or decision copy without hiding anything from organizers. Owner directive 2026-08-10: apply the remaining fixes from the latest evaluator triage. This closes Q10.
 
+## D-085: Use the `ics` package for calendar serialization — **accepted** (2026-08-10)
+
+**Decision:** Calendar invitations, public iCal feeds, personal itineraries, and empty unpublished feeds are serialized by the maintained `ics` npm package behind Greenroom's existing domain wrapper. The wrapper retains product and transport invariants that are not library policy: event-zone wall clocks become UTC instants before serialization; invite UIDs and sequences remain stable; invitation MIME methods remain explicit; and generated lines are normalized to RFC 5545's 75-octet limit. The package is imported only by server routes and communication code, never by client components.
+
+**Rationale:** The prior hand-written serializer was a bundle-budget exception: `ics` and its validation dependency were removed to stay under the free Workers plan's 3 MiB deployment cap. The paid plan raises that cap to 10 MiB, removing the reason for the exception and letting D-008's library-over-hand-rolling rule apply again. Existing unit and E2E coverage preserves the Gmail/Outlook/Apple-compatible behavior—UTC times, organizer/attendees, RSVP state, cancellation, stable updates, feeds, and itinerary downloads—while the package owns escaping and calendar component assembly.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

@@ -14,8 +14,8 @@ import { applyEmbedScheduleConfig, parseEmbedConfig } from "@/domain/embed-confi
  * METHOD:PUBLISH, one VEVENT per session, no organizer/attendees — exactly
  * the shape a "here is an event" feed needs, and UTC-instant `DTSTART`/`DTEND`
  * per that module's header comment (no VTIMEZONE, so UTC is the only
- * representation every client resolves identically — see docs/learnings.md
- * on the `ics` package's timezone story).
+ * representation every client resolves identically — Greenroom supplies the
+ * converted UTC instants to the package rather than asking it to model zones).
  *
  * Same repo-first 404 pattern as feed.json/route.ts and
  * ../itinerary.ics/route.ts. Deliberately unauthenticated and CORS-open.

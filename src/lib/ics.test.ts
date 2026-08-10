@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCalendarInvite,
+  buildEmptyCalendar,
   buildItineraryCalendar,
   calendarContentType,
   calendarUidForSession,
@@ -81,6 +82,10 @@ describe("buildCalendarInvite — REQUEST structure", () => {
     expect(values(invite.content, "METHOD")).toEqual(["REQUEST"]);
     expect(invite.contentType).toBe("text/calendar; charset=utf-8; method=REQUEST");
     expect(invite.filename.endsWith(".ics")).toBe(true);
+  });
+
+  it("uses the supplied send time as DTSTAMP", () => {
+    expect(values(invite.content, "DTSTAMP")).toEqual(["20260501T120000Z"]);
   });
 
   it("names an ORGANIZER and an attendee who is asked to reply", () => {
@@ -384,5 +389,27 @@ describe("buildItineraryCalendar", () => {
 
   it("refuses to build an empty calendar", () => {
     expect(() => build({ entries: [] })).toThrow(/no sessions/i);
+  });
+});
+
+describe("buildEmptyCalendar", () => {
+  it("returns a valid empty PUBLISH calendar for unpublished feeds", () => {
+    const calendar = buildEmptyCalendar({
+      calendarName: "AI Engineer Summit 2026 — schedule",
+      filenameBase: "ai-engineer-summit-2026-schedule",
+    });
+
+    expect(unfoldIcs(calendar.content)).toEqual(
+      expect.arrayContaining([
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:AI Engineer Summit 2026 — schedule",
+        "END:VCALENDAR",
+      ]),
+    );
+    expect(calendar.content).not.toContain("BEGIN:VEVENT");
+    expect(calendar.contentType).toBe("text/calendar; charset=utf-8");
+    expect(calendar.filename).toBe("ai-engineer-summit-2026-schedule.ics");
   });
 });

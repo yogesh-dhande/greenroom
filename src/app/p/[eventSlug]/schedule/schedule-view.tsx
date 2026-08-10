@@ -240,9 +240,10 @@ export function ScheduleView({
                   {/* A real download URL, not a client-built blob: the file
                       is written by src/app/p/[eventSlug]/itinerary.ics, so
                       iCalendar generation stays in src/lib/ics.ts (D-003)
-                      and the `ics` package stays out of this bundle. The
-                      toast is the only feedback a plain download link gives —
-                      the browser's own download UI is easy to miss. */}
+                      and the server-only `ics` package stays out of this
+                      bundle. The toast is the only feedback a plain download
+                      link gives — the browser's own download UI is easy to
+                      miss. */}
                   <Button
                     asChild
                     variant="outline"

@@ -14,12 +14,12 @@ import { getRepos } from "@/lib/db";
  * server-side itinerary state, and the resulting URL is shareable.
  *
  * Building the file here rather than in the browser keeps src/lib/ics.ts the
- * only module that knows how to write iCalendar (decisions.md D-003, D-008)
- * and keeps the `ics` package out of the public page's JS bundle. Ids are
- * resolved against the *public* schedule, so an id for a cancelled, draft or
- * other event's session simply doesn't come back — the URL can't be used to
- * read anything the page wouldn't already show. Deliberately unauthenticated,
- * like the rest of `/p/[eventSlug]`.
+ * only module that knows how to write iCalendar (decisions.md D-003, D-085)
+ * and keeps the server-only `ics` package out of the public page's JS bundle.
+ * Ids are resolved against the *public* schedule, so an id for a cancelled,
+ * draft or other event's session simply doesn't come back — the URL can't be
+ * used to read anything the page wouldn't already show. Deliberately
+ * unauthenticated, like the rest of `/p/[eventSlug]`.
  */
 export async function GET(
   request: Request,

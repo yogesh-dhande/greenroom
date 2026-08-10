@@ -1,12 +1,10 @@
 /**
- * iCalendar (.ics) generation — serialized by hand in this module (decisions.md
- * D-003, D-008). This used to wrap the `ics` npm package, but that package
- * (plus the `yup` dependency it drags in) cost ~17 KiB of gzipped Worker
- * bundle we could not afford under the free plan's 3 MiB cap, and the exact
- * bytes we emit are load-bearing for client compatibility anyway — better to
- * own them. `inspectIcs()` below and the unit tests check the output against
- * the RFCs, so the swap was made under an existing safety net. Domain code
- * calls `buildCalendarInvite()` and never sees serialization details.
+ * iCalendar (.ics) generation through the `ics` package (decisions.md D-003,
+ * D-008, D-085). Greenroom's wrapper owns the product invariants — UTC
+ * instants, stable UIDs, monotonic sequences, iTIP methods, and MIME metadata
+ * — while the package owns iCalendar escaping and component serialization.
+ * `inspectIcs()` below and the unit tests independently check the generated
+ * output against the RFCs and our client-compatibility requirements.
  *
  * Design notes, all of which are load-bearing for "the invite actually works
  * in Gmail, Outlook and Apple Calendar":
@@ -35,6 +33,7 @@
  * addressed to ORGANIZER, so src/domain/comms.ts always passes the sender
  * identity through.
  */
+import { createEvents, type EventAttributes, type HeaderAttributes } from "ics";
 import {
   formatEventWhen,
   wallClockDurationMinutes,
@@ -123,29 +122,6 @@ export function calendarUidForSession(sessionId: string, domain = "greenroom.dev
   return `session-${sessionId}@${domain}`;
 }
 
-/** "20260616T170000Z" — the UTC date-time form of RFC 5545 §3.3.5. */
-function formatStamp(instant: Date): string {
-  return `${instant.toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`;
-}
-
-/** TEXT value escaping per RFC 5545 §3.3.11: backslash first, then the rest. */
-function escapeText(value: string): string {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/;/g, "\\;")
-    .replace(/,/g, "\\,")
-    .replace(/\r?\n/g, "\\n");
-}
-
-/**
- * Parameter values (e.g. `CN=`) can't be backslash-escaped; RFC 5545 §3.2
- * quotes them instead, and DQUOTE itself is not representable — drop it.
- */
-function quoteParam(value: string): string {
-  const cleaned = value.replace(/"/g, "").replace(/\r?\n/g, " ");
-  return /[;:,]/.test(cleaned) ? `"${cleaned}"` : cleaned;
-}
-
 const encoder = new TextEncoder();
 
 /**
@@ -172,25 +148,33 @@ function foldLine(line: string): string {
   return parts.join("\r\n");
 }
 
-/** One CRLF-delimited iCalendar object from unfolded content lines. */
-function serialize(unfoldedLines: string[]): string {
-  return `${unfoldedLines.map(foldLine).join("\r\n")}\r\n`;
+/**
+ * `ics` folds by Unicode code points, while RFC 5545 limits physical lines by
+ * octets. Re-fold its already-escaped output so non-ASCII names also stay
+ * within 75 bytes. This is transport normalization, not field serialization.
+ */
+function refoldByOctets(content: string): string {
+  const lines = content
+    .replace(/\r\n[ \t]/g, "")
+    .split("\r\n")
+    .filter(Boolean);
+  return `${lines.map(foldLine).join("\r\n")}\r\n`;
 }
 
-function organizerLine(person: CalendarPerson): string {
-  const cn = person.name ? `;CN=${quoteParam(person.name)}` : "";
-  return `ORGANIZER${cn}:mailto:${person.email}`;
-}
+/** `timestamp` is supported by the package runtime/schema but omitted from
+ * its EventAttributes declaration. It sets DTSTAMP, which our deterministic
+ * fixtures and communication log timestamps require. */
+type IcsEventAttributes = EventAttributes & { timestamp?: number };
 
-function attendeeLine(attendee: CalendarAttendee, method: CalendarMethod): string {
-  const params = [
-    `RSVP=${(attendee.rsvp ?? method === "REQUEST") ? "TRUE" : "FALSE"}`,
-    "CUTYPE=INDIVIDUAL",
-    `PARTSTAT=${attendee.partstat ?? (method === "CANCEL" ? "ACCEPTED" : "NEEDS-ACTION")}`,
-    `ROLE=${attendee.role ?? "REQ-PARTICIPANT"}`,
-    ...(attendee.name ? [`CN=${quoteParam(attendee.name)}`] : []),
-  ];
-  return `ATTENDEE;${params.join(";")}:mailto:${attendee.email}`;
+function serializeWithIcs(
+  events: IcsEventAttributes[],
+  header: HeaderAttributes,
+): string {
+  const { error, value } = createEvents(events as EventAttributes[], header);
+  if (error || !value) {
+    throw new Error(`Unable to generate iCalendar: ${error?.message ?? "empty package output"}`);
+  }
+  return refoldByOctets(value);
 }
 
 /** Builds the .ics object for one session invite. */
@@ -202,31 +186,46 @@ export function buildCalendarInvite(input: CalendarInviteInput): CalendarInvite 
   const when = formatEventWhen(input.day, input.startTime, input.endTime, input.timeZone);
   const descriptionParts = [input.description?.trim(), when].filter(Boolean) as string[];
 
-  const content = serialize([
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    `PRODID:${input.productId ?? DEFAULT_PRODUCT_ID}`,
-    "CALSCALE:GREGORIAN",
-    `METHOD:${input.method}`,
-    "BEGIN:VEVENT",
-    `UID:${input.uid}`,
-    `SEQUENCE:${input.sequence}`,
-    `DTSTAMP:${formatStamp(input.stamp ?? new Date())}`,
-    `DTSTART:${formatStamp(startsAt)}`,
-    `DTEND:${formatStamp(endsAt)}`,
-    `SUMMARY:${escapeText(input.title)}`,
-    `DESCRIPTION:${escapeText(descriptionParts.join("\n\n"))}`,
-    ...(input.location ? [`LOCATION:${escapeText(input.location)}`] : []),
-    ...(input.url ? [`URL:${input.url}`] : []),
-    `STATUS:${input.status ?? (input.method === "CANCEL" ? "CANCELLED" : "CONFIRMED")}`,
-    // Outlook reads free/busy from the X- property rather than TRANSP.
-    "TRANSP:OPAQUE",
-    "X-MICROSOFT-CDO-BUSYSTATUS:BUSY",
-    organizerLine(input.organizer),
-    ...input.attendees.map((attendee) => attendeeLine(attendee, input.method)),
-    "END:VEVENT",
-    "END:VCALENDAR",
-  ]);
+  const content = serializeWithIcs(
+    [
+      {
+        uid: input.uid,
+        sequence: input.sequence,
+        timestamp: (input.stamp ?? new Date()).getTime(),
+        start: startsAt.getTime(),
+        end: endsAt.getTime(),
+        startInputType: "utc",
+        startOutputType: "utc",
+        endInputType: "utc",
+        endOutputType: "utc",
+        title: input.title,
+        description: descriptionParts.join("\n\n"),
+        location: input.location ?? undefined,
+        url: input.url ?? undefined,
+        status: input.status ?? (input.method === "CANCEL" ? "CANCELLED" : "CONFIRMED"),
+        // Outlook reads free/busy from the X- property rather than TRANSP.
+        busyStatus: "BUSY",
+        transp: "OPAQUE",
+        organizer: {
+          name: input.organizer.name ?? undefined,
+          email: input.organizer.email,
+        },
+        attendees: input.attendees.map((attendee) => ({
+          name: attendee.name ?? undefined,
+          email: attendee.email,
+          rsvp: attendee.rsvp ?? input.method === "REQUEST",
+          cutype: "INDIVIDUAL",
+          partstat:
+            attendee.partstat ?? (input.method === "CANCEL" ? "ACCEPTED" : "NEEDS-ACTION"),
+          role: attendee.role ?? "REQ-PARTICIPANT",
+        })),
+      },
+    ],
+    {
+      productId: input.productId ?? DEFAULT_PRODUCT_ID,
+      method: input.method,
+    },
+  );
 
   return {
     uid: input.uid,
@@ -250,7 +249,7 @@ export function buildCalendarInvite(input: CalendarInviteInput): CalendarInvite 
 // attendee list, and METHOD:PUBLISH — RFC 5546 §3.2.1's "here is an event".
 // Sharing the invite builder would mean threading "not a request, no
 // organizer, no attendees" through every field of it, so this is a second
-// entry point over the same serializer instead (decisions.md D-003, D-008).
+// entry point over the same package-backed serializer instead (D-003, D-085).
 // ---------------------------------------------------------------------------
 
 export interface ItineraryEntry {
@@ -318,8 +317,8 @@ export function buildItineraryCalendar(input: ItineraryCalendarInput): Itinerary
     throw new Error("Cannot build an itinerary calendar with no sessions");
   }
 
-  const stamp = formatStamp(input.stamp ?? new Date());
-  const events = input.entries.flatMap((entry) => {
+  const timestamp = (input.stamp ?? new Date()).getTime();
+  const events: IcsEventAttributes[] = input.entries.map((entry) => {
     const startsAt = zonedWallClockToInstant(entry.day, entry.startTime, input.timeZone);
     const endsAt = new Date(
       startsAt.getTime() + wallClockDurationMinutes(entry.startTime, entry.endTime) * 60_000,
@@ -335,20 +334,22 @@ export function buildItineraryCalendar(input: ItineraryCalendarInput): Itinerary
     ]
       .filter(Boolean)
       .join("\n\n");
-    return [
-      "BEGIN:VEVENT",
-      `UID:${itineraryUidForSession(entry.sessionId)}`,
-      `DTSTAMP:${stamp}`,
-      `DTSTART:${formatStamp(startsAt)}`,
-      `DTEND:${formatStamp(endsAt)}`,
-      `SUMMARY:${escapeText(entry.title)}`,
-      `DESCRIPTION:${escapeText(description)}`,
-      ...(entry.location ? [`LOCATION:${escapeText(entry.location)}`] : []),
-      "STATUS:CONFIRMED",
-      "TRANSP:OPAQUE",
-      "X-MICROSOFT-CDO-BUSYSTATUS:BUSY",
-      "END:VEVENT",
-    ];
+    return {
+      uid: itineraryUidForSession(entry.sessionId),
+      timestamp,
+      start: startsAt.getTime(),
+      end: endsAt.getTime(),
+      startInputType: "utc",
+      startOutputType: "utc",
+      endInputType: "utc",
+      endOutputType: "utc",
+      title: entry.title,
+      description,
+      location: entry.location ?? undefined,
+      status: "CONFIRMED",
+      busyStatus: "BUSY",
+      transp: "OPAQUE",
+    };
   });
 
   return wrapCalendar(input, events);
@@ -368,18 +369,13 @@ export function buildEmptyCalendar(
 
 function wrapCalendar(
   input: Omit<ItineraryCalendarInput, "entries" | "timeZone">,
-  events: string[],
+  events: IcsEventAttributes[],
 ): ItineraryCalendar {
-  const content = serialize([
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    `PRODID:${input.productId ?? ITINERARY_PRODUCT_ID}`,
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    ...(input.calendarName ? [`X-WR-CALNAME:${escapeText(input.calendarName)}`] : []),
-    ...events,
-    "END:VCALENDAR",
-  ]);
+  const content = serializeWithIcs(events, {
+    productId: input.productId ?? ITINERARY_PRODUCT_ID,
+    method: "PUBLISH",
+    calName: input.calendarName,
+  });
 
   return {
     content,
