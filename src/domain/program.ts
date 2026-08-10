@@ -96,6 +96,13 @@ export interface ProgramPublishPlan {
   toPublish: PublishPlanSession[];
   /** Scheduled sessions that stay off the public schedule, and why. */
   heldBack: HeldBackSession[];
+  /**
+   * Publicly visible sessions that aren't on the agenda yet. They carry no
+   * time, so they never reach the schedule — but the speaker gallery lists
+   * accepted talks whether or not they have a slot (`gallerySessions`), so
+   * publishing with an empty agenda still announces these speakers.
+   */
+  unscheduledPublic: PublishPlanSession[];
   /** `toPublish.length + heldBack.length` — every session currently placed
    * on the agenda, published or not (mirrors the Overview "Scheduled
    * sessions" stat, so the two numbers can't quietly disagree). */
@@ -136,7 +143,11 @@ export function planProgramPublish<
     }
   }
 
-  return { toPublish, heldBack, totalScheduled: scheduled.length };
+  const unscheduledPublic = sessions
+    .filter((session) => !isPlacedOnAgenda(session) && isPubliclyVisible(session))
+    .map((session) => ({ id: session.id, title: session.title }));
+
+  return { toPublish, heldBack, unscheduledPublic, totalScheduled: scheduled.length };
 }
 
 /**
@@ -147,17 +158,31 @@ export function planProgramPublish<
  * without a second trip to the agenda to find out which one it was.
  */
 export function describeProgramPublishPlan(plan: ProgramPublishPlan): string {
-  const { toPublish, heldBack, totalScheduled } = plan;
+  const { toPublish, heldBack, unscheduledPublic, totalScheduled } = plan;
+  const plural = (count: number) => (count === 1 ? "" : "s");
+
   if (totalScheduled === 0) {
-    return "No sessions are scheduled yet - publishing now announces an empty program.";
+    // "Empty program" is only true when nothing at all goes public: an
+    // approved session with no slot still appears in the speaker gallery
+    // (`gallerySessions`), so saying otherwise talks an organizer out of a
+    // lineup announcement they are in fact making.
+    if (unscheduledPublic.length === 0) {
+      return "No sessions are scheduled yet - publishing now announces an empty program.";
+    }
+    return (
+      `No sessions are scheduled yet - publishing announces ${unscheduledPublic.length} accepted ` +
+      `session${plural(unscheduledPublic.length)} in the speaker gallery, with times to be announced.`
+    );
   }
   if (heldBack.length === 0) {
-    return `Publishing all ${totalScheduled} scheduled session${totalScheduled === 1 ? "" : "s"}.`;
+    return `Publishing all ${totalScheduled} scheduled session${plural(totalScheduled)}.`;
   }
-  const titles = heldBack.map((s) => s.title).join(", ");
+  // Each held-back session carries its own reason (cancelled vs. awaiting
+  // content sign-off) — a single blanket reason misdescribes the other case.
+  const reasons = heldBack.map((s) => `${s.title} (${s.reason})`).join(", ");
   return (
     `Publishing ${toPublish.length} of ${totalScheduled} scheduled session` +
-    `${totalScheduled === 1 ? "" : "s"} - ${heldBack.length} held back awaiting content sign-off: ${titles}`
+    `${plural(totalScheduled)} - ${heldBack.length} held back: ${reasons}`
   );
 }
 
@@ -793,6 +818,10 @@ export function scheduleFeedEntries(days: ScheduleDay[]): ItineraryEntry[] {
     sessionId: session.id,
     title: session.title,
     description: session.description,
+    // spec.md "Public program depth": feeds carry speaker name, title and
+    // company, in the same "Name — Title, Company" form the cards and the
+    // detail view render.
+    speakers: session.speakers.map(speakerAffiliationLabel),
     location: session.roomName,
     day: session.day,
     startTime: session.startTime,

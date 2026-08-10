@@ -396,11 +396,13 @@ function SessionCard({
             {session.trackName}
           </span>
         )}
-        {session.roomName && (
-          <Badge variant="outline" className="text-muted-foreground">
-            {session.roomName}
-          </Badge>
-        )}
+        {/* A room that isn't assigned yet is said out loud, matching the
+            detail dialog's "To be announced" and the gallery's "time to be
+            announced" — the card used to just drop the badge, so an attendee
+            couldn't tell an unassigned room from one nobody printed. */}
+        <Badge variant="outline" className="text-muted-foreground">
+          {session.roomName ?? "Room to be announced"}
+        </Badge>
         {/* Surfaces what "Filter by format" is filtering on — previously
             only visible inside the session detail dialog (eval finding). */}
         <Badge variant="outline" className="text-muted-foreground">

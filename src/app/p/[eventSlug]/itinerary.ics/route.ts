@@ -1,5 +1,5 @@
 import { getSchedule } from "../data";
-import { itinerarySessions } from "@/domain/program";
+import { itinerarySessions, speakerAffiliationLabel } from "@/domain/program";
 import { buildItineraryCalendar } from "@/lib/ics";
 import { getRepos } from "@/lib/db";
 
@@ -51,6 +51,9 @@ export async function GET(
       sessionId: session.id,
       title: session.title,
       description: session.description,
+      // Same speaker line as the public feed (spec.md "Public program depth":
+      // session surfaces, feeds included, carry name/title/company).
+      speakers: session.speakers.map(speakerAffiliationLabel),
       location: session.roomName,
       day: session.day,
       startTime: session.startTime,

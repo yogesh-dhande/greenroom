@@ -260,6 +260,15 @@ export interface ItineraryEntry {
   sessionId: string;
   title: string;
   description?: string | null;
+  /**
+   * Speaker labels, already rendered as "Name — Title, Company" by the caller
+   * (src/domain/program.ts `speakerAffiliationLabel`), listed in the VEVENT
+   * DESCRIPTION: spec.md requires every session surface — cards, detail view,
+   * feeds — to carry speaker name, title and company. Strings rather than
+   * person objects so this module stays a serializer and the one affiliation
+   * format lives in the domain.
+   */
+  speakers?: string[];
   /** Room name, or null while the room is still unassigned. */
   location?: string | null;
   /** "YYYY-MM-DD" in `timeZone`. */
@@ -316,6 +325,16 @@ export function buildItineraryCalendar(input: ItineraryCalendarInput): Itinerary
       startsAt.getTime() + wallClockDurationMinutes(entry.startTime, entry.endTime) * 60_000,
     );
     const when = formatEventWhen(entry.day, entry.startTime, entry.endTime, input.timeZone);
+    const speakers = (entry.speakers ?? []).filter((label) => label.trim() !== "");
+    const description = [
+      entry.description?.trim(),
+      speakers.length > 0
+        ? `${speakers.length === 1 ? "Speaker" : "Speakers"}:\n${speakers.join("\n")}`
+        : null,
+      when,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     return [
       "BEGIN:VEVENT",
       `UID:${itineraryUidForSession(entry.sessionId)}`,
@@ -323,7 +342,7 @@ export function buildItineraryCalendar(input: ItineraryCalendarInput): Itinerary
       `DTSTART:${formatStamp(startsAt)}`,
       `DTEND:${formatStamp(endsAt)}`,
       `SUMMARY:${escapeText(entry.title)}`,
-      `DESCRIPTION:${escapeText([entry.description?.trim(), when].filter(Boolean).join("\n\n"))}`,
+      `DESCRIPTION:${escapeText(description)}`,
       ...(entry.location ? [`LOCATION:${escapeText(entry.location)}`] : []),
       "STATUS:CONFIRMED",
       "TRANSP:OPAQUE",

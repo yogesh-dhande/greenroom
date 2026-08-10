@@ -2,6 +2,7 @@ import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Event, Form } from "@/db/entities";
 import { formWindowState } from "@/domain/forms";
+import { resolveConfirmation } from "@/domain/onboarding";
 import {
   buildGallery,
   buildSchedule,
@@ -39,16 +40,36 @@ export const getPublicEvent = cache(
 );
 
 /** Every session for the event, with its speaker ids attached — the shape
- * src/domain/program.ts's grouping functions consume. */
+ * src/domain/program.ts's grouping functions consume. Speakers the organizer
+ * has marked declined are dropped here, so every public surface built on this
+ * loader (schedule, gallery, embeds, JSON/iCal feeds) honours the override. */
 const getSessionsWithSpeakers = cache(
   async (eventId: string): Promise<SessionWithSpeakers[]> => {
     const repos = await getRepos();
-    const sessions = await repos.sessions.listByEvent(eventId);
+    const [sessions, members] = await Promise.all([
+      repos.sessions.listByEvent(eventId),
+      repos.eventSpeakers.listByEvent(eventId),
+    ]);
     const links = await repos.sessions.listSpeakersBySessionIds(
       sessions.map((s) => s.id),
     );
+
+    // decisions.md D-068: a stored confirmation beats the derivation on every
+    // surface, and being linked to a session is exactly what the derivation
+    // reads as "confirmed" — so the override that matters publicly is
+    // `declined`: a speaker who dropped out while still attached to a session
+    // the organizer hasn't unpicked yet. They leave the lineup and the session
+    // bylines; the session itself still renders, just without that name (and
+    // with no speaker row at all if they were the only one).
+    const declinedSpeakerIds = new Set(
+      members
+        .filter((member) => !resolveConfirmation(member.confirmationStatus, true))
+        .map((member) => member.userId),
+    );
+
     const speakerIdsBySession = new Map<string, string[]>();
     for (const link of links) {
+      if (declinedSpeakerIds.has(link.userId)) continue;
       speakerIdsBySession.set(link.sessionId, [
         ...(speakerIdsBySession.get(link.sessionId) ?? []),
         link.userId,

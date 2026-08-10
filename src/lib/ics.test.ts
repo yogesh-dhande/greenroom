@@ -309,6 +309,62 @@ describe("buildItineraryCalendar", () => {
     expect(values(content, "DESCRIPTION")[1]).toContain("2:00 PM");
   });
 
+  // spec.md "Public program depth": every session surface, feeds included,
+  // carries speaker name/title/company. The labels arrive pre-rendered from
+  // src/domain/program.ts `speakerAffiliationLabel`.
+  it("lists the session's speakers in the description", () => {
+    const { content } = build({
+      entries: [
+        {
+          ...entries[0],
+          speakers: ["Priya Raman — Staff Engineer, Northwind", "Ada Lovelace"],
+        },
+      ],
+    });
+
+    const [description] = values(content, "DESCRIPTION");
+    // TEXT escaping (RFC 5545 §3.3.11) survives: the affiliation's comma and
+    // the line breaks between speakers are escape sequences, never raw.
+    expect(description).toContain(
+      "Speakers:\\nPriya Raman — Staff Engineer\\, Northwind\\nAda Lovelace",
+    );
+    expect(description).not.toMatch(/[\r\n]/);
+    // The abstract and the local time still bracket it.
+    expect(description).toContain("A practical pattern for retrieval");
+    expect(description).toContain("10:00 AM");
+  });
+
+  it("uses the singular heading for a one-speaker session", () => {
+    const { content } = build({
+      entries: [{ ...entries[0], speakers: ["Ada Lovelace"] }],
+    });
+    expect(values(content, "DESCRIPTION")[0]).toContain("Speaker:\\nAda Lovelace");
+  });
+
+  it("says nothing about speakers when a session has none", () => {
+    const { content } = build({ entries: [{ ...entries[0], speakers: [] }] });
+    expect(values(content, "DESCRIPTION")[0]).not.toContain("Speaker");
+  });
+
+  it("folds a long speaker list without splitting a code point", () => {
+    const { content } = build({
+      entries: [
+        {
+          ...entries[0],
+          speakers: [
+            "Ana Sofía Fernández — Principal Researcher, Instituto Nacional de Investigación",
+            "Priya Raman — Staff Engineer, Northwind Logistics International",
+          ],
+        },
+      ],
+    });
+
+    for (const line of content.split("\r\n")) {
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    }
+    expect(values(content, "DESCRIPTION")[0]).toContain("Ana Sofía Fernández");
+  });
+
   it("uses itinerary UIDs, so importing never collides with a speaker invite", () => {
     const { content } = build();
 

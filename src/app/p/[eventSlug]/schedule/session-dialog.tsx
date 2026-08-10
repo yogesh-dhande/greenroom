@@ -83,9 +83,11 @@ export function SessionDialog({
               <DetailRow label="Room">
                 {session.roomName ?? "To be announced"}
               </DetailRow>
-              <DetailRow label="Track">
-                {session.trackName ?? "General"}
-              </DetailRow>
+              {/* No track is no track — an unfiled session used to render as
+                  "General", a track that exists nowhere in the event. */}
+              {session.trackName && (
+                <DetailRow label="Track">{session.trackName}</DetailRow>
+              )}
               <DetailRow label="Format">{session.formatLabel}</DetailRow>
             </dl>
 

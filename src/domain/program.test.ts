@@ -219,7 +219,39 @@ describe("planProgramPublish (publish-time held-back visibility)", () => {
       endTime: null,
     });
     const plan = planProgramPublish([unscheduled]);
-    expect(plan).toEqual({ toPublish: [], heldBack: [], totalScheduled: 0 });
+    expect(plan).toEqual({
+      toPublish: [],
+      heldBack: [],
+      unscheduledPublic: [],
+      totalScheduled: 0,
+    });
+  });
+
+  // An approved session with no slot never reaches the schedule, but the
+  // speaker gallery announces it (`gallerySessions`) — the plan has to know,
+  // or "publishing announces an empty program" is a lie.
+  it("reports approved-but-unscheduled sessions separately from the agenda", () => {
+    const parked = session({
+      id: "a",
+      title: "Invited keynote",
+      day: null,
+      startTime: null,
+      endTime: null,
+    });
+    const parkedUnapproved = session({
+      id: "b",
+      contentStatus: "in_review",
+      day: null,
+      startTime: null,
+      endTime: null,
+    });
+    const scheduled = session({ id: "c" });
+
+    const plan = planProgramPublish([parked, parkedUnapproved, scheduled]);
+
+    expect(plan.totalScheduled).toBe(1);
+    expect(plan.toPublish.map((s) => s.id)).toEqual(["c"]);
+    expect(plan.unscheduledPublic).toEqual([{ id: "a", title: "Invited keynote" }]);
   });
 
   it("holds nothing back and reports every scheduled session when all are approved", () => {
@@ -233,7 +265,7 @@ describe("planProgramPublish (publish-time held-back visibility)", () => {
 });
 
 describe("describeProgramPublishPlan", () => {
-  it("names the held-back session by title, matching the required copy", () => {
+  it("names the held-back session by title, with the reason it was held back", () => {
     const plan = planProgramPublish([
       session({ id: "a" }),
       session({ id: "b" }),
@@ -241,8 +273,8 @@ describe("describeProgramPublishPlan", () => {
       session({ id: "d", title: "Lightning round: shipping evals", contentStatus: "in_review" }),
     ]);
     expect(describeProgramPublishPlan(plan)).toBe(
-      "Publishing 3 of 4 scheduled sessions - 1 held back awaiting content sign-off: " +
-        "Lightning round: shipping evals",
+      "Publishing 3 of 4 scheduled sessions - 1 held back: " +
+        'Lightning round: shipping evals (content status is "In review" - awaiting sign-off)',
     );
   });
 
@@ -253,8 +285,22 @@ describe("describeProgramPublishPlan", () => {
       session({ id: "c", title: "In-review talk", contentStatus: "in_review" }),
     ]);
     expect(describeProgramPublishPlan(plan)).toBe(
-      "Publishing 1 of 3 scheduled sessions - 2 held back awaiting content sign-off: " +
-        "Draft talk, In-review talk",
+      "Publishing 1 of 3 scheduled sessions - 2 held back: " +
+        'Draft talk (content status is "Draft" - awaiting sign-off), ' +
+        'In-review talk (content status is "In review" - awaiting sign-off)',
+    );
+  });
+
+  // The bug: a cancelled session was announced as "awaiting content sign-off",
+  // sending the organizer to a content status that was never the problem.
+  it("does not describe a cancelled session as awaiting content sign-off", () => {
+    const plan = planProgramPublish([
+      session({ id: "a" }),
+      session({ id: "b", title: "Withdrawn talk", status: "cancelled" }),
+    ]);
+    expect(describeProgramPublishPlan(plan)).toBe(
+      "Publishing 1 of 2 scheduled sessions - 1 held back: " +
+        "Withdrawn talk (the session was cancelled)",
     );
   });
 
@@ -269,8 +315,37 @@ describe("describeProgramPublishPlan", () => {
   });
 
   it("calls out an empty agenda rather than a hollow 'publishing 0 of 0'", () => {
-    expect(describeProgramPublishPlan({ toPublish: [], heldBack: [], totalScheduled: 0 })).toBe(
-      "No sessions are scheduled yet - publishing now announces an empty program.",
+    expect(
+      describeProgramPublishPlan({
+        toPublish: [],
+        heldBack: [],
+        unscheduledPublic: [],
+        totalScheduled: 0,
+      }),
+    ).toBe("No sessions are scheduled yet - publishing now announces an empty program.");
+  });
+
+  // The misstatement this fixes: with accepted-but-unplaced sessions, publishing
+  // announces a speaker lineup, so "an empty program" was simply untrue.
+  it("counts accepted unscheduled sessions instead of claiming an empty program", () => {
+    const parked = { day: null, startTime: null, endTime: null };
+    const plan = planProgramPublish([
+      session({ id: "a", ...parked }),
+      session({ id: "b", ...parked }),
+    ]);
+    expect(describeProgramPublishPlan(plan)).toBe(
+      "No sessions are scheduled yet - publishing announces 2 accepted sessions in the " +
+        "speaker gallery, with times to be announced.",
+    );
+  });
+
+  it("uses singular phrasing for a single accepted unscheduled session", () => {
+    const plan = planProgramPublish([
+      session({ id: "a", day: null, startTime: null, endTime: null }),
+    ]);
+    expect(describeProgramPublishPlan(plan)).toBe(
+      "No sessions are scheduled yet - publishing announces 1 accepted session in the " +
+        "speaker gallery, with times to be announced.",
     );
   });
 });
@@ -967,7 +1042,10 @@ describe("scheduleFeedEntries", () => {
   const lookups = {
     trackById: new Map(),
     roomById: new Map([["r1", { name: "Main Stage" }]]),
-    speakerById: new Map(),
+    speakerById: new Map([
+      ["u1", { name: "Priya Raman", title: "Staff Engineer", company: "Northwind" }],
+      ["u2", { name: "Ada Lovelace", title: null, company: null }],
+    ]),
   };
 
   it("maps the public schedule to buildItineraryCalendar's entry shape", () => {
@@ -976,6 +1054,7 @@ describe("scheduleFeedEntries", () => {
       title: "Retrieval at scale",
       description: "A practical pattern for retrieval under load.",
       roomId: "r1",
+      speakerIds: ["u1", "u2"],
     });
     const days = buildSchedule([scheduled], lookups);
 
@@ -984,12 +1063,33 @@ describe("scheduleFeedEntries", () => {
         sessionId: "s1",
         title: "Retrieval at scale",
         description: "A practical pattern for retrieval under load.",
+        // spec.md: feeds carry name, title and company, in the same form the
+        // cards and the detail view print (`speakerAffiliationLabel`).
+        speakers: ["Priya Raman — Staff Engineer, Northwind", "Ada Lovelace"],
         location: "Main Stage",
         day: "2026-06-16",
         startTime: "10:00",
         endTime: "10:30",
       },
     ]);
+  });
+
+  it("carries the speakers into the feed's VEVENT DESCRIPTION", () => {
+    const days = buildSchedule(
+      [session({ id: "s1", title: "Retrieval at scale", speakerIds: ["u1"] })],
+      lookups,
+    );
+
+    const { content } = buildItineraryCalendar({
+      timeZone: "America/Los_Angeles",
+      entries: scheduleFeedEntries(days),
+      stamp: new Date("2026-05-01T12:00:00Z"),
+    });
+
+    const description = unfoldIcs(content).find((line) => line.startsWith("DESCRIPTION:"));
+    // Escaped per RFC 5545 §3.3.11 — the comma before the company and the
+    // newline before the name are both escape sequences, not raw characters.
+    expect(description).toContain("Speaker:\\nPriya Raman — Staff Engineer\\, Northwind");
   });
 
   it("produces a valid iCalendar object for the whole public schedule (RFC 5545/5546)", () => {

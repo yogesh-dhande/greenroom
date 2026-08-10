@@ -29,30 +29,33 @@ export async function GET(
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) return new Response("Not found", { status: 404 });
 
+  const naming = {
+    calendarName: `${event.name} — schedule`,
+    filenameBase: `${eventSlug}-schedule`,
+  };
+
   // Unpublished (decisions.md D-056): an event-less but well-formed calendar,
   // never a 404 — a client subscribed to this URL before the program went
   // live would otherwise report the subscription as broken and may stop
   // polling it altogether.
   if (!programVisible(event)) {
-    return icsResponse(
-      buildEmptyCalendar({
-        calendarName: `${event.name} — schedule`,
-        filenameBase: `${eventSlug}-schedule`,
-      }),
-    );
+    return icsResponse(buildEmptyCalendar(naming));
   }
 
   const days = await getSchedule(eventSlug);
   const entries = scheduleFeedEntries(days);
+  // Published, but nothing is on the agenda yet (or everything is still held
+  // back by content status). Same empty-but-valid calendar as the unpublished
+  // case above, for the same reason: a subscribed client must see an empty
+  // programme, not a broken subscription.
   if (entries.length === 0) {
-    return new Response("No sessions scheduled yet.", { status: 404 });
+    return icsResponse(buildEmptyCalendar(naming));
   }
 
   return icsResponse(
     buildItineraryCalendar({
       timeZone: event.timezone,
-      calendarName: `${event.name} — schedule`,
-      filenameBase: `${eventSlug}-schedule`,
+      ...naming,
       entries,
     }),
   );

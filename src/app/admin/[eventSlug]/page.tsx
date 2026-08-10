@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getRepos } from "@/lib/db";
 import { requireEventAccess } from "@/lib/session";
-import { buildAssignmentViews } from "@/domain/onboarding";
+import { buildAssignmentViews, rosterSpeakerIds } from "@/domain/onboarding";
 import { programVisible } from "@/domain/program-visibility";
 import { detectConflicts } from "@/domain/scheduling";
 import { QUEUE_VIEW_ALL } from "@/domain/review";
@@ -58,26 +58,29 @@ export default async function EventOverviewPage({
     overdueTasks: number;
   } | null = null;
   if (user.role === "admin") {
-    const [sessions, tasks, taskAssignments] = await Promise.all([
+    const [sessions, tasks, taskAssignments, eventSpeakers] = await Promise.all([
       repos.sessions.listByEvent(event.id),
       repos.tasks.listByEvent(event.id),
       repos.taskAssignments.listByEvent(event.id),
+      repos.eventSpeakers.listByEvent(event.id),
     ]);
     const unscheduled = sessions.filter((s) => !s.day || !s.startTime).length;
 
     // Same "speaker with a stake in this event" definition as the Speakers
-    // roster (src/domain/onboarding.ts buildSpeakerRollups via
-    // src/app/admin/[eventSlug]/speakers/page.tsx): confirmed to speak (has a
-    // session-speaker link) or holding at least one task assignment. Composed
-    // from the same repo reads here so the two counts can never disagree
-    // (decisions.md D-053).
+    // roster, through the roster's own union (src/domain/onboarding.ts
+    // `rosterSpeakerIds`, used by src/app/admin/[eventSlug]/speakers/roster.ts)
+    // rather than a second copy of it: all three membership sources, including
+    // the `event_speakers` rows a manually added or imported speaker has and
+    // nothing else (decisions.md D-051, D-053) — without them the roster listed
+    // a speaker this card counted as zero.
     const sessionSpeakerRows = await repos.sessions.listSpeakersBySessionIds(
       sessions.map((session) => session.id),
     );
-    const speakerCount = new Set<string>([
-      ...sessionSpeakerRows.map((row) => row.userId),
-      ...taskAssignments.map((assignment) => assignment.speakerId),
-    ]).size;
+    const speakerCount = rosterSpeakerIds({
+      confirmedSpeakerIds: sessionSpeakerRows.map((row) => row.userId),
+      assignedSpeakerIds: taskAssignments.map((assignment) => assignment.speakerId),
+      memberSpeakerIds: eventSpeakers.map((member) => member.userId),
+    }).size;
 
     // The agenda's own conflict detector (src/domain/scheduling.ts), run on
     // the same session-plus-speakers shape the board builds — the overview

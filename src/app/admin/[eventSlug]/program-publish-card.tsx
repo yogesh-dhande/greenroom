@@ -111,11 +111,23 @@ export function ProgramPublishCard({
                 data-testid="publish-held-back-note"
               >
                 <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                <p>
-                  {published ? "Not on the public program: " : "Won't publish yet: "}
-                  {heldBack.map((s) => s.title).join(", ")} ({heldBack.length} scheduled session
-                  {heldBack.length === 1 ? "" : "s"} awaiting content sign-off).
-                </p>
+                {/* Each session's own reason, not one blanket "awaiting
+                    content sign-off" — a scheduled-but-cancelled session is
+                    held back for a different reason and needs a different
+                    fix, which `planProgramPublish` already worked out. */}
+                <div>
+                  <p>
+                    {published ? "Not on the public program" : "Won't publish yet"} —{" "}
+                    {heldBack.length} scheduled session{heldBack.length === 1 ? "" : "s"}:
+                  </p>
+                  <ul className="mt-0.5 list-disc pl-4">
+                    {heldBack.map((session) => (
+                      <li key={session.id}>
+                        {session.title} — {session.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
           </div>

@@ -209,14 +209,19 @@ function SessionEditForm({
   const suggestion = useMemo(
     () =>
       firstConflictFreeSlot({
-        session,
+        // The speaker list as it stands in this open dialog, not the one the
+        // board was rendered with: speaker double-booking is half of what a
+        // suggestion is checked against, so a speaker added a moment ago must
+        // count. (`firstConflictFreeSlot` skips this session in `sessions` by
+        // id, so the stale board copy can't shadow it.)
+        session: { ...session, speakerIds },
         sessions,
         days: dayChoices,
         roomIds: rooms.map((room) => room.id),
         durationMinutes: duration,
         window: suggestionWindow,
       }),
-    [session, sessions, dayChoices, rooms, duration, suggestionWindow],
+    [session, speakerIds, sessions, dayChoices, rooms, duration, suggestionWindow],
   );
 
   function applySuggestion() {
