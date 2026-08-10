@@ -511,7 +511,7 @@ function SessionEditForm({
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <DialogFooter className="sm:justify-between">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canEdit && session.day && (
             <Button
               variant="outline"
@@ -535,6 +535,14 @@ function SessionEditForm({
               <Trash2Icon />
               Delete
             </Button>
+          )}
+          {/* No Delete here on purpose (decisions.md D-025(4)): a
+              submission-linked session is derived state, so the removal path
+              is reversing the acceptance, not deleting the session. */}
+          {canEdit && session.submissionId && (
+            <p className="text-xs text-muted-foreground">
+              Linked to a submission - to remove it, reverse the acceptance on the submission.
+            </p>
           )}
         </div>
         <Button onClick={save} disabled={!canEdit}>

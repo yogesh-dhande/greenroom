@@ -27,6 +27,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { createDirectSession } from "./actions";
+import { ActionTimeoutError, withActionTimeout } from "../speakers/action-timeout";
 import type { BoardPerson } from "./types";
 
 const NO_TRACK = "__no_track__";
@@ -115,13 +116,29 @@ export function NewSessionDialog({
     }
     setError(null);
     startTransition(async () => {
-      const result = await createDirectSession(eventSlug, {
-        title,
-        description,
-        trackId: trackId === NO_TRACK ? null : trackId,
-        existingSpeakerIds: speakers.flatMap((s) => (s.userId ? [s.userId] : [])),
-        newSpeakers: speakers.flatMap((s) => (s.userId ? [] : [{ name: s.name, email: s.email }])),
-      });
+      let result;
+      try {
+        result = await withActionTimeout(
+          createDirectSession(eventSlug, {
+            title,
+            description,
+            trackId: trackId === NO_TRACK ? null : trackId,
+            existingSpeakerIds: speakers.flatMap((s) => (s.userId ? [s.userId] : [])),
+            newSpeakers: speakers.flatMap((s) =>
+              s.userId ? [] : [{ name: s.name, email: s.email }],
+            ),
+          }),
+        );
+      } catch (error) {
+        if (error instanceof ActionTimeoutError) {
+          const message =
+            "The server didn't respond. Check the unscheduled tray before trying again - the session may have been created.";
+          setError(message);
+          toast.error(message);
+          return;
+        }
+        throw error;
+      }
       if (!result.ok) {
         setError(result.error);
         toast.error(result.error);
