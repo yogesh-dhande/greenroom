@@ -1,13 +1,15 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { newUserSchema, roleSchema } from "@/db/entities";
 import { sendTeamInvite } from "@/domain/comms";
 import { checkRoleChange, normalizeEmail, planInvite, ROLE_LABELS } from "@/domain/team";
+import { getAuth } from "@/lib/auth";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
-import { requireAdmin } from "@/lib/session";
+import { homePathForRole, requireAdmin } from "@/lib/session";
 
 function fail(error: string) {
   return { ok: false as const, error };
@@ -323,5 +325,56 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
       message: `${email} can now sign in as ${plan.role === "admin" ? "an admin" : "a reviewer"}`,
       nameIgnored: false,
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Send sign-in link
+// ---------------------------------------------------------------------------
+
+const sendSignInLinkInputSchema = z.object({
+  userId: z.string().min(1),
+});
+export type SendSignInLinkInput = z.infer<typeof sendSignInLinkInputSchema>;
+
+/**
+ * Emails a teammate a real, one-click magic sign-in link on demand, through
+ * the same server API `src/app/login` drives via `authClient.signIn.magicLink`
+ * (`auth.api.signInMagicLink`) - a genuine token-bearing sign-in URL, not just
+ * a pointer at /login. It goes out through `magicLink.sendMagicLink` in
+ * src/lib/auth.ts, which is wired to the email_log-writing sender, so every
+ * send lands in the communications log exactly like a team invite does.
+ *
+ * Admin-only (`requireAdmin`, same guard as every other write on this page).
+ * Re-sending is safe and expected - "they say it never arrived" is the usual
+ * reason to press this - each send is an independent token.
+ */
+export async function sendTeamSignInLink(eventSlug: string, input: SendSignInLinkInput) {
+  await requireAdmin(teamPath(eventSlug));
+
+  const parsed = sendSignInLinkInputSchema.safeParse(input);
+  if (!parsed.success) return fail("Invalid teammate");
+
+  const repos = await getRepos();
+  const target = await repos.users.getById(parsed.data.userId);
+  if (!target) return fail("That account no longer exists");
+  if (target.role !== "admin" && target.role !== "reviewer") {
+    return fail("Only admins and reviewers sign in through the admin area");
+  }
+
+  try {
+    const auth = await getAuth();
+    await auth.api.signInMagicLink({
+      body: { email: target.email, callbackURL: homePathForRole(target.role) },
+      headers: await headers(),
+    });
+  } catch (error) {
+    console.warn(`Couldn't send sign-in link to ${target.email}:`, error);
+    return fail("Couldn't send the sign-in link - try again");
+  }
+
+  return {
+    ok: true as const,
+    data: { message: `Sign-in link emailed to ${labelFor(target)}` },
   };
 }

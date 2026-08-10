@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 
 const MAGIC_LINK_LOG = ".dev-magic-links.log";
 
-/** Lines already in the log for `email`, so we only accept a fresh link. */
-async function linkCount(email: string): Promise<number> {
+/** Lines in the dev magic-link log for `email` — how sign-in helpers (and
+ * tests asserting a link really went out) tell a fresh link from an old one. */
+export async function magicLinkCount(email: string): Promise<number> {
   try {
     const log = await readFile(MAGIC_LINK_LOG, "utf8");
     return log.split("\n").filter((line) => line.split("\t")[1] === email).length;
@@ -20,7 +21,7 @@ async function linkCount(email: string): Promise<number> {
  * dana@greenroom.dev (reviewer), priya.raman@example.com (speaker).
  */
 export async function signIn(page: Page, email: string): Promise<void> {
-  const alreadyLogged = await linkCount(email);
+  const alreadyLogged = await magicLinkCount(email);
 
   // Switching personas mid-test: /login redirects an authenticated user
   // straight into their app (src/app/login/page.tsx), so drop the session

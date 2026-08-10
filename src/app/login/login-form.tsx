@@ -21,6 +21,10 @@ export function LoginForm() {
   const [sent, setSent] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
+  // Prefill support for links an organizer hands a teammate directly (Team
+  // page "view link" dialog) - one less thing to type correctly, not a
+  // credential by itself: the address still has to click the emailed link.
+  const emailParam = searchParams.get("email") ?? "";
   const {
     register,
     handleSubmit,
@@ -28,6 +32,7 @@ export function LoginForm() {
     setError,
   } = useForm<MagicLinkRequest>({
     resolver: zodResolver(magicLinkRequestSchema),
+    defaultValues: { email: emailParam },
   });
 
   async function onSubmit(values: MagicLinkRequest) {

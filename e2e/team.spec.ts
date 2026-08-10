@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { magicLinkCount, signIn } from "./helpers";
 
 /**
  * Key flow: team management (spec.md §1, decisions.md D-043/D-044) — who has
@@ -88,6 +88,37 @@ test("a reviewer's tracks are edited from the roster", async ({ page }) => {
 
   await expect(row.getByText("AI Engineering")).toBeVisible();
   await expect(row.getByText("No tracks — empty queue")).toHaveCount(0);
+});
+
+test("an admin hands over or re-sends a teammate's sign-in from the roster", async ({ page }) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(TEAM);
+
+  const row = page.getByRole("row").filter({ hasText: INVITED_EMAIL });
+
+  // The visible fallback: a /login URL with the address prefilled, selectable
+  // even where the clipboard is denied.
+  await row.getByRole("button", { name: "View link" }).click();
+  const dialog = page.getByRole("dialog", { name: "Sign-in link" });
+  await expect(dialog.locator("code")).toContainText(
+    `/login?email=${encodeURIComponent(INVITED_EMAIL)}`,
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+
+  // The real thing: a token-bearing magic link goes out through the same
+  // transport /login uses, so it lands in the dev magic-link log.
+  const already = await magicLinkCount(INVITED_EMAIL);
+  await row.getByRole("button", { name: "Send link" }).click();
+  await expect(page.getByText(/Sign-in link emailed to/)).toBeVisible();
+  await expect(async () => {
+    expect(await magicLinkCount(INVITED_EMAIL)).toBeGreaterThan(already);
+  }).toPass({ timeout: 15_000 });
+});
+
+test("a handed-over link opens /login with the address already filled in", async ({ page }) => {
+  await page.goto(`/login?email=${encodeURIComponent(INVITED_EMAIL)}`);
+  await expect(page.getByLabel("Email")).toHaveValue(INVITED_EMAIL);
 });
 
 test("a second admin frees the first, and removal is demotion with a confirm", async ({

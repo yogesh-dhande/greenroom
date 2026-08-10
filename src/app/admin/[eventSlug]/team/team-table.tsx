@@ -33,9 +33,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/empty-state";
-import { changeTeamRole } from "./actions";
+import { changeTeamRole, sendTeamSignInLink } from "./actions";
 import { EditNameDialog } from "./edit-name-dialog";
 import { ReviewerTracksDialog } from "./reviewer-tracks-dialog";
+import { SignInLinkDialog } from "./sign-in-link-dialog";
 import type { TeamMemberRow, TrackOption } from "./types";
 
 const ROLE_CHOICES: Role[] = ["admin", "reviewer", "speaker"];
@@ -54,11 +55,16 @@ export function TeamTable({
   members,
   tracks,
   adminCount,
+  loginUrl,
 }: {
   eventSlug: string;
   members: TeamMemberRow[];
   tracks: TrackOption[];
   adminCount: number;
+  /** Origin-qualified /login URL (src/app/admin/[eventSlug]/team/page.tsx
+   * resolves it server-side from APP_URL/BETTER_AUTH_URL) - the base for
+   * each row's "view link" dialog, with `?email=` appended per person. */
+  loginUrl: string;
 }) {
   const [pendingDemotion, setPendingDemotion] = useState<TeamMemberRow | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -105,6 +111,7 @@ export function TeamTable({
             <TableHead>Email</TableHead>
             <TableHead>Role</TableHead>
             <TableHead>Tracks</TableHead>
+            <TableHead>Sign-in</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -191,6 +198,19 @@ export function TeamTable({
                     </div>
                   )}
                 </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <SendSignInLinkButton eventSlug={eventSlug} member={member} />
+                    <SignInLinkDialog
+                      url={`${loginUrl}?email=${encodeURIComponent(member.email)}`}
+                      trigger={
+                        <Button size="xs" variant="ghost">
+                          View link
+                        </Button>
+                      }
+                    />
+                  </div>
+                </TableCell>
               </TableRow>
             );
           })}
@@ -230,5 +250,42 @@ export function TeamTable({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/**
+ * Emails this person a real, one-click magic sign-in link right now, through
+ * the same better-auth flow /login uses (see sendTeamSignInLink) - rather
+ * than making the organizer hand over a bare URL and hope the person types
+ * their own address in correctly.
+ *
+ * Its own `useTransition` rather than the table's shared one: sending one
+ * person a link has nothing to do with a role change in flight elsewhere in
+ * the roster, and shouldn't disable it.
+ */
+function SendSignInLinkButton({
+  eventSlug,
+  member,
+}: {
+  eventSlug: string;
+  member: TeamMemberRow;
+}) {
+  const [isPending, startTransition] = useTransition();
+
+  function send() {
+    startTransition(async () => {
+      const result = await sendTeamSignInLink(eventSlug, { userId: member.id });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(result.data.message);
+    });
+  }
+
+  return (
+    <Button size="xs" variant="ghost" disabled={isPending} onClick={send}>
+      {isPending ? "Sending..." : "Send link"}
+    </Button>
   );
 }

@@ -1,3 +1,4 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
@@ -24,6 +25,13 @@ export default async function TeamPage({
 }) {
   const { eventSlug } = await params;
   const { user: viewer, event } = await requireEventAdmin(eventSlug);
+
+  // Same origin src/lib/comms-context.ts resolves for outbound mail (APP_URL
+  // wins so this points at the public domain even when better-auth's own
+  // origin differs; the dev default matches `next dev`) - the roster's "view
+  // link" dialog and the emailed sign-in link should never disagree.
+  const { env } = await getCloudflareContext({ async: true });
+  const loginUrl = `${(env.APP_URL ?? env.BETTER_AUTH_URL ?? "http://localhost:3000").replace(/\/+$/, "")}/login`;
 
   const repos = await getRepos();
   const [admins, reviewers, tracks] = await Promise.all([
@@ -93,6 +101,7 @@ export default async function TeamPage({
             members={members}
             tracks={trackOptions}
             adminCount={admins.length}
+            loginUrl={loginUrl}
           />
         </CardContent>
       </Card>

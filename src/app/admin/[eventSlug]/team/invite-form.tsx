@@ -62,15 +62,6 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
     reset({ name: "", email: "", role: values.role });
   }
 
-  async function copySignInLink() {
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}/login`);
-      toast.success("Sign-in link copied");
-    } catch {
-      toast.error("Couldn't copy — the sign-in page is at /login");
-    }
-  }
-
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -130,7 +121,8 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
         <div className="flex flex-col gap-1">
           <p className="text-sm text-foreground">
             <span className="font-medium">{added.email}</span> is on the team and has been emailed
-            the sign-in link.
+            the sign-in link. They now appear in the roster above, where you can send another link
+            or view it directly if you need to hand it over yourself.
           </p>
           {added.nameIgnored && (
             <p className="text-sm text-muted-foreground">
@@ -140,12 +132,6 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
           )}
         </div>
       )}
-
-      <div>
-        <Button type="button" variant="outline" size="sm" onClick={copySignInLink}>
-          Copy sign-in link
-        </Button>
-      </div>
     </form>
   );
 }
