@@ -51,7 +51,7 @@ export function SpeakerNotesForm({
           rows={4}
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          placeholder="Arrival May 11, aisle seat; dietary: Vegetarian"
+          placeholder="e.g. arrival May 11, aisle seat; dietary: Vegetarian"
         />
       </div>
 

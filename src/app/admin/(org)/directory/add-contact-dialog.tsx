@@ -42,9 +42,13 @@ const EMPTY: FormValues = { name: "", email: "", title: "", company: "", bio: ""
  * recommended by a colleague — entered before there is any event to attach
  * them to.
  *
- * Deduplicates by address like the roster's own add does: an address that
- * already has an account joins the directory rather than forking a second
- * person, and the toast says so rather than pretending a record was created.
+ * Deduplicates by address like the roster's own add does: an address with an
+ * account that isn't in the directory yet joins it rather than forking a
+ * second person (the toast says so), but an address already in the directory
+ * is rejected outright — email is this app's identity key (decisions.md
+ * D-051), so the same contact can't be added twice. A shared *name* under a
+ * different email is a softer case (decisions.md D-059): it still creates
+ * the contact, with a flash note that a possible duplicate now exists.
  */
 export function AddContactDialog() {
   const router = useRouter();
@@ -98,8 +102,9 @@ export function AddContactDialog() {
           <DialogTitle>Add contact</DialogTitle>
           <DialogDescription>
             Someone you want in the directory before they&apos;re on any event. If this address
-            already has an account, it&apos;s linked to the directory instead of creating a second
-            record.
+            already has an account that isn&apos;t in the directory yet, it&apos;s linked instead
+            of creating a second record — an address already in the directory can&apos;t be added
+            twice.
           </DialogDescription>
         </DialogHeader>
 

@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCcwIcon, SaveIcon } from "lucide-react";
 import { toast } from "sonner";
-import { checkTemplateDraft, type MergeField } from "@/domain/comms-templates";
+import { checkTemplateDraft, templatePreviewData, type MergeData, type MergeField } from "@/domain/comms-templates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,9 +30,15 @@ import type { TemplateRow } from "./types";
 export function TemplateEditor({
   eventSlug,
   templates,
+  eventMergeData,
 }: {
   eventSlug: string;
   templates: TemplateRow[];
+  /** This event's real dates/URLs/organizer name (decisions.md D-053) — see
+   * ComposeForm for how it overlays `templatePreviewData`'s generic
+   * defaults, so this editor's preview shows the signed-in organizer's own
+   * name instead of the generic sample. */
+  eventMergeData: MergeData;
 }) {
   const [selectedId, setSelectedId] = useState(templates[0]?.id);
   const selected = templates.find((template) => template.id === selectedId) ?? templates[0];
@@ -68,12 +74,25 @@ export function TemplateEditor({
 
       {/* Keyed so switching templates resets the draft rather than carrying
           one message's half-finished copy into another's editor. */}
-      <TemplateForm key={selected.id} eventSlug={eventSlug} template={selected} />
+      <TemplateForm
+        key={selected.id}
+        eventSlug={eventSlug}
+        template={selected}
+        eventMergeData={eventMergeData}
+      />
     </div>
   );
 }
 
-function TemplateForm({ eventSlug, template }: { eventSlug: string; template: TemplateRow }) {
+function TemplateForm({
+  eventSlug,
+  template,
+  eventMergeData,
+}: {
+  eventSlug: string;
+  template: TemplateRow;
+  eventMergeData: MergeData;
+}) {
   const router = useRouter();
   const [subject, setSubject] = useState(template.subject);
   const [body, setBody] = useState(template.body);
@@ -81,8 +100,14 @@ function TemplateForm({ eventSlug, template }: { eventSlug: string; template: Te
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   const check = useMemo(
-    () => checkTemplateDraft(subject, body, template.availableFields),
-    [subject, body, template.availableFields],
+    () =>
+      checkTemplateDraft(
+        subject,
+        body,
+        template.availableFields,
+        templatePreviewData(eventMergeData),
+      ),
+    [subject, body, template.availableFields, eventMergeData],
   );
 
   const dirty = subject !== template.subject || body !== template.body;

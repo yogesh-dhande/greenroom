@@ -7,6 +7,7 @@ import {
   computeCrmKpis,
   contactDisplayName,
   filterDirectory,
+  findDisplayNameCollision,
   isEmptyDirectoryFilter,
   matchesDirectoryFilter,
   normalizeDirectoryFilter,
@@ -162,6 +163,26 @@ describe("sortDirectoryContacts", () => {
   it("falls back to the address for a contact with no name", () => {
     expect(contactDisplayName({ name: "  ", email: "ada@example.com" })).toBe("ada@example.com");
     expect(contactDisplayName({ name: "Ada Wong", email: "ada@example.com" })).toBe("Ada Wong");
+  });
+});
+
+describe("findDisplayNameCollision", () => {
+  const existing = [
+    contact({ userId: "u1", name: "Priya Raman", email: "priya@example.com" }),
+    contact({ userId: "u2", name: null, email: "noname@example.com" }),
+  ];
+
+  it("returns the colliding contact's email, case-insensitively", () => {
+    expect(findDisplayNameCollision(existing, "priya raman")).toBe("priya@example.com");
+    expect(findDisplayNameCollision(existing, "  PRIYA RAMAN  ")).toBe("priya@example.com");
+  });
+
+  it("returns null when no existing contact shares the name", () => {
+    expect(findDisplayNameCollision(existing, "Tom Beckett")).toBeNull();
+  });
+
+  it("returns null for a blank name rather than matching a nameless contact", () => {
+    expect(findDisplayNameCollision(existing, "  ")).toBeNull();
   });
 });
 

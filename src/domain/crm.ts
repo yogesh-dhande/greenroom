@@ -140,6 +140,26 @@ export function sortDirectoryContacts(
   });
 }
 
+/**
+ * Whether creating a new contact named `name` would collide with an existing
+ * directory contact's display name (decisions.md D-059's duplicate flag,
+ * checked *before* the new row is written rather than only surfacing on the
+ * list afterward). Returns the colliding contact's email for the flash
+ * message, or null when nothing collides.
+ *
+ * Name-only: a shared email is a different, stricter case (same identity,
+ * decisions.md D-051) handled separately by the caller before this ever runs.
+ */
+export function findDisplayNameCollision(
+  contacts: readonly DirectoryContact[],
+  name: string,
+): string | null {
+  const key = name.trim().toLowerCase();
+  if (!key) return null;
+  const match = contacts.find((contact) => contactDisplayName(contact).toLowerCase() === key);
+  return match ? match.email : null;
+}
+
 // ---------------------------------------------------------------------------
 // Contact activity feed
 // ---------------------------------------------------------------------------

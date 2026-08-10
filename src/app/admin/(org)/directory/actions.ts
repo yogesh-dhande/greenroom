@@ -7,7 +7,12 @@ import type { DirectoryFilter } from "@/db/repos/contacts";
 import type { Repos } from "@/db/repos";
 import { checkTemplateDraft, type MergeData } from "@/domain/comms-templates";
 import { sendManualEmail } from "@/domain/comms";
-import { normalizeDirectoryFilter, normalizeTagLabel, TAG_MAX_LENGTH } from "@/domain/crm";
+import {
+  findDisplayNameCollision,
+  normalizeDirectoryFilter,
+  normalizeTagLabel,
+  TAG_MAX_LENGTH,
+} from "@/domain/crm";
 import { normalizeSegmentName, serializeSegmentQuery } from "@/domain/segments";
 import {
   importProfilePatch,
@@ -120,6 +125,16 @@ async function createOrReuseContact(
 /**
  * The directory's manual "Add contact" (spec.md: manual contact creation) —
  * a prospect nobody has invited to an event yet, typed in by hand.
+ *
+ * Two duplicate checks run before anything is written (rather than leaving
+ * the organizer to notice the "Possible duplicate" badge after the fact):
+ * (1) email is this app's identity key (decisions.md D-051) — a contact
+ * already registered under the submitted address is rejected outright,
+ * clearly, instead of silently re-linking a record the organizer can already
+ * find; (2) a shared *name* under a different email is only a possible
+ * duplicate (decisions.md D-059) — two different people can share a name —
+ * so that case still creates the contact, with a flash note pointing at the
+ * existing one.
  */
 export async function addContact(input: AddContactInput) {
   await requireAdmin(DIRECTORY_PATH);
@@ -129,6 +144,17 @@ export async function addContact(input: AddContactInput) {
 
   const repos = await getRepos();
   const email = normalizeEmail(parsed.data.email);
+
+  const existingUser = await repos.users.getByEmail(email);
+  if (existingUser) {
+    const registryEntry = await repos.contacts.getRegistryEntry(existingUser.id);
+    if (registryEntry) {
+      return fail(`${email} is already in the directory — a contact can't be added twice.`);
+    }
+  }
+
+  const allContacts = await repos.contacts.listDirectory();
+  const collisionEmail = findDisplayNameCollision(allContacts, parsed.data.name);
 
   let result: { user: User; created: boolean };
   try {
@@ -149,14 +175,16 @@ export async function addContact(input: AddContactInput) {
 
   revalidatePath(DIRECTORY_PATH);
   revalidatePath("/admin/crm");
+  const baseMessage = result.created
+    ? `${parsed.data.name} was added to the directory`
+    : `${email} already had an account — linked the existing account to the directory`;
+  const message = collisionEmail
+    ? `${baseMessage} — note: another contact named ${parsed.data.name} already exists (${collisionEmail})`
+    : baseMessage;
+
   return {
     ok: true as const,
-    data: {
-      userId: result.user.id,
-      message: result.created
-        ? `${parsed.data.name} was added to the directory`
-        : `${email} already had an account — linked the existing account to the directory`,
-    },
+    data: { userId: result.user.id, message },
   };
 }
 

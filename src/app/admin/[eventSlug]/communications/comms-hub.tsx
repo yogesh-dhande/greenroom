@@ -154,7 +154,7 @@ export function CommsHub({
       </TabsContent>
 
       <TabsContent value="templates">
-        <TemplateEditor eventSlug={eventSlug} templates={templates} />
+        <TemplateEditor eventSlug={eventSlug} templates={templates} eventMergeData={eventMergeData} />
       </TabsContent>
 
       <TabsContent value="invites">
