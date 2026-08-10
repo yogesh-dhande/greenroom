@@ -134,6 +134,12 @@ export function TaskFormDialog({
   const type = useWatch({ control, name: "type" });
   const assigneeMode = useWatch({ control, name: "assigneeMode" });
   const alreadyAssigned = new Set(assignedSpeakerIds);
+  // What a task *is* is frozen once anyone holds it: their assignment carries
+  // work filed against the old shape, and nothing rewrites it to match — a
+  // completed confirmation turned into an upload would read "Complete" with no
+  // file. The server refuses the same change (./actions.ts updateTask); this
+  // just stops the organizer discovering that after typing.
+  const shapeLocked = Boolean(task) && assignedSpeakerIds.length > 0;
 
   async function onSubmit(values: FormValues) {
     const result = task
@@ -199,7 +205,7 @@ export function TaskFormDialog({
               control={control}
               name="type"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select value={field.value} onValueChange={field.onChange} disabled={shapeLocked}>
                   <SelectTrigger id="task-type" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -213,6 +219,16 @@ export function TaskFormDialog({
                 </Select>
               )}
             />
+            {shapeLocked && (
+              <p className="text-xs text-muted-foreground">
+                {assignedSpeakerIds.length === 1
+                  ? "A speaker already has this task"
+                  : `${assignedSpeakerIds.length} speakers already have this task`}
+                , so its type and form are fixed — changing them would strand the work
+                they&apos;ve filed. Create a new task to collect something different. Title,
+                instructions and due date can still be edited.
+              </p>
+            )}
           </div>
 
           {type === "form" ? (
@@ -222,7 +238,7 @@ export function TaskFormDialog({
                 control={control}
                 name="formId"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select value={field.value} onValueChange={field.onChange} disabled={shapeLocked}>
                     <SelectTrigger id="task-form" className="w-full">
                       <SelectValue placeholder="Choose a form…" />
                     </SelectTrigger>

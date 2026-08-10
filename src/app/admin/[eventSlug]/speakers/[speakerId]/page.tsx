@@ -29,6 +29,7 @@ import { SpeakerConfirmationForm } from "./speaker-confirmation-form";
 import { SpeakerHeadshotForm } from "./speaker-headshot-form";
 import { SpeakerNotesForm } from "./speaker-notes-form";
 import { SpeakerProfileForm } from "./speaker-profile-form";
+import { TaskResponse } from "./task-response";
 
 /** Most recent sends shown before the list collapses to "…and N older" —
  * a speaker who's been through a few events can otherwise produce a card
@@ -150,11 +151,11 @@ export default async function SpeakerRecordPage({
   // Files attached to the person rather than to a task — their headshot,
   // whether they uploaded it from the portal or an organizer supplied it here.
   const profileVersions = await repos.fileVersions.listProfileVersionsByOwners([speaker.id]);
-  const uploads = collectUploads(
-    rollup.views,
-    new Map(forms.map((form) => [form.id, form])),
-    profileVersions,
-  );
+  // One lookup for both readers of a task's linked form — the uploads inside
+  // its file fields, and the answers panel below (the event's forms are
+  // already loaded in a single batch above, so neither is a per-row query).
+  const formsById = new Map(forms.map((form) => [form.id, form]));
+  const uploads = collectUploads(rollup.views, formsById, profileVersions);
   // Uploaders that aren't the speaker themself — an organizer who supplied a
   // headshot on their behalf is the one name the panel can't assume.
   const uploaderIds = [
@@ -356,30 +357,45 @@ export default async function SpeakerRecordPage({
               {rollup.views.length === 0 ? (
                 <EmptyState variant="inline" title="No tasks assigned." />
               ) : (
-                <ul className="flex flex-col gap-3">
-                  {rollup.views.map((view) => (
-                    <li
-                      key={view.assignment.id}
-                      className="flex flex-wrap items-center justify-between gap-2"
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-foreground">
-                          {view.task.title}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {view.task.dueAt
-                            ? `Due ${formatDueDate(view.task.dueAt, event.timezone)}`
-                            : "No due date"}
-                          {view.assignment.completedAt
-                            ? ` · completed ${formatDueDate(view.assignment.completedAt, event.timezone)}`
-                            : ""}
-                        </span>
-                      </div>
-                      <Badge variant="outline" className={cn(TASK_STATE_BADGE_CLASS[view.state])}>
-                        {TASK_STATE_LABEL[view.state]}
-                      </Badge>
-                    </li>
-                  ))}
+                <ul className="flex flex-col gap-4">
+                  {rollup.views.map((view) => {
+                    // A form task's answers live on the assignment and are
+                    // only written when the speaker submits it (the portal
+                    // sets `responseJson` and `completed` in one write), so a
+                    // response present here is a finished one.
+                    const responseForm = view.task.formId
+                      ? formsById.get(view.task.formId)
+                      : undefined;
+                    const response = view.assignment.responseJson;
+                    return (
+                      <li key={view.assignment.id} className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-foreground">
+                              {view.task.title}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {view.task.dueAt
+                                ? `Due ${formatDueDate(view.task.dueAt, event.timezone)}`
+                                : "No due date"}
+                              {view.assignment.completedAt
+                                ? ` · completed ${formatDueDate(view.assignment.completedAt, event.timezone)}`
+                                : ""}
+                            </span>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn(TASK_STATE_BADGE_CLASS[view.state])}
+                          >
+                            {TASK_STATE_LABEL[view.state]}
+                          </Badge>
+                        </div>
+                        {responseForm && response ? (
+                          <TaskResponse form={responseForm} response={response} />
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
 

@@ -27,6 +27,7 @@ import {
 import { EmptyState } from "@/components/empty-state";
 import { formatDueDate } from "@/lib/event-time";
 import { assignTaskToConfirmedSpeakers, deleteTask } from "./actions";
+import { unassignedConfirmedSpeakerIds } from "./coverage";
 import { TaskFormDialog } from "./task-form-dialog";
 import type { TaskSpeakerOption } from "./types";
 
@@ -81,10 +82,12 @@ export function TasksManager({
   }
 
   /** How many confirmed speakers don't already hold this task — the count the
-   * confirmation dialog promises and the button's disabled/zero-state. Reads
-   * off the page's `assignmentCounts` snapshot, same as the delete dialog. */
+   * confirmation dialog promises and the button's disabled/zero-state. The
+   * difference of the two id sets, not of their sizes: an assignment held by
+   * an unconfirmed or declined speaker is not coverage of the confirmed
+   * roster (see `unassignedConfirmedSpeakerIds`). */
   function missingCount(task: Task) {
-    return Math.max(confirmedSpeakerCount - (assignmentCounts[task.id] ?? 0), 0);
+    return unassignedConfirmedSpeakerIds(speakers, assignedSpeakerIdsByTask[task.id] ?? []).length;
   }
 
   function confirmAssign() {

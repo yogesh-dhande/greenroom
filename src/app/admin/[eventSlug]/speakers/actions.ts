@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { speakerConfirmationSchema, type Event, type User } from "@/db/entities";
 import type { Repos } from "@/db/repos";
-import { sendPortalInvite } from "@/domain/comms";
+import { sendPortalInvite, sendTaskAssignmentNotification } from "@/domain/comms";
 import { normalizeEmail } from "@/domain/team";
 import { planAssignToSpeakers } from "@/domain/task-assign";
 import {
@@ -456,10 +456,12 @@ export type AssignTaskInput = z.infer<typeof assignTaskInputSchema>;
  * `planAssignToSpeakers`, which plans nothing for a speaker who already
  * holds the task. Re-assigning is therefore a no-op — no duplicate row (the
  * `unique(taskId, speakerId)` constraint would refuse one anyway), and no
- * touch to a status/completedAt that's already been earned.
+ * touch to a status/completedAt that's already been earned. The assignment
+ * notification (D-039) inherits that: it goes out only when a row was
+ * actually created, so a re-assign is silent as well as harmless.
  */
 export async function assignTaskToSpeaker(eventSlug: string, input: AssignTaskInput) {
-  const { event } = await requireEventAdmin(eventSlug);
+  const { event, user: admin } = await requireEventAdmin(eventSlug);
 
   const parsed = assignTaskInputSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Pick a task to assign");
@@ -472,6 +474,7 @@ export async function assignTaskToSpeaker(eventSlug: string, input: AssignTaskIn
   if (!task || task.eventId !== event.id) return fail("That task no longer exists");
 
   let assigned: boolean;
+  const createdIds: string[] = [];
   try {
     const existing = await repos.taskAssignments.getByTaskAndSpeaker(task.id, speaker.id);
     const plan = planAssignToSpeakers({
@@ -480,11 +483,30 @@ export async function assignTaskToSpeaker(eventSlug: string, input: AssignTaskIn
       existingAssignments: existing ? [existing] : [],
     });
     for (const assignment of plan.newAssignments) {
-      await repos.taskAssignments.create(assignment);
+      createdIds.push((await repos.taskAssignments.create(assignment)).id);
     }
     assigned = plan.newAssignments.length > 0;
   } catch {
     return fail("Couldn't assign that task — try again");
+  }
+
+  if (createdIds.length > 0) {
+    // The one-time assignment notification (decisions.md D-039). Logged and
+    // swallowed rather than returned: the task is on their portal either way,
+    // and reporting a failed assignment because the mail bounced would be the
+    // bigger lie (same handling as
+    // src/app/portal/submissions/[id]/actions.ts). `organizerName` is the
+    // acting admin, per D-053(2).
+    try {
+      const comms = await getCommsContext({
+        repos,
+        organizerName: admin.name?.trim() || admin.email,
+        organizerEmail: admin.email,
+      });
+      await sendTaskAssignmentNotification(comms, { assignmentIds: createdIds });
+    } catch (error) {
+      console.error("task assignment notification failed", error);
+    }
   }
 
   revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
