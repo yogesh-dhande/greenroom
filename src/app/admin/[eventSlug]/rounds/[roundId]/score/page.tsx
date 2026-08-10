@@ -22,6 +22,7 @@ import {
   speakerLine,
   withoutSpeakers,
 } from "@/domain/rounds";
+import { canViewSubmission } from "@/domain/review";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
 import { loadRound, loadRoundSubmissions, roundWindowLabel } from "../../data";
@@ -50,19 +51,39 @@ export default async function ReviewerQueuePage({
   if (!loaded) notFound();
   const { event, round } = loaded;
 
-  const mine = assignmentsForReviewer(
+  const held = assignmentsForReviewer(
     await repos.reviewRounds.listAssignmentsByReviewer(viewer.id),
     roundId,
     viewer.id,
   );
-  const myScores = await repos.reviewRounds.listScoresByAssignments(
-    mine.map((assignment) => assignment.id),
-  );
-  const scored = new Set(myScores.map((score) => score.assignmentId));
 
   const blind = hidesSpeakerIdentity(round);
   const submissions = withoutSpeakers(await loadRoundSubmissions(repos, event.id), blind);
   const byId = new Map(submissions.map((row) => [row.submission.id, row]));
+
+  // Assignments are handed out in track (rounds/actions.ts), but a legacy row
+  // from before that rule would put a submission on this queue that its own
+  // record won't open (D-061). Filtering here keeps the queue and the scoring
+  // surface (D-060) telling the same story; the scorecard itself stays
+  // authorized by the assignment alone (D-035).
+  const reviewerTrackIds =
+    viewer.role === "admin"
+      ? []
+      : (await repos.tracks.listByReviewer(viewer.id))
+          .filter((track) => track.eventId === event.id)
+          .map((track) => track.id);
+  const mine = held.filter((assignment) =>
+    canViewSubmission(
+      viewer.role,
+      reviewerTrackIds,
+      byId.get(assignment.submissionId)?.trackIds ?? [],
+    ),
+  );
+
+  const myScores = await repos.reviewRounds.listScoresByAssignments(
+    mine.map((assignment) => assignment.id),
+  );
+  const scored = new Set(myScores.map((score) => score.assignmentId));
 
   const state = roundState(round);
   const required = mine.filter((assignment) => assignment.status !== "recused");

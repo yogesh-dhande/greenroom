@@ -70,6 +70,8 @@ export interface SubmissionOption {
   trackIds: string[];
   trackNames: string[];
   status: SubmissionStatus;
+  /** Who this one may go to — the track join, decided server-side (D-061). */
+  reviewerIds: string[];
 }
 
 export interface AssignmentRow {
@@ -179,6 +181,21 @@ export function AssignmentManager({
 
   const reviewerName = reviewerById.get(reviewerId)?.name ?? "this reviewer";
 
+  // What the chosen reviewer's tracks actually reach. An assignment outside
+  // them would be a queue item leading to a page they can't open (D-060/D-061),
+  // so those rows can't be ticked and the server refuses them anyway.
+  const assignable = useMemo(
+    () => new Set(submissions.filter((s) => s.reviewerIds.includes(reviewerId)).map((s) => s.id)),
+    [submissions, reviewerId],
+  );
+
+  // Switching reviewer re-decides what was ticked; a selection made for someone
+  // else must not survive into an assignment it isn't valid for.
+  const selectable = useMemo(
+    () => selected.filter((id) => assignable.has(id)),
+    [selected, assignable],
+  );
+
   // --- narrowing the pile you're assigning from -----------------------------
   // The same search-plus-groups pattern the recipient pickers use, over
   // submissions instead of people: on a hundred-proposal round, "the ones
@@ -221,8 +238,8 @@ export function AssignmentManager({
   );
 
   const selectedTitles = useMemo(
-    () => submissions.filter((submission) => selected.includes(submission.id)).map((s) => s.title),
-    [submissions, selected],
+    () => submissions.filter((submission) => selectable.includes(submission.id)).map((s) => s.title),
+    [submissions, selectable],
   );
 
   return (
@@ -287,10 +304,10 @@ export function AssignmentManager({
         <div className="flex items-center gap-3">
           <Button
             type="button"
-            disabled={isBusy || !reviewerId || selected.length === 0}
+            disabled={isBusy || !reviewerId || selectable.length === 0}
             onClick={() =>
               run(
-                () => assignSubmissions(eventSlug, roundId, reviewerId, selected),
+                () => assignSubmissions(eventSlug, roundId, reviewerId, selectable),
                 `Assigned to ${reviewerName}`,
               )
             }
@@ -305,7 +322,7 @@ export function AssignmentManager({
               lead: "Assigning",
               singular: "submission",
               plural: "submissions",
-              empty: `Nothing ticked yet — of ${submissions.length}.`,
+              empty: `Nothing ticked yet — of ${assignable.size} ${reviewerName} can review.`,
             }}
           />
         </div>
@@ -328,8 +345,8 @@ export function AssignmentManager({
             />
             <GroupChips
               groups={groups}
-              selected={selected}
-              onSelectedChange={setSelected}
+              selected={selectable}
+              onSelectedChange={(ids) => setSelected(ids.filter((id) => assignable.has(id)))}
               label="Submission groups"
             />
             {query.trim() ? (
@@ -363,12 +380,18 @@ export function AssignmentManager({
               <TableBody>
                 {shown.map((submission) => {
                   const rows = bySubmission.get(submission.id) ?? [];
+                  const reachable = assignable.has(submission.id);
                   return (
                     <TableRow key={submission.id}>
                       <TableCell>
                         <Checkbox
-                          aria-label={`Select ${submission.title}`}
-                          checked={selected.includes(submission.id)}
+                          aria-label={
+                            reachable
+                              ? `Select ${submission.title}`
+                              : `${submission.title} is outside ${reviewerName}'s tracks`
+                          }
+                          disabled={!reachable}
+                          checked={selectable.includes(submission.id)}
                           onCheckedChange={() =>
                             setSelected((current) => toggleSelection(current, submission.id))
                           }
@@ -384,6 +407,11 @@ export function AssignmentManager({
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {submission.trackNames.join(", ") || "—"}
+                        {/* Why the row can't be ticked, said out loud — the fix
+                            is on Team, not here. */}
+                        {reachable ? null : (
+                          <p className="text-xs">Outside {reviewerName}&apos;s tracks</p>
+                        )}
                       </TableCell>
                       <TableCell>
                         <SubmissionStatusBadge status={submission.status} />

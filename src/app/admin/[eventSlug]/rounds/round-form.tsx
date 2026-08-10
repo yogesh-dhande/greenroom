@@ -86,11 +86,19 @@ export function RoundForm({
   eventSlug,
   eventTimezone,
   round,
+  criteriaLocked = false,
 }: {
   eventSlug: string;
   eventTimezone: string;
   /** Absent when creating. */
   round?: ReviewRound;
+  /**
+   * Set once any reviewer has filed a scorecard: the criteria are then the
+   * questions those answers were given to, and freezing them is what lets a
+   * filed scorecard read back verbatim (decisions.md D-060, the lock pattern
+   * from D-042). Everything else about the round stays editable.
+   */
+  criteriaLocked?: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState(round?.name ?? "");
@@ -240,6 +248,15 @@ export function RoundForm({
           </p>
         </div>
 
+        {criteriaLocked ? (
+          <p className="rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
+            Reviewers have already filed scorecards in this round, so the scorecard is locked —
+            scores on file have to read back exactly as they were entered. The round&apos;s name,
+            dates and blind-review setting are still editable; to score on different criteria,
+            create a new round.
+          </p>
+        ) : null}
+
         {criteria.map((row, index) => (
           <div key={row.key} className="flex flex-col gap-3 rounded-lg border border-border p-3">
             <div className="flex items-start gap-3">
@@ -248,6 +265,7 @@ export function RoundForm({
                 <Input
                   id={`criterion-label-${index}`}
                   placeholder="Originality"
+                  disabled={criteriaLocked}
                   value={row.label}
                   onChange={(event) => patch(row.key, { label: event.target.value })}
                 />
@@ -256,6 +274,7 @@ export function RoundForm({
                 <Label htmlFor={`criterion-type-${index}`}>Type</Label>
                 <Select
                   value={row.type}
+                  disabled={criteriaLocked}
                   onValueChange={(value) =>
                     patch(row.key, { type: value as ScorecardCriterionType })
                   }
@@ -278,6 +297,7 @@ export function RoundForm({
                 variant="ghost"
                 className="mt-6"
                 aria-label={`Remove ${row.label || "criterion"}`}
+                disabled={criteriaLocked}
                 onClick={() => setCriteria((rows) => rows.filter((other) => other.key !== row.key))}
               >
                 <Trash2Icon />
@@ -291,6 +311,7 @@ export function RoundForm({
                   <Input
                     id={`criterion-min-${index}`}
                     type="number"
+                    disabled={criteriaLocked}
                     value={row.min}
                     onChange={(event) => patch(row.key, { min: event.target.value })}
                   />
@@ -300,6 +321,7 @@ export function RoundForm({
                   <Input
                     id={`criterion-max-${index}`}
                     type="number"
+                    disabled={criteriaLocked}
                     value={row.max}
                     onChange={(event) => patch(row.key, { max: event.target.value })}
                   />
@@ -310,6 +332,7 @@ export function RoundForm({
                     id={`criterion-weight-${index}`}
                     type="number"
                     step="0.5"
+                    disabled={criteriaLocked}
                     value={row.weight}
                     onChange={(event) => patch(row.key, { weight: event.target.value })}
                   />
@@ -323,6 +346,7 @@ export function RoundForm({
                 <Input
                   id={`criterion-options-${index}`}
                   placeholder="Accept, Maybe, Decline"
+                  disabled={criteriaLocked}
                   value={row.options}
                   onChange={(event) => patch(row.key, { options: event.target.value })}
                 />
@@ -334,6 +358,7 @@ export function RoundForm({
               <Label htmlFor={`criterion-help-${index}`}>Guidance for reviewers (optional)</Label>
               <Input
                 id={`criterion-help-${index}`}
+                disabled={criteriaLocked}
                 value={row.helpText}
                 onChange={(event) => patch(row.key, { helpText: event.target.value })}
               />
@@ -341,17 +366,19 @@ export function RoundForm({
           </div>
         ))}
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => addCriterion("number")}>
-            <PlusIcon /> Add rating
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => addCriterion("select")}>
-            <PlusIcon /> Add dropdown
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => addCriterion("text")}>
-            <PlusIcon /> Add free text
-          </Button>
-        </div>
+        {criteriaLocked ? null : (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => addCriterion("number")}>
+              <PlusIcon /> Add rating
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => addCriterion("select")}>
+              <PlusIcon /> Add dropdown
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => addCriterion("text")}>
+              <PlusIcon /> Add free text
+            </Button>
+          </div>
+        )}
       </section>
 
       <Separator />

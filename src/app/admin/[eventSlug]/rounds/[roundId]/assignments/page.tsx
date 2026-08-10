@@ -6,6 +6,7 @@ import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { personName } from "../../../submissions/queue";
 import {
+  eligibleReviewersBySubmission,
   loadReviewerPool,
   loadRound,
   loadRoundSubmissions,
@@ -36,12 +37,16 @@ export default async function RoundAssignmentsPage({
     loadRoundSubmissions(repos, event.id),
     loadRoundWork(repos, roundId),
     repos.tracks.listByEvent(event.id),
-    loadReviewerPool(repos),
+    loadReviewerPool(repos, event.id),
     viewerHasQueue(repos, roundId, viewer.id),
   ]);
 
-  const poolById = new Map(pool.map((person) => [person.id, person]));
+  const poolById = new Map(pool.map((member) => [member.user.id, member.user]));
   const scored = new Set(work.scores.map((score) => score.assignmentId));
+
+  // Who each submission may go to, decided server-side from the track join
+  // (D-061) — the picker only renders the answer.
+  const eligible = eligibleReviewersBySubmission(pool, submissions);
 
   const options: SubmissionOption[] = submissions.map((row) => ({
     id: row.submission.id,
@@ -50,6 +55,7 @@ export default async function RoundAssignmentsPage({
     trackIds: row.trackIds,
     trackNames: row.trackNames,
     status: row.submission.status,
+    reviewerIds: eligible[row.submission.id] ?? [],
   }));
 
   const rows: AssignmentRow[] = work.assignments.map((assignment) => {
@@ -81,11 +87,11 @@ export default async function RoundAssignmentsPage({
         eventSlug={eventSlug}
         roundId={roundId}
         roundName={round.name}
-        reviewers={pool.map((person) => ({
-          id: person.id,
-          name: personName(person),
-          email: person.email,
-          role: person.role,
+        reviewers={pool.map(({ user }) => ({
+          id: user.id,
+          name: personName(user),
+          email: user.email,
+          role: user.role,
         }))}
         tracks={tracks.map((track) => ({ id: track.id, name: track.name }))}
         submissions={options}

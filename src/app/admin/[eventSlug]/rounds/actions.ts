@@ -3,9 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { scorecardCriterionTypeSchema } from "@/db/entities";
+import type { Repos } from "@/db/repos";
 import { fromZonedInputValue } from "@/domain/forms";
+import { canAssignReviewer } from "@/domain/review";
 import {
   canScoreSubmission,
+  criteriaEqual,
   isRoundOpen,
   normalizeCriteria,
   pickScorecardValues,
@@ -14,6 +17,7 @@ import {
 import { getRepos } from "@/lib/db";
 import { requireAdmin, requireAdminOrReviewer } from "@/lib/session";
 import { directSessionFormIds } from "../submissions/queue";
+import { roundHasScorecards } from "./data";
 
 /**
  * Server actions for multi-round scored evaluations (spec.md "Important",
@@ -120,6 +124,20 @@ export async function updateRound(eventSlug: string, roundId: string, input: Rou
   const prepared = prepareRound(input, event.timezone);
   if (!prepared.ok) return prepared;
 
+  // Once a scorecard is on file the criteria are locked, the way a form's type
+  // locks after its first response (D-042): a filed scorecard has to read back
+  // exactly as it was entered (D-060), and there is no honest way to do that
+  // through questions that have since been deleted, relabelled or rescaled.
+  // Everything else about the round stays editable.
+  if (
+    !criteriaEqual(round.criteria, prepared.values.criteria) &&
+    (await roundHasScorecards(repos, roundId))
+  ) {
+    return fail(
+      "Reviewers have already filed scorecards in this round, so its scorecard is locked. Create a new round to score on different criteria.",
+    );
+  }
+
   try {
     await repos.reviewRounds.update(roundId, prepared.values);
     revalidatePath(`/admin/${eventSlug}/rounds`);
@@ -153,6 +171,13 @@ export async function deleteRound(eventSlug: string, roundId: string) {
 // Assignments (organizer)
 // ---------------------------------------------------------------------------
 
+/**
+ * What an out-of-track assignment gets rejected with. Named for the fix, since
+ * the reviewer's tracks are edited somewhere else entirely (Team).
+ */
+const OUT_OF_TRACK =
+  "A reviewer can only be given submissions their tracks cover — give them the track on Team first, or assign an organizer.";
+
 /** Round + event + a reviewer who is actually allowed to review. */
 async function loadAssignmentContext(eventSlug: string, roundId: string, reviewerId: string) {
   const repos = await getRepos();
@@ -165,7 +190,30 @@ async function loadAssignmentContext(eventSlug: string, roundId: string, reviewe
   if (!reviewer || (reviewer.role !== "reviewer" && reviewer.role !== "admin")) {
     return fail("Pick someone with reviewer or organizer access");
   }
-  return { ok: true as const, repos, event, round, reviewer };
+  // Routing is the track join (D-061), so the reviewer's tracks on *this* event
+  // decide what may be handed to them below. Admins reach everything and need
+  // none of it.
+  const reviewerTrackIds =
+    reviewer.role === "admin"
+      ? []
+      : (await repos.tracks.listByReviewer(reviewer.id))
+          .filter((track) => track.eventId === event.id)
+          .map((track) => track.id);
+
+  return { ok: true as const, repos, event, round, reviewer, reviewerTrackIds };
+}
+
+/** Submission id -> its track ids, for the eligibility check. */
+async function trackIdsBySubmission(
+  repos: Repos,
+  submissionIds: string[],
+): Promise<Map<string, string[]>> {
+  const links = await repos.submissions.listTracksBySubmissionIds(submissionIds);
+  const map = new Map<string, string[]>();
+  for (const link of links) {
+    map.set(link.submissionId, [...(map.get(link.submissionId) ?? []), link.trackId]);
+  }
+  return map;
 }
 
 /**
@@ -181,7 +229,7 @@ export async function assignSubmissions(
   await requireAdmin(`/admin/${eventSlug}/rounds`);
   const context = await loadAssignmentContext(eventSlug, roundId, reviewerId);
   if (!context.ok) return context;
-  const { repos, event } = context;
+  const { repos, event, reviewer, reviewerTrackIds } = context;
 
   const wanted = new Set(submissionIds);
   if (wanted.size === 0) return fail("Choose at least one submission");
@@ -197,6 +245,19 @@ export async function assignSubmissions(
     (submission) => wanted.has(submission.id) && !directFormIds.has(submission.formId),
   );
   if (allowed.length === 0) return fail("Those submissions aren't part of this event");
+
+  // The assignment is the authorization to score (D-035), so it may never grant
+  // work the reviewer can't otherwise reach (D-060/D-061). The picker already
+  // hides these; this is the control.
+  const trackIds = await trackIdsBySubmission(
+    repos,
+    allowed.map((submission) => submission.id),
+  );
+  const unreachable = allowed.filter(
+    (submission) =>
+      !canAssignReviewer(reviewer.role, reviewerTrackIds, trackIds.get(submission.id) ?? []),
+  );
+  if (unreachable.length > 0) return fail(OUT_OF_TRACK);
 
   try {
     for (const submission of allowed) {
@@ -224,7 +285,7 @@ export async function assignTrack(
   await requireAdmin(`/admin/${eventSlug}/rounds`);
   const context = await loadAssignmentContext(eventSlug, roundId, reviewerId);
   if (!context.ok) return context;
-  const { repos, event } = context;
+  const { repos, event, reviewer, reviewerTrackIds } = context;
 
   const [all, directFormIds] = await Promise.all([
     repos.submissions.listByEvent(event.id),
@@ -237,17 +298,30 @@ export async function assignTrack(
       // Sessions on arrival were never reviewable (decisions.md D-041).
       !directFormIds.has(submission.formId),
   );
+  // Only read the track join when something actually consults it: an admin
+  // assigning "every submission" is answered without it.
+  const trackIds =
+    trackId || reviewer.role !== "admin"
+      ? await trackIdsBySubmission(
+          repos,
+          submissions.map((submission) => submission.id),
+        )
+      : new Map<string, string[]>();
   let targets = submissions;
   if (trackId) {
-    const links = await repos.submissions.listTracksBySubmissionIds(
-      submissions.map((submission) => submission.id),
+    targets = submissions.filter((submission) =>
+      (trackIds.get(submission.id) ?? []).includes(trackId),
     );
-    const inTrack = new Set(
-      links.filter((link) => link.trackId === trackId).map((link) => link.submissionId),
-    );
-    targets = submissions.filter((submission) => inTrack.has(submission.id));
   }
   if (targets.length === 0) return fail("Nothing to assign — that track has no submissions yet");
+
+  // "Everything" means everything this reviewer can actually reach: a bulk
+  // assignment must not hand out work their tracks don't cover (D-061).
+  const reachable = targets.filter((submission) =>
+    canAssignReviewer(reviewer.role, reviewerTrackIds, trackIds.get(submission.id) ?? []),
+  );
+  if (reachable.length === 0) return fail(OUT_OF_TRACK);
+  targets = reachable;
 
   try {
     for (const submission of targets) {

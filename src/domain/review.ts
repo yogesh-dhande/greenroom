@@ -136,6 +136,35 @@ export function canViewSubmission(
 }
 
 /**
+ * Whether this reviewer may be *handed* this submission as round work.
+ *
+ * Deliberately the same question as reading it (`canViewSubmission`, D-061):
+ * an assignment outside the reviewer's tracks is work they cannot open from the
+ * submission record — the scoring entry point (D-060) — and cannot find on the
+ * submissions list, so it was never a legitimate assignment. Admins review
+ * anything; a submission with no tracks routes to nobody, so only an admin can
+ * be given one.
+ */
+export function canAssignReviewer(
+  role: Role,
+  reviewerTrackIds: string[],
+  submissionTrackIds: string[],
+): boolean {
+  return canViewSubmission(role, reviewerTrackIds, submissionTrackIds);
+}
+
+/** The reviewers one submission may be offered to — the assignment picker's pool. */
+export function eligibleReviewers<T extends { id: string; role: Role }>(
+  pool: T[],
+  trackIdsByReviewer: ReadonlyMap<string, string[]>,
+  submissionTrackIds: string[],
+): T[] {
+  return pool.filter((person) =>
+    canAssignReviewer(person.role, trackIdsByReviewer.get(person.id) ?? [], submissionTrackIds),
+  );
+}
+
+/**
  * Narrows a list to what this viewer is allowed to see.
  *
  * A `draft` is a proposal its author hasn't sent yet (decisions.md D-034, D-038):
@@ -397,6 +426,64 @@ export function planAcceptanceConversion(input: ConversionInputs): ConversionPla
 }
 
 // ---------------------------------------------------------------------------
+// Reversing an acceptance
+// ---------------------------------------------------------------------------
+
+export interface ReversalCleanupInputs {
+  /** The event the reversal happened on — sessions elsewhere are not its business. */
+  eventId: string;
+  /** The session just stood down, which never counts as work still on. */
+  cancelledSessionId: string | null;
+  /** Everyone on the submission being reversed. */
+  speakerIds: string[];
+  /** `tasks.autoAssignOnAccept` rows for the event — the only ones acceptance created. */
+  autoAssignTasks: Array<Pick<Task, "id">>;
+  /** Every task assignment those speakers hold. */
+  assignments: TaskAssignment[];
+  /** Every session each speaker is on, keyed by speaker id. */
+  sessionsBySpeaker: Record<string, Array<Pick<Session, "id" | "eventId" | "status">>>;
+}
+
+/**
+ * The task assignments to delete when an acceptance is reversed: the onboarding
+ * work the original accept auto-created, and nothing else.
+ *
+ * Four things keep it narrow. Only **auto-assigned** tasks go — anything an
+ * organizer handed this person by hand is their decision, not a side effect of
+ * the accept. Only **incomplete** ones go: a speaker who already uploaded their
+ * headshot did that work, and destroying the record of it would be worse than
+ * an orphaned row. Only speakers **left with no other live session** at this
+ * event are cleared, because a second accepted talk keeps their onboarding
+ * genuinely owed. And only this event's sessions count — a talk at next year's
+ * conference says nothing about this one.
+ */
+export function planReversalCleanup(input: ReversalCleanupInputs): string[] {
+  const speakers = new Set(input.speakerIds);
+  const auto = new Set(input.autoAssignTasks.map((task) => task.id));
+
+  const stillSpeaking = new Set(
+    input.speakerIds.filter((speakerId) =>
+      (input.sessionsBySpeaker[speakerId] ?? []).some(
+        (session) =>
+          session.eventId === input.eventId &&
+          session.id !== input.cancelledSessionId &&
+          session.status !== "cancelled",
+      ),
+    ),
+  );
+
+  return input.assignments
+    .filter(
+      (assignment) =>
+        speakers.has(assignment.speakerId) &&
+        !stillSpeaking.has(assignment.speakerId) &&
+        auto.has(assignment.taskId) &&
+        assignment.status !== "completed",
+    )
+    .map((assignment) => assignment.id);
+}
+
+// ---------------------------------------------------------------------------
 // Orchestration (the only storage-touching part)
 // ---------------------------------------------------------------------------
 
@@ -426,6 +513,8 @@ export interface RecordDecisionResult {
   sessionId: string | null;
   sessionCreated: boolean;
   assignmentsCreated: number;
+  /** Onboarding assignments withdrawn because an acceptance was reversed. */
+  assignmentsRemoved: number;
   /** One entry per speaker emailed; empty when `notify` was false. */
   deliveries: CommsDelivery[];
 }
@@ -459,6 +548,7 @@ export async function recordDecision(
   let sessionId: string | null = null;
   let sessionCreated = false;
   let assignmentsCreated = 0;
+  let assignmentsRemoved = 0;
 
   if (plan.convert) {
     const [trackIds, speakerLinks, existingSession, tasks] = await Promise.all([
@@ -507,8 +597,14 @@ export async function recordDecision(
   } else {
     const existingSession = await repos.sessions.getBySubmission(submission.id);
     sessionId = existingSession?.id ?? null;
-    if (plan.cancelSession && existingSession && existingSession.status !== "cancelled") {
-      await repos.sessions.update(existingSession.id, { status: "cancelled" });
+    if (plan.cancelSession) {
+      if (existingSession && existingSession.status !== "cancelled") {
+        await repos.sessions.update(existingSession.id, { status: "cancelled" });
+      }
+      // Standing the session down is only half of it: the onboarding tasks the
+      // accept created stay actionable — and keep the speaker in digest
+      // recipient sets — until they're withdrawn too.
+      assignmentsRemoved = await withdrawOnboarding(repos, submission, sessionId);
     }
   }
 
@@ -521,7 +617,56 @@ export async function recordDecision(
     });
   }
 
-  return { submission, sessionId, sessionCreated, assignmentsCreated, deliveries };
+  return {
+    submission,
+    sessionId,
+    sessionCreated,
+    assignmentsCreated,
+    assignmentsRemoved,
+    deliveries,
+  };
+}
+
+/**
+ * Takes back the onboarding work a now-reversed acceptance handed out, and
+ * reports how much it removed. The rule lives in `planReversalCleanup`; this
+ * only fetches what that needs and applies the answer.
+ */
+async function withdrawOnboarding(
+  repos: Repos,
+  submission: Submission,
+  cancelledSessionId: string | null,
+): Promise<number> {
+  const [speakerLinks, autoAssignTasks] = await Promise.all([
+    repos.submissions.listSpeakers(submission.id),
+    repos.tasks.listAutoAssignByEvent(submission.eventId),
+  ]);
+  const speakerIds = [...new Set(speakerLinks.map((link) => link.userId))];
+  if (speakerIds.length === 0 || autoAssignTasks.length === 0) return 0;
+
+  const perSpeaker = await Promise.all(
+    speakerIds.map(async (speakerId) => ({
+      speakerId,
+      assignments: await repos.taskAssignments.listBySpeaker(speakerId),
+      sessions: await repos.sessions.listBySpeaker(speakerId),
+    })),
+  );
+
+  const doomed = planReversalCleanup({
+    eventId: submission.eventId,
+    cancelledSessionId,
+    speakerIds,
+    autoAssignTasks,
+    assignments: perSpeaker.flatMap((entry) => entry.assignments),
+    sessionsBySpeaker: Object.fromEntries(
+      perSpeaker.map((entry) => [entry.speakerId, entry.sessions]),
+    ),
+  });
+
+  for (const assignmentId of doomed) {
+    await repos.taskAssignments.delete(assignmentId);
+  }
+  return doomed.length;
 }
 
 /**

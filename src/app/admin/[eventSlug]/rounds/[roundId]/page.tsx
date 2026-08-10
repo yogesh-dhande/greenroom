@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
-import { loadRound, viewerHasQueue } from "../data";
+import { loadRound, roundHasScorecards, viewerHasQueue } from "../data";
 import { RoundForm } from "../round-form";
 import { RoundNav } from "./round-nav";
 
@@ -20,7 +20,12 @@ export default async function RoundSetupPage({
   const loaded = await loadRound(repos, eventSlug, roundId);
   if (!loaded) notFound();
   const { event, round } = loaded;
-  const hasQueue = await viewerHasQueue(repos, roundId, viewer.id);
+  const [hasQueue, criteriaLocked] = await Promise.all([
+    viewerHasQueue(repos, roundId, viewer.id),
+    // A filed scorecard freezes the questions it answered (D-060) — the form
+    // shows them read-only rather than letting an organizer find out on save.
+    roundHasScorecards(repos, roundId),
+  ]);
 
   return (
     <div>
@@ -34,7 +39,12 @@ export default async function RoundSetupPage({
         }
       />
       <RoundNav eventSlug={eventSlug} roundId={roundId} active="setup" hasQueue={hasQueue} />
-      <RoundForm eventSlug={eventSlug} eventTimezone={event.timezone} round={round} />
+      <RoundForm
+        eventSlug={eventSlug}
+        eventTimezone={event.timezone}
+        round={round}
+        criteriaLocked={criteriaLocked}
+      />
     </div>
   );
 }

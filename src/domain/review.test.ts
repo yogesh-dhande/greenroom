@@ -10,12 +10,16 @@ import type {
 import type { Repos } from "@/db/repos";
 import {
   acceptOnArrival,
+  canAssignReviewer,
   canRecordDecision,
   canRecordReview,
   canViewSubmission,
+  eligibleReviewers,
   isRoutedToReviewer,
   planAcceptanceConversion,
   planDecision,
+  planReversalCleanup,
+  recordDecision,
   resolveQueueView,
   tallyReviews,
   tallyReviewsBySubmission,
@@ -233,6 +237,37 @@ describe("routing", () => {
   });
 });
 
+describe("assignment eligibility (D-060/D-061)", () => {
+  it("only lets a reviewer be given work their tracks reach", () => {
+    expect(canAssignReviewer("reviewer", ["trk-1", "trk-2"], ["trk-2"])).toBe(true);
+    expect(canAssignReviewer("reviewer", ["trk-1"], ["trk-2"])).toBe(false);
+  });
+
+  it("exempts admins and routes a trackless submission to admins only", () => {
+    expect(canAssignReviewer("admin", [], ["trk-9"])).toBe(true);
+    // Same answer `canViewSubmission` gives: nobody but an organizer can reach
+    // a submission with no tracks, so nobody else may be assigned it.
+    expect(canAssignReviewer("admin", [], [])).toBe(true);
+    expect(canAssignReviewer("reviewer", ["trk-1"], [])).toBe(false);
+  });
+
+  it("builds a submission's pool from the same rule", () => {
+    const pool = [
+      { id: "rev-1", role: "reviewer" as const },
+      { id: "rev-2", role: "reviewer" as const },
+      { id: "adm-1", role: "admin" as const },
+    ];
+    const tracks = new Map([
+      ["rev-1", ["trk-1"]],
+      ["rev-2", ["trk-2"]],
+    ]);
+
+    expect(eligibleReviewers(pool, tracks, ["trk-2"]).map((p) => p.id)).toEqual(["rev-2", "adm-1"]);
+    // A reviewer with no tracks at all is offered nothing; the admin still is.
+    expect(eligibleReviewers(pool, new Map(), ["trk-1"]).map((p) => p.id)).toEqual(["adm-1"]);
+  });
+});
+
 describe("resolveQueueView (D-066)", () => {
   it("lands a reviewer with assignments on them, and honours an explicit switch", () => {
     expect(resolveQueueView(undefined, 5)).toBe("assigned");
@@ -415,6 +450,93 @@ describe("planAcceptanceConversion", () => {
   });
 });
 
+describe("planReversalCleanup", () => {
+  const base = {
+    eventId: "evt-1",
+    cancelledSessionId: "ses-1",
+    speakerIds: ["usr-1", "usr-2"],
+    autoAssignTasks: [task("tsk-1"), task("tsk-2")],
+    assignments: [
+      assignment("tsk-1", "usr-1"),
+      assignment("tsk-2", "usr-1"),
+      assignment("tsk-1", "usr-2"),
+    ],
+    sessionsBySpeaker: {
+      "usr-1": [session({ id: "ses-1", status: "cancelled" })],
+      "usr-2": [session({ id: "ses-1", status: "cancelled" })],
+    },
+  };
+
+  it("withdraws the onboarding work the reversed acceptance handed out", () => {
+    expect(planReversalCleanup(base)).toEqual(["tsk-1-usr-1", "tsk-2-usr-1", "tsk-1-usr-2"]);
+  });
+
+  it("never destroys work a speaker already did", () => {
+    const done = { ...assignment("tsk-1", "usr-1"), status: "completed" as const };
+    expect(
+      planReversalCleanup({ ...base, assignments: [done, ...base.assignments.slice(1)] }),
+    ).toEqual(["tsk-2-usr-1", "tsk-1-usr-2"]);
+  });
+
+  it("leaves anything an organizer assigned by hand alone", () => {
+    // Only the auto-assign tasks were created by the accept; a one-off task
+    // someone was given deliberately isn't the accept's to take back.
+    expect(planReversalCleanup({ ...base, autoAssignTasks: [task("tsk-1")] })).toEqual([
+      "tsk-1-usr-1",
+      "tsk-1-usr-2",
+    ]);
+  });
+
+  it("keeps onboarding alive for a speaker with another accepted talk", () => {
+    expect(
+      planReversalCleanup({
+        ...base,
+        sessionsBySpeaker: {
+          ...base.sessionsBySpeaker,
+          "usr-1": [
+            session({ id: "ses-1", status: "cancelled" }),
+            session({ id: "ses-2", submissionId: "sub-2" }),
+          ],
+        },
+      }),
+    ).toEqual(["tsk-1-usr-2"]);
+  });
+
+  it("ignores the speaker's sessions at other events, and the one just cancelled", () => {
+    // A talk at next year's conference says nothing about this event's onboarding…
+    expect(
+      planReversalCleanup({
+        ...base,
+        sessionsBySpeaker: {
+          ...base.sessionsBySpeaker,
+          "usr-1": [session({ id: "ses-9", eventId: "evt-2" })],
+        },
+      }),
+    ).toEqual(["tsk-1-usr-1", "tsk-2-usr-1", "tsk-1-usr-2"]);
+
+    // …and the session being stood down never counts as still on, even if the
+    // cancel hasn't landed in this read yet.
+    expect(
+      planReversalCleanup({
+        ...base,
+        sessionsBySpeaker: {
+          ...base.sessionsBySpeaker,
+          "usr-1": [session({ id: "ses-1", status: "confirmed" })],
+        },
+      }),
+    ).toEqual(["tsk-1-usr-1", "tsk-2-usr-1", "tsk-1-usr-2"]);
+  });
+
+  it("never touches somebody else's assignments", () => {
+    expect(
+      planReversalCleanup({
+        ...base,
+        assignments: [...base.assignments, assignment("tsk-1", "usr-9")],
+      }),
+    ).not.toContain("tsk-1-usr-9");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Session-type forms (decisions.md D-041)
 // ---------------------------------------------------------------------------
@@ -467,6 +589,8 @@ function fakeRepos(seed: { submissions: Submission[]; tasks?: Task[] }) {
       setSpeakers: async (sessionId: string, speakerIds: string[]) => {
         sessionSpeakers[sessionId] = speakerIds;
       },
+      listBySpeaker: async (speakerId: string) =>
+        sessions.filter((row) => (sessionSpeakers[row.id] ?? []).includes(speakerId)),
     },
     tasks: {
       listAutoAssignByEvent: async () => seed.tasks ?? [],
@@ -483,6 +607,17 @@ function fakeRepos(seed: { submissions: Submission[]; tasks?: Task[] }) {
         };
         assignments.push(created);
         return created;
+      },
+      update: async (id: string, patch: Partial<TaskAssignment>) => {
+        const index = assignments.findIndex((row) => row.id === id);
+        assignments[index] = { ...assignments[index], ...patch };
+        return assignments[index];
+      },
+      delete: async (id: string) => {
+        assignments.splice(
+          assignments.findIndex((row) => row.id === id),
+          1,
+        );
       },
     },
   };
@@ -551,5 +686,92 @@ describe("acceptOnArrival", () => {
       acceptOnArrival({ repos: fake.repos }, { submissionId: "sub-1" }),
     ).rejects.toThrow(/cannot be decided/);
     expect(fake.sessions).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reversing an acceptance
+// ---------------------------------------------------------------------------
+
+describe("recordDecision reversing an acceptance", () => {
+  /** Accept, then take it back — the sequence the whole cleanup exists for. */
+  async function acceptThenReverse(
+    decision: "denied" | "maybe",
+    seed: { tasks?: Task[] } = { tasks: [task("tsk-1"), task("tsk-2")] },
+  ) {
+    const fake = fakeRepos({
+      submissions: [submission({ id: "sub-1", status: "submitted" })],
+      tasks: seed.tasks,
+    });
+    await recordDecision({ repos: fake.repos }, { submissionId: "sub-1", decidedBy: "adm-1", decision: "approved" });
+    const result = await recordDecision(
+      { repos: fake.repos },
+      { submissionId: "sub-1", decidedBy: "adm-1", decision },
+    );
+    return { fake, result };
+  }
+
+  it("stands the session down and takes the onboarding tasks back with it", async () => {
+    const { fake, result } = await acceptThenReverse("denied");
+
+    expect(fake.sessions[0].status).toBe("cancelled");
+    // The declined speakers keep no actionable work, so nothing chases them
+    // and nothing puts them in a digest.
+    expect(fake.assignments).toEqual([]);
+    expect(result.assignmentsRemoved).toBe(4);
+  });
+
+  it("leaves completed onboarding work on the record", async () => {
+    const { fake, result } = await acceptThenReverse("denied");
+    expect(result.assignmentsRemoved).toBe(4);
+
+    // Same flow again, but one task was already done before the reversal.
+    const second = fakeRepos({
+      submissions: [submission({ id: "sub-2", status: "submitted" })],
+      tasks: [task("tsk-1")],
+    });
+    await recordDecision(
+      { repos: second.repos },
+      { submissionId: "sub-2", decidedBy: "adm-1", decision: "approved" },
+    );
+    await second.repos.taskAssignments.update(second.assignments[0].id, { status: "completed" });
+
+    const reversal = await recordDecision(
+      { repos: second.repos },
+      { submissionId: "sub-2", decidedBy: "adm-1", decision: "denied" },
+    );
+    expect(reversal.assignmentsRemoved).toBe(1);
+    expect(second.assignments.map((a) => a.speakerId)).toEqual(["usr-1"]);
+    expect(second.assignments[0].status).toBe("completed");
+    expect(fake.sessions[0].status).toBe("cancelled");
+  });
+
+  it("waitlisting an accepted talk clears it too", async () => {
+    const { fake, result } = await acceptThenReverse("maybe");
+    expect(fake.sessions[0].status).toBe("cancelled");
+    expect(result.assignmentsRemoved).toBe(4);
+  });
+
+  it("removes nothing when the decision was never an acceptance", async () => {
+    const fake = fakeRepos({
+      submissions: [submission({ id: "sub-1", status: "submitted" })],
+      tasks: [task("tsk-1")],
+    });
+    const result = await recordDecision(
+      { repos: fake.repos },
+      { submissionId: "sub-1", decidedBy: "adm-1", decision: "denied" },
+    );
+    expect(result.assignmentsRemoved).toBe(0);
+    expect(fake.assignments).toEqual([]);
+  });
+
+  it("re-accepting hands the onboarding back", async () => {
+    const { fake } = await acceptThenReverse("denied");
+    const again = await recordDecision(
+      { repos: fake.repos },
+      { submissionId: "sub-1", decidedBy: "adm-1", decision: "approved" },
+    );
+    expect(again.assignmentsCreated).toBe(4);
+    expect(fake.sessions[0].status).toBe("confirmed");
   });
 });

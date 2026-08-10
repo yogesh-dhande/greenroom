@@ -7,6 +7,7 @@ import type {
   User,
 } from "@/db/entities";
 import type { Repos } from "@/db/repos";
+import { eligibleReviewers } from "@/domain/review";
 import { summarizeRound, type ResultRow } from "@/domain/rounds";
 import { submissionStatusLabel } from "@/components/submission-status-badge";
 import { formatShortDate } from "@/lib/event-time";
@@ -176,12 +177,71 @@ export function buildResultRows(
     .filter((row): row is ResultRow => row !== null);
 }
 
-/** The people an organizer can hand review work to (spec.md "Users"). */
-export async function loadReviewerPool(repos: Repos): Promise<User[]> {
-  const [reviewers, admins] = await Promise.all([
+/** One person an organizer can hand review work to, with what they can reach. */
+export interface ReviewerPoolMember {
+  user: User;
+  /** The tracks they own on this event. Empty for an admin, who needs none. */
+  trackIds: string[];
+}
+
+/**
+ * The people an organizer can hand review work to (spec.md "Users"), each with
+ * the tracks that decide which submissions they may actually be given (D-061).
+ */
+export async function loadReviewerPool(
+  repos: Repos,
+  eventId: string,
+): Promise<ReviewerPoolMember[]> {
+  const [reviewers, admins, tracks] = await Promise.all([
     repos.users.listByRole("reviewer"),
     repos.users.listByRole("admin"),
+    repos.tracks.listByEvent(eventId),
   ]);
+  const owners = await Promise.all(
+    tracks.map(async (track) => ({
+      trackId: track.id,
+      userIds: await repos.tracks.listReviewerIds(track.id),
+    })),
+  );
+
+  const trackIdsByUser = new Map<string, string[]>();
+  for (const { trackId, userIds } of owners) {
+    for (const userId of userIds) {
+      trackIdsByUser.set(userId, [...(trackIdsByUser.get(userId) ?? []), trackId]);
+    }
+  }
+
   // Admins sit on program committees too; they're offered after the reviewers.
-  return [...reviewers, ...admins].sort((a, b) => personName(a).localeCompare(personName(b)));
+  return [...reviewers, ...admins]
+    .sort((a, b) => personName(a).localeCompare(personName(b)))
+    .map((user) => ({ user, trackIds: trackIdsByUser.get(user.id) ?? [] }));
+}
+
+/**
+ * The reviewers each submission may be offered, keyed by submission id.
+ *
+ * The picker is built from this rather than from the whole pool: an assignment
+ * whose tracks don't overlap is work the reviewer can't reach from the
+ * submission record (D-060) or their own list (D-061), so offering it would only
+ * produce a queue item that leads nowhere. `assignSubmissions` enforces the same
+ * rule server-side — this keeps the organizer from walking into it.
+ */
+export function eligibleReviewersBySubmission(
+  pool: ReviewerPoolMember[],
+  submissions: RoundSubmissionRow[],
+): Record<string, string[]> {
+  const people = pool.map((member) => ({ id: member.user.id, role: member.user.role }));
+  const trackIdsByReviewer = new Map(pool.map((member) => [member.user.id, member.trackIds]));
+  return Object.fromEntries(
+    submissions.map((row) => [
+      row.submission.id,
+      eligibleReviewers(people, trackIdsByReviewer, row.trackIds).map((person) => person.id),
+    ]),
+  );
+}
+
+/** Whether any reviewer has filed a scorecard in this round — the criteria lock. */
+export async function roundHasScorecards(repos: Repos, roundId: string): Promise<boolean> {
+  const { scores } = await loadRoundWork(repos, roundId);
+  return scores.length > 0;
 }

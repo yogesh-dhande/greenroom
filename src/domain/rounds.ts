@@ -230,6 +230,39 @@ export function normalizeCriteria(drafts: CriterionDraft[]): ScorecardCriterion[
 }
 
 /**
+ * Whether two scorecards ask exactly the same questions, in the same order.
+ *
+ * The question behind the criteria lock (D-042's pattern, D-060's requirement
+ * that a filed scorecard reads back verbatim): a round with scorecards on file
+ * may still be renamed and re-dated, but its criteria have to be the ones its
+ * answers were given to. Deleting a criterion drops its answers from the
+ * read-back, and moving a rating's scale silently re-reads "4 / 5" as "4 / 10"
+ * and re-weights the aggregate — neither is a change an organizer can make
+ * honestly after the fact.
+ *
+ * Compared field by field rather than by serialization, so storage key order
+ * never reads as an edit. Both sides come from `normalizeCriteria`, which has
+ * already dropped the settings each type doesn't use.
+ */
+export function criteriaEqual(a: ScorecardCriterion[], b: ScorecardCriterion[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((left, index) => {
+    const right = b[index];
+    return (
+      left.id === right.id &&
+      left.label === right.label &&
+      left.type === right.type &&
+      (left.helpText ?? "") === (right.helpText ?? "") &&
+      left.min === right.min &&
+      left.max === right.max &&
+      left.weight === right.weight &&
+      (left.options ?? []).length === (right.options ?? []).length &&
+      (left.options ?? []).every((option, i) => option === (right.options ?? [])[i])
+    );
+  });
+}
+
+/**
  * The first thing wrong with a submitted scorecard, or null when it's complete.
  * Ratings and dropdowns must be answered — they are what the round is for.
  * Free-text criteria stay optional: a reviewer with nothing to add shouldn't be

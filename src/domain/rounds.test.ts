@@ -13,6 +13,7 @@ import {
   assignmentsForReviewer,
   blindSubmissionIds,
   canScoreSubmission,
+  criteriaEqual,
   criterionIdFromLabel,
   criterionRange,
   criterionScalePoints,
@@ -219,6 +220,52 @@ describe("normalizeCriteria", () => {
       { label: "Clarity", type: "text" },
     ]);
     expect(criteria.map((criterion) => criterion.id)).toEqual(["clarity", "clarity_2"]);
+  });
+});
+
+describe("criteriaEqual (the criteria lock, D-060)", () => {
+  it("holds when the scorecard is saved back unchanged", () => {
+    expect(criteriaEqual(INITIAL_REVIEW, normalizeCriteria(INITIAL_REVIEW))).toBe(true);
+    // A different object identity for the same questions is still no change.
+    expect(criteriaEqual(INITIAL_REVIEW, [...INITIAL_REVIEW.map((c) => ({ ...c }))])).toBe(true);
+  });
+
+  it("catches every edit that would re-read a filed scorecard", () => {
+    const [originality, ...rest] = INITIAL_REVIEW;
+    // Dropping a criterion drops its answers from the read-back.
+    expect(criteriaEqual(INITIAL_REVIEW, rest)).toBe(false);
+    // Rescaling silently re-reads "4 / 5" as "4 / 10" and re-weights the total.
+    expect(criteriaEqual(INITIAL_REVIEW, [{ ...originality, max: 10 }, ...rest])).toBe(false);
+    expect(criteriaEqual(INITIAL_REVIEW, [{ ...originality, weight: 1 }, ...rest])).toBe(false);
+    // Relabelling puts someone else's question above an existing answer.
+    expect(criteriaEqual(INITIAL_REVIEW, [{ ...originality, label: "Novelty" }, ...rest])).toBe(
+      false,
+    );
+    expect(criteriaEqual(INITIAL_REVIEW, [{ ...originality, id: "novelty" }, ...rest])).toBe(false);
+    expect(criteriaEqual(INITIAL_REVIEW, [{ ...originality, type: "text" }, ...rest])).toBe(false);
+    // Reordering moves the questions under the answers on the record.
+    expect(criteriaEqual(INITIAL_REVIEW, [...rest, originality])).toBe(false);
+  });
+
+  it("catches dropdown choices and guidance changing too", () => {
+    const select = INITIAL_REVIEW.find((criterion) => criterion.type === "select")!;
+    const others = INITIAL_REVIEW.filter((criterion) => criterion !== select);
+    expect(criteriaEqual(INITIAL_REVIEW, [...others, { ...select, options: ["Accept"] }])).toBe(
+      false,
+    );
+    expect(
+      criteriaEqual(INITIAL_REVIEW, [
+        ...others,
+        { ...select, options: [...(select.options ?? [])].reverse() },
+      ]),
+    ).toBe(false);
+    expect(criteriaEqual(INITIAL_REVIEW, [select, ...others].map((c) => ({ ...c })))).toBe(false);
+  });
+
+  it("reads an absent helpText and an empty one as the same thing", () => {
+    const [first, ...rest] = INITIAL_REVIEW;
+    expect(criteriaEqual(INITIAL_REVIEW, [{ ...first, helpText: "" }, ...rest])).toBe(true);
+    expect(criteriaEqual(INITIAL_REVIEW, [{ ...first, helpText: "Be harsh" }, ...rest])).toBe(false);
   });
 });
 
