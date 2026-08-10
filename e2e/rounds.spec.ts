@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
+import { devEmailsSince, signIn } from "./helpers";
 
 /**
  * Key flow: multi-round scored evaluations (spec.md "Important", decisions.md
@@ -12,13 +13,12 @@ import { signIn } from "./helpers";
  * third, so "the reviewer's queue" can only be right if scoping is per round
  * rather than per person.
  *
- * Tests run in file order on one worker and build on each other's state, each
- * one navigating in from /rounds rather than a shared URL.
+ * The lifecycle is one scenario because every step intentionally consumes the
+ * round created by the step before it. No separate test inherits that state.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
 const ROUNDS = `/admin/${EVENT_SLUG}/rounds`;
-const ROUND = "Playwright screening round";
 
 /** Assigned in this round: talks no other spec decides on, all inside Dana's
  * tracks (AI Engineering + Evals & Reliability) — since the track-scoping fix,
@@ -47,13 +47,17 @@ async function pickPoint(page: Page, criterion: string, point: number): Promise<
 }
 
 /** The round's row in the list — every test starts from here. */
-function roundRow(page: Page) {
-  return page.getByRole("row", { name: ROUND });
+function roundRow(page: Page, roundName: string) {
+  return page.getByRole("row", { name: roundName });
 }
 
-async function openRoundTab(page: Page, tab: "Assign" | "Results"): Promise<void> {
+async function openRoundTab(
+  page: Page,
+  roundName: string,
+  tab: "Assign" | "Results",
+): Promise<void> {
   await page.goto(ROUNDS);
-  await roundRow(page).getByRole("link", { name: tab }).click();
+  await roundRow(page, roundName).getByRole("link", { name: tab }).click();
 }
 
 /** Dana's line in the round's reviewer-progress table. */
@@ -67,7 +71,11 @@ async function choose(page: Page, label: string, option: string): Promise<void> 
   await page.getByRole("option", { name: option }).click();
 }
 
-test("an organizer builds a round with ratings, a dropdown, and free text", async ({ page }) => {
+test("an isolated scored round runs from design through assignments, scoring, export, and recusal", async ({
+  page,
+  fixtureId,
+}) => {
+  const roundName = `Round ${fixtureId}`;
   await signIn(page, "admin@greenroom.dev");
   await page.goto(ROUNDS);
 
@@ -76,9 +84,10 @@ test("an organizer builds a round with ratings, a dropdown, and free text", asyn
   await expect(page.getByRole("link", { name: "Committee final round" })).toBeVisible();
 
   await page.getByRole("link", { name: "New round" }).click();
-  await page.locator("#round-name").fill(ROUND);
+  await page.locator("#round-name").fill(roundName);
   await page.locator("#round-opens").fill(localInput(-7));
   await page.locator("#round-closes").fill(localInput(30));
+  await page.getByRole("switch", { name: "Hide speaker identity" }).click();
 
   // Rating one: weighted double, so weighting is visible in the aggregate.
   await page.locator("#criterion-label-0").fill("Originality");
@@ -100,17 +109,14 @@ test("an organizer builds a round with ratings, a dropdown, and free text", asyn
 
   // It survives a reload: the round and its scorecard are really stored.
   await page.goto(ROUNDS);
-  await roundRow(page).getByRole("link", { name: ROUND }).click();
-  await expect(page.locator("#round-name")).toHaveValue(ROUND);
+  await roundRow(page, roundName).getByRole("link", { name: roundName }).click();
+  await expect(page.locator("#round-name")).toHaveValue(roundName);
   await expect(page.locator("#criterion-label-0")).toHaveValue("Originality");
   await expect(page.locator("#criterion-weight-0")).toHaveValue("2");
   await expect(page.locator("#criterion-options-2")).toHaveValue("Accept, Maybe, Decline");
   await expect(page.locator("#criterion-label-3")).toHaveValue("Comments");
-});
-
-test("an organizer assigns specific submissions to one reviewer", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
-  await openRoundTab(page, "Assign");
+  await openRoundTab(page, roundName, "Assign");
 
   await choose(page, "Reviewer", "Dana Okoye");
   for (const title of [EVALS, OFFLINE_EVALS, CONTEXT_BUDGET]) {
@@ -125,9 +131,22 @@ test("an organizer assigns specific submissions to one reviewer", async ({ page 
   }
   await expect(page.getByRole("row", { name: RETRIEVAL })).toContainText("Nobody yet");
   await expect(danaProgress(page)).toContainText("0 of 3 scored");
-});
 
-test("a reviewer's queue is exactly what they were assigned in this round", async ({ page }) => {
+  const reminderAt = Date.now();
+  await page.getByRole("button", { name: "Remind reviewers" }).click();
+  const reminderDialog = page.getByRole("alertdialog");
+  await expect(reminderDialog).toContainText(`Remind 1 reviewer in ${roundName}?`);
+  await reminderDialog.getByRole("button", { name: "Send reminders" }).click();
+  await expect(page.getByText("Sent 1 reminder")).toBeVisible();
+  await expect(async () => {
+    const reminder = (await devEmailsSince(reminderAt)).find(
+      (body) => body.includes("dana@greenroom.dev") && body.includes("X-Greenroom-Log: round_reminder"),
+    );
+    expect(reminder).toBeTruthy();
+    expect(reminder).toContain(roundName);
+    expect(reminder).toContain("3");
+    expect(reminder).toContain("/score");
+  }).toPass({ timeout: 15_000 });
   // Grab an id Dana holds in the *seeded* round, to try it in this one.
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
@@ -138,14 +157,14 @@ test("a reviewer's queue is exactly what they were assigned in this round", asyn
     .split("/")
     .pop()!;
   await page.goto(ROUNDS);
-  const roundHref = (await roundRow(page).getByRole("link", { name: "Assign" }).getAttribute(
+  const roundHref = (await roundRow(page, roundName).getByRole("link", { name: "Assign" }).getAttribute(
     "href",
   ))!;
   const roundBase = roundHref.replace("/assignments", "");
 
   await signIn(page, "dana@greenroom.dev");
   await page.goto(ROUNDS);
-  await roundRow(page).getByRole("link", { name: "Open queue" }).click();
+  await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();
 
   await expect(page.getByTestId("queue-row")).toHaveCount(3);
   for (const title of [EVALS, OFFLINE_EVALS, CONTEXT_BUDGET]) {
@@ -161,17 +180,17 @@ test("a reviewer's queue is exactly what they were assigned in this round", asyn
   // Results are the organizer's view; a reviewer never sees the aggregate.
   const results = await page.goto(`${roundBase}/results`);
   expect(results?.url()).not.toContain("/results");
-});
-
-test("a reviewer fills in the scorecard, and their answers come back", async ({ page }) => {
   await signIn(page, "dana@greenroom.dev");
   await page.goto(ROUNDS);
-  await roundRow(page).getByRole("link", { name: "Open queue" }).click();
+  await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();
 
   await page.getByRole("row", { name: EVALS }).getByRole("link", { name: "Score" }).click();
   await expect(page.getByRole("heading", { name: EVALS })).toBeVisible();
-  // The proposal is in front of the reviewer, co-speakers and all.
-  await expect(page.getByText("Hannah Kim")).toBeVisible();
+  // The proposal stays judgeable while every author clue is withheld.
+  await expect(page.getByText("Blind review", { exact: true })).toBeVisible();
+  await expect(page.getByText("Speaker identity hidden for blind review")).toBeVisible();
+  await expect(page.getByText("Hannah Kim")).toHaveCount(0);
+  await expect(page.getByText("hannah.kim@example.com")).toHaveCount(0);
 
   // Numeric criteria on a short integer scale render as segmented radios (W25).
   await pickPoint(page, "originality", 5);
@@ -193,7 +212,7 @@ test("a reviewer fills in the scorecard, and their answers come back", async ({ 
 
   // A second, weaker scorecard so the results table has something to sort.
   await page.goto(ROUNDS);
-  await roundRow(page).getByRole("link", { name: "Open queue" }).click();
+  await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();
   await page.getByRole("row", { name: OFFLINE_EVALS }).getByRole("link", { name: "Score" }).click();
   await pickPoint(page, "originality", 2);
   await pickPoint(page, "relevance", 2);
@@ -201,14 +220,11 @@ test("a reviewer fills in the scorecard, and their answers come back", async ({ 
   await page.locator("#criterion-comments").fill("Covered better by the agents talk.");
   await page.getByRole("button", { name: "Submit scorecard" }).click();
   await expect(page.getByText("Scorecard submitted")).toBeVisible();
-});
-
-test("the organizer sees progress, the aggregate, sorting, and a CSV export", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
-  await openRoundTab(page, "Assign");
+  await openRoundTab(page, roundName, "Assign");
   await expect(danaProgress(page)).toContainText("2 of 3 scored");
 
-  await openRoundTab(page, "Results");
+  await openRoundTab(page, roundName, "Results");
   // Originality 5 (weight 2) and Relevance 3 on a 1–5 scale: (100·2 + 50)/3.
   await expect(page.getByRole("row", { name: EVALS })).toContainText("83.3");
   await expect(page.getByRole("row", { name: OFFLINE_EVALS })).toContainText("25");
@@ -238,12 +254,9 @@ test("the organizer sees progress, the aggregate, sorting, and a CSV export", as
   expect(evalsRow).toContain("Hannah Kim");
   expect(evalsRow).toContain("83.3");
   expect(evalsRow.endsWith(",5,3,Accept,Keeps its promises; would open the track.")).toBe(true);
-});
-
-test("a reviewer can declare a conflict, and the organizer sees it", async ({ page }) => {
   await signIn(page, "dana@greenroom.dev");
   await page.goto(ROUNDS);
-  await roundRow(page).getByRole("link", { name: "Open queue" }).click();
+  await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();
   await page.getByRole("row", { name: CONTEXT_BUDGET }).getByRole("link", { name: "Score" }).click();
 
   await page.getByRole("button", { name: "Declare a conflict of interest" }).click();
@@ -253,7 +266,7 @@ test("a reviewer can declare a conflict, and the organizer sees it", async ({ pa
   await expect(page.getByRole("row", { name: CONTEXT_BUDGET })).toContainText("Recused");
 
   await signIn(page, "admin@greenroom.dev");
-  await openRoundTab(page, "Assign");
+  await openRoundTab(page, roundName, "Assign");
   await expect(danaProgress(page)).toContainText("I manage the speaker.");
   // The recusal leaves her queue complete rather than permanently behind.
   await expect(danaProgress(page)).toContainText("2 of 2 scored");

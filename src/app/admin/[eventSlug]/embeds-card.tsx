@@ -24,17 +24,22 @@ export function EmbedsCard({ eventSlug, published }: { eventSlug: string; publis
       <CardContent className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">
           The public schedule and speakers pages can be embedded on another site as a script or
-          iframe, or read as a JSON/iCal feed by an app or database.
+          iframe, or read as a JSON/XML/iCal feed by an app or database.
           {!published && " They resolve once the program is published."}
         </p>
         <div className="flex flex-col gap-2">
           <EmbedLinkRow label="Schedule iframe" path={embedPath(eventSlug, "schedule")} />
           <EmbedLinkRow label="Speakers iframe" path={embedPath(eventSlug, "speakers")} />
           <EmbedLinkRow label="JSON feed" path={feedUrl(eventSlug, "json", "")} />
+          <EmbedLinkRow label="XML feed" path={`/p/${eventSlug}/feed.xml`} />
           <EmbedLinkRow label="iCal feed" path={feedUrl(eventSlug, "ics", "")} />
         </div>
         <p className="text-sm text-muted-foreground">
-          Need the one-line script snippet instead? Open the{" "}
+          Need colors, filters, field selection, or another widget type? Open the{" "}
+          <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/embeds`}>
+            embed builder
+          </Link>
+          . For the one-line defaults, open the{" "}
           <span className="font-mono">{"</> Embed"}</span> dialog on the public{" "}
           <Link className="text-foreground underline underline-offset-4" href={`/p/${eventSlug}/schedule`}>
             schedule

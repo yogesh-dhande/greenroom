@@ -61,6 +61,7 @@ export async function setProgramPublished(
   // chrome-less embeds a third-party site iframes, and this overview.
   revalidatePath(`/p/${eventSlug}`, "layout");
   revalidatePath(`/p/${eventSlug}/feed.json`);
+  revalidatePath(`/p/${eventSlug}/feed.xml`);
   revalidatePath(`/p/${eventSlug}/feed.ics`);
   revalidatePath(`/embed/${eventSlug}`, "layout");
   revalidatePath(`/admin/${eventSlug}`);

@@ -213,8 +213,11 @@ export async function closeFormNow(eventSlug: string, formId: string) {
   await requireAdmin(`/admin/${eventSlug}/forms`);
 
   const repos = await getRepos();
-  const form = await repos.forms.getById(formId);
-  if (!form) return fail("That form no longer exists");
+  const [event, form] = await Promise.all([
+    repos.events.getBySlug(eventSlug),
+    repos.forms.getById(formId),
+  ]);
+  if (!event || !form || form.eventId !== event.id) return fail("That form no longer exists");
 
   const closesAt = new Date();
   try {
@@ -256,8 +259,11 @@ export async function deleteForm(eventSlug: string, formId: string) {
   await requireAdmin(`/admin/${eventSlug}/forms`);
 
   const repos = await getRepos();
-  const form = await repos.forms.getById(formId);
-  if (!form) return fail("That form no longer exists");
+  const [event, form] = await Promise.all([
+    repos.events.getBySlug(eventSlug),
+    repos.forms.getById(formId),
+  ]);
+  if (!event || !form || form.eventId !== event.id) return fail("That form no longer exists");
 
   // Deleting a form would cascade its submissions away with it — an organizer
   // who has real proposals should unpublish, not delete.
@@ -291,5 +297,6 @@ export async function deleteForm(eventSlug: string, formId: string) {
   }
 
   revalidatePath(`/admin/${eventSlug}/forms`);
+  revalidatePath(`/submit/${form.slug}`);
   return { ok: true as const };
 }

@@ -1,6 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { signIn } from "./helpers";
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
+import { devEmailsSince, signIn } from "./helpers";
 
 /**
  * Key flow: review, decide, and the acceptance conversion (spec.md §4, §5).
@@ -10,10 +10,8 @@ import { signIn } from "./helpers";
  * and the speaker really gets told; a decline sends its own notice. Runs
  * against the seeded demo database.
  *
- * Tests run in file order on one worker and build on each other's state, but
- * each one reaches its submission through the queue rather than a shared URL —
- * a worker restart after a failure would wipe module state and turn one real
- * failure into six.
+ * Stateful recommendation/decision sequences live in a single test. No test
+ * consumes a recommendation or binding decision written by another test.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
@@ -42,22 +40,6 @@ async function openSubmission(page: Page, title: string): Promise<void> {
   await page.goto(`${SUBMISSIONS}?view=all`);
   await queueLink(page, title).click();
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
-}
-
-/** Messages the dev transport has written since `since` (mtime, not count:
- * the transport reuses filenames across runs). */
-async function devEmailsSince(since: number): Promise<string[]> {
-  const files = await readdir(".dev-emails").catch(() => [] as string[]);
-  const bodies = await Promise.all(
-    files
-      .filter((name) => name.endsWith(".txt"))
-      .map(async (name) => {
-        const path = `.dev-emails/${name}`;
-        const info = await stat(path);
-        return info.mtimeMs >= since ? readFile(path, "utf8") : "";
-      }),
-  );
-  return bodies.filter(Boolean);
 }
 
 /** Reads one Overview stat card's number by its exact title. */
@@ -132,7 +114,7 @@ test("a reviewer only sees the tracks they own", async ({ page }) => {
   expect(response?.status()).toBe(404);
 });
 
-test("a reviewer records a recommendation, and the tally updates", async ({ page }) => {
+test("a recommendation informs an admin decision that converts exactly once", async ({ page }) => {
   await signIn(page, "dana@greenroom.dev");
   await openSubmission(page, PROMPT_LIBRARY);
 
@@ -162,9 +144,7 @@ test("a reviewer records a recommendation, and the tally updates", async ({ page
   // The queue shows the same tally (widened past the D-066 assigned default).
   await page.goto(`${SUBMISSIONS}?view=all`);
   await expect(page.getByRole("row", { name: PROMPT_LIBRARY })).toContainText("1 approve");
-});
-
-test("a reviewer cannot record the final decision", async ({ page }) => {
+  // The same reviewer can advise but cannot bind the event.
   await signIn(page, "dana@greenroom.dev");
   await openSubmission(page, PROMPT_LIBRARY);
 
@@ -175,10 +155,7 @@ test("a reviewer cannot record the final decision", async ({ page }) => {
   await expect(page.locator("#decision-note")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Request changes" })).toHaveCount(0);
   await expect(page.getByTestId("decision-summary")).toContainText("No decision recorded yet");
-});
-
-test("an admin accepts a talk: session, onboarding tasks, and the email", async ({ page }) => {
-  const startedAt = Date.now();
+  const acceptanceAt = Date.now();
 
   await signIn(page, "admin@greenroom.dev");
   await openSubmission(page, PROMPT_LIBRARY);
@@ -209,7 +186,7 @@ test("an admin accepts a talk: session, onboarding tasks, and the email", async 
 
   // And the speaker was told, through the real transport.
   await expect(async () => {
-    const emails = await devEmailsSince(startedAt);
+    const emails = await devEmailsSince(acceptanceAt);
     const accepted = emails.filter((body) => body.includes(PROMPT_LIBRARY));
     expect(accepted.map((body) => body.match(/^To: (.+)$/m)?.[1])).toContain(
       PROMPT_LIBRARY_SPEAKER,
@@ -220,9 +197,7 @@ test("an admin accepts a talk: session, onboarding tasks, and the email", async 
     // The acceptance email carries the onboarding tasks it just created.
     expect(mine).toContain("Finalize bio & photos");
   }).toPass({ timeout: 15_000 });
-});
-
-test("accepting twice does not duplicate the session or the tasks", async ({ page }) => {
+  // Repeating the command is idempotent: no second session or task set.
   await signIn(page, "admin@greenroom.dev");
   await openSubmission(page, PROMPT_LIBRARY);
 
@@ -238,8 +213,8 @@ test("accepting twice does not duplicate the session or the tasks", async ({ pag
   ).toHaveCount(1);
 });
 
-test("an admin asks the speaker for a change without deciding anything", async ({ page }) => {
-  const startedAt = Date.now();
+test("a change request preserves status before a later decline sends one decision", async ({ page }) => {
+  const changeRequestAt = Date.now();
 
   await signIn(page, "admin@greenroom.dev");
   await openSubmission(page, STREAMING);
@@ -260,7 +235,7 @@ test("an admin asks the speaker for a change without deciding anything", async (
   await expect(page.getByTestId("decision-summary")).toContainText("No decision recorded yet");
 
   await expect(async () => {
-    const emails = await devEmailsSince(startedAt);
+    const emails = await devEmailsSince(changeRequestAt);
     const asked = emails.filter(
       (body) => body.includes(STREAMING) && body.includes(STREAMING_SPEAKER),
     );
@@ -269,10 +244,7 @@ test("an admin asks the speaker for a change without deciding anything", async (
     expect(asked[0]).toContain("an attendee will be able to do afterwards");
     expect(asked[0]).toContain("Please do it by");
   }).toPass({ timeout: 15_000 });
-});
-
-test("a declined talk gets its own notice, and no session", async ({ page }) => {
-  const startedAt = Date.now();
+  const declineAt = Date.now();
 
   await signIn(page, "admin@greenroom.dev");
   await openSubmission(page, STREAMING);
@@ -285,7 +257,7 @@ test("a declined talk gets its own notice, and no session", async ({ page }) => 
   await expect(page.getByTestId("decision-session")).toHaveCount(0);
 
   await expect(async () => {
-    const emails = await devEmailsSince(startedAt);
+    const emails = await devEmailsSince(declineAt);
     const declined = emails.filter(
       (body) =>
         body.includes(STREAMING) &&

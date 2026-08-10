@@ -154,6 +154,23 @@ describe("buildFileHistory", () => {
     expect(history.current?.filename).toBe("final.pdf");
     expect(history.older.map((v) => v.filename)).toEqual(["revised.pdf", "draft.pdf"]);
   });
+
+  it("uses the assignment pointer when two versions share a timestamp", () => {
+    const same = new Date("2026-05-03T00:00:00Z");
+    const currentUrl = "/files/uploads/task-1/current.pdf";
+    const history = buildFileHistory(assignment({ fileUrl: currentUrl }), [
+      version({
+        id: "zz-random-id",
+        url: "/files/uploads/task-1/old.pdf",
+        filename: "old.pdf",
+        createdAt: same,
+      }),
+      version({ id: "aa-random-id", url: currentUrl, filename: "current.pdf", createdAt: same }),
+    ]);
+
+    expect(history.current?.filename).toBe("current.pdf");
+    expect(history.older.map((file) => file.filename)).toEqual(["old.pdf"]);
+  });
 });
 
 describe("collectDeliverables", () => {
@@ -311,6 +328,35 @@ describe("collectDeliverables", () => {
     expect(headshot.current.filename).toBe("new.png");
     expect(headshot.current.uploadedBy).toBe("admin-1");
     expect(headshot.older.map((v) => v.filename)).toEqual(["old.png"]);
+  });
+
+  it("uses the profile pointer when replacement headshots share a timestamp", () => {
+    const same = new Date("2026-05-06T09:00:00Z");
+    const currentUrl = "/files/uploads/profile/current.png";
+    const [headshot] = collectDeliverables({
+      views: [],
+      formsById: new Map(),
+      versionsByAssignment: new Map(),
+      profileVersionsBySpeaker: new Map([
+        [
+          "spk-1",
+          [
+            profileVersion({ id: "zz-random-id", filename: "old.png", createdAt: same }),
+            profileVersion({
+              id: "aa-random-id",
+              fileKey: "uploads/profile/current.png",
+              url: currentUrl,
+              filename: "current.png",
+              createdAt: same,
+            }),
+          ],
+        ],
+      ]),
+      profileCurrentUrlBySpeaker: new Map([["spk-1", currentUrl]]),
+    });
+
+    expect(headshot.current.filename).toBe("current.png");
+    expect(headshot.older.map((file) => file.filename)).toEqual(["old.png"]);
   });
 
   it("sorts profile files into the same newest-first list as task uploads", () => {

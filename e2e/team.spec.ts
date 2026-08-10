@@ -1,20 +1,17 @@
-import { expect, test } from "@playwright/test";
-import { magicLinkCount, signIn } from "./helpers";
+import { addTrack, expect, test } from "./fixtures";
+import { devEmailsSince, magicLinkCount, signIn } from "./helpers";
 
 /**
  * Key flow: team management (spec.md §1, decisions.md D-043/D-044) — who has
  * admin or reviewer access, reviewer track routing, and adding someone by
  * email so their first magic link lands with the intended role.
  *
- * Tests run in file order on one worker and build on each other's state; this
- * file runs last alphabetically, so it can safely reshape the team.
+ * Mutating scenarios create their own event and teammate so no test needs a
+ * role, track assignment, or URL produced by an earlier test.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
 const TEAM = `/admin/${EVENT_SLUG}/team`;
-
-/** Pre-created by the invite test, signs in later with the role adopted. */
-const INVITED_EMAIL = "casey.okafor@example.com";
 
 test("a reviewer gets no Team link and is bounced from the page", async ({ page }) => {
   await signIn(page, "dana@greenroom.dev");
@@ -44,81 +41,64 @@ test("the only admin cannot change their own role", async ({ page }) => {
   await expect(page.getByText("The only admin — promote someone else first.")).toBeVisible();
 });
 
-test("inviting a new address pre-creates the account with the chosen role", async ({ page }) => {
-  await signIn(page, "admin@greenroom.dev");
-  await page.goto(TEAM);
+test("a named teammate is invited, routed, handed over, and signs in with that role", async ({
+  page,
+  fixtureId,
+  isolatedEvent,
+}) => {
+  const email = `${fixtureId}@example.com`;
+  const name = `Reviewer ${fixtureId}`;
+  const track = `Track ${fixtureId}`;
+  const startedAt = Date.now();
 
-  await page.getByLabel("Email").fill(INVITED_EMAIL);
-  // Role defaults to Reviewer, which is what we want.
+  await addTrack(page, isolatedEvent.slug, track);
+  await page.goto(`/admin/${isolatedEvent.slug}/team`);
+  await page.getByLabel("Name (optional)").fill(name);
+  await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Add to team" }).click();
+  await expect(page.getByText(`${email} can now sign in as a reviewer`)).toBeVisible();
 
-  await expect(page.getByText(`${INVITED_EMAIL} can now sign in as a reviewer`)).toBeVisible();
-
-  // The roster shows the pending state: no sign-in yet, no tracks assigned.
-  const row = page.getByRole("row").filter({ hasText: INVITED_EMAIL });
+  const row = page.getByRole("row").filter({ hasText: email });
+  await expect(row).toContainText(name);
   await expect(row.getByText("Not signed in yet")).toBeVisible();
   await expect(row.getByText("No tracks — empty queue")).toBeVisible();
-});
 
-test("the invited address signs in and lands in the admin area as a reviewer", async ({
-  page,
-}) => {
-  // Fresh browser context: this is the invitee's first ever sign-in. The
-  // magic link must adopt the pre-created row — same role — rather than
-  // minting a new speaker account (D-044).
-  await signIn(page, INVITED_EMAIL);
+  await expect(async () => {
+    const invite = (await devEmailsSince(startedAt)).find(
+      (body) => body.includes(email) && body.includes("X-Greenroom-Log: team_invite"),
+    );
+    expect(invite).toBeTruthy();
+    expect(invite).toContain("Avery Chen invited you");
+    expect(invite).toContain(isolatedEvent.name);
+    expect(invite).toContain("as a reviewer");
+    expect(invite).toContain("/login");
+  }).toPass({ timeout: 15_000 });
 
-  await page.goto("/dashboard");
-  await expect(page).toHaveURL(/\/admin/);
-
-  // A reviewer, not an admin: no Team page for them.
-  await page.goto(TEAM);
-  await expect(page).not.toHaveURL(/\/team/);
-});
-
-test("a reviewer's tracks are edited from the roster", async ({ page }) => {
-  await signIn(page, "admin@greenroom.dev");
-  await page.goto(TEAM);
-
-  const row = page.getByRole("row").filter({ hasText: INVITED_EMAIL });
   await row.getByRole("button", { name: "Edit tracks" }).click();
-
-  await page.getByRole("checkbox", { name: "AI Engineering" }).click();
+  await page.getByRole("checkbox", { name: track }).click();
   await page.getByRole("button", { name: /^Save/ }).click();
+  await expect(row.getByText(track)).toBeVisible();
 
-  await expect(row.getByText("AI Engineering")).toBeVisible();
-  await expect(row.getByText("No tracks — empty queue")).toHaveCount(0);
-});
-
-test("an admin hands over or re-sends a teammate's sign-in from the roster", async ({ page }) => {
-  await signIn(page, "admin@greenroom.dev");
-  await page.goto(TEAM);
-
-  const row = page.getByRole("row").filter({ hasText: INVITED_EMAIL });
-
-  // The visible fallback: a /login URL with the address prefilled, selectable
-  // even where the clipboard is denied.
   await row.getByRole("button", { name: "View link" }).click();
-  const dialog = page.getByRole("dialog", { name: "Sign-in link" });
-  await expect(dialog.locator("code")).toContainText(
-    `/login?email=${encodeURIComponent(INVITED_EMAIL)}`,
-  );
+  const handover = page.getByRole("dialog", { name: "Sign-in link" });
+  await expect(handover.locator("code")).toContainText(`/login?email=${encodeURIComponent(email)}`);
   await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
 
-  // The real thing: a token-bearing magic link goes out through the same
-  // transport /login uses, so it lands in the dev magic-link log.
-  const already = await magicLinkCount(INVITED_EMAIL);
+  const already = await magicLinkCount(email);
   await row.getByRole("button", { name: "Send link" }).click();
   await expect(page.getByText(/Sign-in link emailed to/)).toBeVisible();
-  await expect(async () => {
-    expect(await magicLinkCount(INVITED_EMAIL)).toBeGreaterThan(already);
-  }).toPass({ timeout: 15_000 });
-});
+  await expect(async () => expect(await magicLinkCount(email)).toBeGreaterThan(already)).toPass({
+    timeout: 15_000,
+  });
 
-test("a handed-over link opens /login with the address already filled in", async ({ page }) => {
-  await page.goto(`/login?email=${encodeURIComponent(INVITED_EMAIL)}`);
-  await expect(page.getByLabel("Email")).toHaveValue(INVITED_EMAIL);
+  await page.context().clearCookies();
+  await page.goto(`/login?email=${encodeURIComponent(email)}`);
+  await expect(page.getByLabel("Email")).toHaveValue(email);
+  await signIn(page, email);
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/admin/);
+  await page.goto(`/admin/${isolatedEvent.slug}/team`);
+  await expect(page).not.toHaveURL(/\/team/);
 });
 
 test("a second admin frees the first, and removal is demotion with a confirm", async ({

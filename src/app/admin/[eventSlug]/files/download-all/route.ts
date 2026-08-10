@@ -1,6 +1,7 @@
 import { Zip, ZipDeflate, ZipPassThrough } from "fflate/browser";
 import {
   buildZipEntries,
+  parseZipGrouping,
   storeWithoutCompression,
   zipArchiveFilename,
   NO_FILES_MESSAGE,
@@ -11,8 +12,9 @@ import { requireEventAdmin } from "@/lib/session";
 import { loadFileLibrary, speakerLabels } from "../data";
 
 /**
- * "Download all": every current deliverable for the event as one ZIP, one
- * folder per speaker (decisions.md D-073).
+ * Selected current deliverables for the event as one ZIP, grouped by speaker,
+ * session, or not at all (decisions.md D-079). GET retains D-073's original
+ * export-all-by-speaker behavior for old links.
  *
  * Organizer-only, guarded before anything is read, the same way the round
  * results CSV is: an archive of a whole event's uploads is not the individual
@@ -25,17 +27,42 @@ import { loadFileLibrary, speakerLabels } from "../data";
  * rather than handed the bytes.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ eventSlug: string }> },
+): Promise<Response> {
+  return exportFiles(request, params);
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ eventSlug: string }> },
+): Promise<Response> {
+  return exportFiles(request, params);
+}
+
+async function exportFiles(
+  request: Request,
+  params: Promise<{ eventSlug: string }>,
 ): Promise<Response> {
   const { eventSlug } = await params;
   const { event } = await requireEventAdmin(eventSlug, `/admin/${eventSlug}/files`);
 
   const repos = await getRepos();
   const library = await loadFileLibrary(repos, event.id);
+  const input =
+    request.method === "POST"
+      ? await request.formData()
+      : new URL(request.url).searchParams;
+  const requested = new Set(input.getAll("file").filter((value): value is string => typeof value === "string"));
+  const selected =
+    request.method === "GET" && requested.size === 0
+      ? library.deliverables
+      : library.deliverables.filter((deliverable) => requested.has(deliverable.selectionId));
   const entries = buildZipEntries({
-    deliverables: library.deliverables,
+    deliverables: selected,
     speakerLabelById: speakerLabels(library.peopleById),
+    groupBy: parseZipGrouping(input.get("group")),
+    sessionTitlesBySpeaker: library.sessionTitlesBySpeaker,
   });
 
   // An honest empty state: an event with nothing uploaded gets the reason,

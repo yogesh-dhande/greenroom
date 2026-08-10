@@ -19,7 +19,8 @@ import { signIn } from "./helpers";
  * a different convention from the admin agenda's UTC short-month formatDay
  * ("Aug 8, 2026").
  *
- * Tests run in file order on one worker and build on each other's state.
+ * Read-only cases use the seed; mutating cases create or restore their own
+ * records within the same test.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
@@ -37,12 +38,7 @@ const PRIYA = "Priya Raman";
 const INFERENCE = "Cutting inference spend by 80% without touching quality";
 // Day 2, 14:00, Main Stage.
 const HOSPITAL = "Shipping an agent into a hospital";
-// Confirmed, seeded unscheduled — used only for the gallery assertion below.
-// Not used to test schedule exclusion: agenda.spec.ts places this one on the
-// grid when the whole e2e suite runs in file order (agenda.spec.ts sorts
-// before program.spec.ts alphabetically), so "still off the schedule" is
-// asserted against "Hands-on: building a recovery loop for flaky agents"
-// instead, which no other spec ever schedules.
+// Confirmed seeded session, used only for the gallery assertion below.
 const TOOL_SCHEMAS = "Tool schemas are your real prompt";
 const DAMOLA = "Damola Oyelaran";
 
@@ -77,9 +73,8 @@ test("the speaker gallery shows every confirmed speaker, scheduled or not", asyn
   await expect(page.getByRole("heading", { name: PRIYA })).toBeVisible();
   await expect(page.getByText(RETRIEVAL)).toBeVisible();
 
-  // Confirmed, seeded on day 2 (agenda.spec.ts moves it around when the
-  // whole suite runs in file order): the gallery shows every confirmed
-  // speaker regardless of where — or whether — their talk is scheduled.
+  // The gallery shows every confirmed speaker regardless of where — or
+  // whether — their talk is scheduled.
   await expect(page.getByRole("heading", { name: DAMOLA })).toBeVisible();
   await expect(page.getByText(TOOL_SCHEMAS)).toBeVisible();
 });
@@ -197,10 +192,8 @@ test("the public program works on a mobile viewport", async ({ page }) => {
 // search, facets, detail views, and the personal itinerary. Everything below
 // is unauthenticated — no signIn() anywhere.
 //
-// Counts are asserted relatively ("3 of 5"), never absolutely: agenda.spec.ts
-// runs first on the shared worker and places two more seeded talks on the
-// grid, so the programme's size is not fixed. Session identity is asserted by
-// title, and ordering by relative index.
+// Counts are asserted relatively and session identity by title, so these
+// read-only checks stay independent from isolated agenda fixtures.
 // ---------------------------------------------------------------------------
 
 /** Aisha Nwosu co-presents HOSPITAL and nothing else — a speaker name that

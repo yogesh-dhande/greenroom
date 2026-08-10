@@ -13,7 +13,7 @@ export type EmbedView = "schedule" | "speakers";
  * Sessionboard's mechanism set rather than "iframe snippet only"). Offers,
  * in the order Sessionboard's own help center documents them: the one-line
  * JS embed as the headline option, the plain iframe snippet for sites that
- * forbid third-party scripts, then the JSON and iCal feeds for consumers
+ * forbid third-party scripts, then the JSON, XML, and iCal feeds for consumers
  * that aren't a web page at all. Renders on the public speaker/schedule
  * pages, next to that page's own chrome-less `/embed` counterpart.
  */
@@ -47,6 +47,11 @@ export function EmbedSnippet({ eventSlug, view }: { eventSlug: string; view: Emb
             label="JSON feed"
             hint="Sessions and speakers, for an app or database."
             url={feedUrl(eventSlug, "json")}
+          />
+          <EmbedLinkOption
+            label="XML feed"
+            hint="Structured XML for CMS and legacy integrations."
+            url={feedUrl(eventSlug, "xml")}
           />
           <EmbedLinkOption
             label="iCal feed"
@@ -148,8 +153,8 @@ export function iframeSnippet(embedPath: string, origin?: string): string {
   return `<iframe src="${base}${embedPath}" title="Event program" width="100%" height="720" style="border:0;" loading="lazy"></iframe>`;
 }
 
-/** Absolute URL of the public JSON/iCal feed for one event. */
-export function feedUrl(eventSlug: string, kind: "json" | "ics", origin?: string): string {
+/** Absolute URL of a public program feed for one event. */
+export function feedUrl(eventSlug: string, kind: "json" | "xml" | "ics", origin?: string): string {
   const base = resolveOrigin(origin);
   return `${base}/p/${eventSlug}/feed.${kind}`;
 }

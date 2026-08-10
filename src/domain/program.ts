@@ -707,8 +707,8 @@ export function filterSpeakers(
 
 // ---------------------------------------------------------------------------
 // Public JSON feed (spec.md "embeddable on an external website";
-// decisions.md D-040: the "apps or databases" consumer Sessionboard serves
-// with JSON — XML is deliberately dropped, see D-040's trade-off table).
+// decisions.md D-080: the shared data shape behind JSON and XML feeds for
+// "apps or databases" consumers.
 // ---------------------------------------------------------------------------
 
 /** One session row in the public feed — resolved names, no internal ids. */

@@ -6,6 +6,7 @@ import {
   claimFilename,
   MAX_SEGMENT_LENGTH,
   numberedFilename,
+  parseZipGrouping,
   sanitizeFilename,
   sanitizeSegment,
   storeWithoutCompression,
@@ -263,6 +264,47 @@ describe("buildZipEntries", () => {
       speakerLabelById: new Map([["u1", "Ops/Team"]]),
     });
     expect(entries[0].path.split("/")).toHaveLength(2);
+  });
+
+  it("groups selected files by each session their speaker belongs to", () => {
+    const entries = buildZipEntries({
+      deliverables: [deliverable("u1", "deck.pdf")],
+      speakerLabelById: labels,
+      groupBy: "session",
+      sessionTitlesBySpeaker: new Map([["u1", ["Opening / Keynote", "Deep dive"]]]),
+    });
+    expect(entries.map((entry) => entry.path)).toEqual([
+      "Opening - Keynote/deck.pdf",
+      "Deep dive/deck.pdf",
+    ]);
+  });
+
+  it("uses a no-session folder when session grouping has no match", () => {
+    const entries = buildZipEntries({
+      deliverables: [deliverable("u1", "deck.pdf")],
+      speakerLabelById: labels,
+      groupBy: "session",
+      sessionTitlesBySpeaker: new Map(),
+    });
+    expect(entries[0].path).toBe("No session/deck.pdf");
+  });
+
+  it("can export a flat archive while still resolving collisions", () => {
+    const entries = buildZipEntries({
+      deliverables: [deliverable("u1", "deck.pdf"), deliverable("u2", "deck.pdf")],
+      speakerLabelById: labels,
+      groupBy: "flat",
+    });
+    expect(entries.map((entry) => entry.path)).toEqual(["deck.pdf", "deck-2.pdf"]);
+  });
+});
+
+describe("parseZipGrouping", () => {
+  it("accepts supported groupings and defaults unknown input to speaker", () => {
+    expect(parseZipGrouping("session")).toBe("session");
+    expect(parseZipGrouping("flat")).toBe("flat");
+    expect(parseZipGrouping("anything-else")).toBe("speaker");
+    expect(parseZipGrouping(null)).toBe("speaker");
   });
 });
 

@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 
 const MAGIC_LINK_LOG = ".dev-magic-links.log";
 
@@ -12,6 +12,24 @@ export async function magicLinkCount(email: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+/** Messages the development transport wrote after `since`. */
+export async function devEmailsSince(
+  since: number,
+  extension = ".txt",
+): Promise<string[]> {
+  const files = await readdir(".dev-emails").catch(() => [] as string[]);
+  const bodies = await Promise.all(
+    files
+      .filter((name) => name.endsWith(extension))
+      .map(async (name) => {
+        const path = `.dev-emails/${name}`;
+        const info = await stat(path);
+        return info.mtimeMs >= since ? readFile(path, "utf8") : "";
+      }),
+  );
+  return bodies.filter(Boolean);
 }
 
 /**

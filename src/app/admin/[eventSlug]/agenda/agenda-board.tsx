@@ -233,6 +233,7 @@ export function AgendaBoard({
           title: content.title,
           description: content.description ?? null,
           trackId: content.trackId ?? null,
+          ...(content.contentStatus ? { contentStatus: content.contentStatus } : {}),
         },
       });
       const result = await updateSessionContent(eventSlug, session.id, content);

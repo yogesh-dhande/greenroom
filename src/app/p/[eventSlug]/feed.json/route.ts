@@ -1,12 +1,17 @@
 import { getGallery, getSchedule } from "../data";
 import { buildProgramFeed, resolveFeedAssetUrl } from "@/domain/program";
+import {
+  applyEmbedGalleryConfig,
+  applyEmbedScheduleConfig,
+  parseEmbedConfig,
+} from "@/domain/embed-config";
 import { getRepos } from "@/lib/db";
 
 /**
  * Public JSON feed of the event's approved program (spec.md "embeddable on
  * an external website"; decisions.md D-040 — the "apps or databases"
- * consumer Sessionboard serves with JSON, alongside iCal and the one-line JS
- * embed; XML is deliberately dropped, see D-040's trade-off table).
+ * consumer Sessionboard serves with JSON, alongside XML, iCal and the one-line
+ * JS embed (D-080).
  *
  * Built from the exact same loaders the public HTML pages use
  * (`getSchedule`/`getGallery`), so this can never show a session or speaker
@@ -36,7 +41,12 @@ export async function GET(
   if (!event) return new Response("Not found", { status: 404 });
 
   const [days, speakers] = await Promise.all([getSchedule(eventSlug), getGallery(eventSlug)]);
-  const feed = buildProgramFeed(event, days, speakers);
+  const config = parseEmbedConfig(new URL(request.url).searchParams);
+  const feed = buildProgramFeed(
+    event,
+    applyEmbedScheduleConfig(days, config),
+    applyEmbedGalleryConfig(speakers, config),
+  );
 
   const origin = new URL(request.url).origin;
   feed.speakers = feed.speakers.map((speaker) => ({

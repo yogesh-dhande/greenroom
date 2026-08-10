@@ -176,6 +176,20 @@ export interface BuildZipEntriesInput {
   deliverables: Pick<Deliverable, "speakerId" | "current">[];
   /** Display name (or email) per speaker id; a missing id is not an error. */
   speakerLabelById: Map<string, string>;
+  /** Folder layout chosen by the organizer. */
+  groupBy?: ZipGrouping;
+  /** Session titles per speaker. A deliverable belonging to a speaker with
+   * several sessions is copied into each matching session folder. */
+  sessionTitlesBySpeaker?: Map<string, string[]>;
+}
+
+export const ZIP_GROUPINGS = ["speaker", "session", "flat"] as const;
+export type ZipGrouping = (typeof ZIP_GROUPINGS)[number];
+
+export function parseZipGrouping(value: unknown): ZipGrouping {
+  return typeof value === "string" && ZIP_GROUPINGS.includes(value as ZipGrouping)
+    ? (value as ZipGrouping)
+    : "speaker";
 }
 
 /**
@@ -198,7 +212,8 @@ export function buildZipEntries(input: BuildZipEntriesInput): ZipEntry[] {
     });
   }
 
-  const folders = assignSpeakerFolders(
+  const grouping = input.groupBy ?? "speaker";
+  const speakerFolders = assignSpeakerFolders(
     exportable.map((file) => ({
       id: file.speakerId,
       label: input.speakerLabelById.get(file.speakerId) ?? "",
@@ -208,16 +223,26 @@ export function buildZipEntries(input: BuildZipEntriesInput): ZipEntry[] {
   const takenByFolder = new Map<string, Set<string>>();
   const entries: ZipEntry[] = [];
   for (const file of exportable) {
-    const folder = folders.get(file.speakerId) ?? UNKNOWN_SPEAKER_FOLDER;
-    let taken = takenByFolder.get(folder);
-    if (!taken) {
-      taken = new Set<string>();
-      takenByFolder.set(folder, taken);
+    const folders =
+      grouping === "flat"
+        ? [""]
+        : grouping === "session"
+          ? [...new Set(input.sessionTitlesBySpeaker?.get(file.speakerId) ?? ["No session"])]
+              .map((title) => sanitizeSegment(title, "No session"))
+          : [speakerFolders.get(file.speakerId) ?? UNKNOWN_SPEAKER_FOLDER];
+
+    for (const folder of folders) {
+      let taken = takenByFolder.get(folder);
+      if (!taken) {
+        taken = new Set<string>();
+        takenByFolder.set(folder, taken);
+      }
+      const filename = claimFilename(taken, sanitizeFilename(file.filename));
+      entries.push({
+        path: folder ? `${folder}/${filename}` : filename,
+        key: file.key,
+      });
     }
-    entries.push({
-      path: `${folder}/${claimFilename(taken, sanitizeFilename(file.filename))}`,
-      key: file.key,
-    });
   }
   return entries;
 }

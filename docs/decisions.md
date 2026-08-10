@@ -49,7 +49,7 @@ Record caps (50k/base on Team) are a non-issue at conference scale. These constr
 
 ## D-006: Remaining design-only optional features — wiki/resource pages and authenticated public API — **accepted (rewritten 2026-08-09)**
 
-**Decision:** Wiki/resource pages and the authenticated write API stay design-only for the competition submission. The rest of the original design-only list has since shipped or been dropped: embeds and read-only public feeds are implemented (D-040 — `/embed/<event>` iframe pages, `/embed.js` one-liner, `/p/<slug>/feed.json` + `.ics`), and Accelevents sync was dropped by the organizer (D-017).
+**Decision:** Wiki/resource pages and the authenticated write API stay design-only for the competition submission. The rest of the original design-only list has since shipped or been dropped: configurable embeds and read-only public feeds are implemented (D-080 — `/embed/<event>` pages, `/embed.js`, and JSON/XML/iCal feeds), and Accelevents sync was dropped by the organizer (D-017).
 
 **Rationale:** Originally all optional features (spec §7–10) were design-only to protect the six firm requirements under the 4-day deadline. Embeds/feeds were promoted to implemented because Public Widgets is a judged 20% area; wiki pages and a write API are not judged by the evaluator, so they keep the design-only treatment. (Rewritten from the pre-2026-08-09 entry, which listed embeds and the public API as design-only — that no longer described reality; audit 2026-08-09 flagged the drift.)
 
@@ -471,6 +471,18 @@ Investigation no longer needed — Accelevents integration dropped by the organi
 
 **Rationale:** Owner choice 2026-08-10 ("let's go with direction D", after "keep the colors consistent with rest of the app"). Product-first reads instantly as capable software and shows the app's actual value (conflict detection) instead of describing it; staying token-faithful keeps one brand surface days before the deadline, where the other directions would have introduced a landing-only dark treatment or a display serif.
 
+## D-079: Materials ZIP export is selectable and supports three folder layouts — **accepted** (2026-08-10)
+
+**Decision:** The Files library exports any organizer-selected subset of current deliverables and offers speaker, session, or flat grouping. Session grouping places a speaker-owned file under each of that speaker's sessions and uses `No session` when none exists. The original GET route remains a backwards-compatible export-all-by-speaker entry point. This expands D-073.
+
+**Rationale:** The manual evaluation for CNT-14 explicitly checks multi-selection and per-speaker/per-session grouping. Keeping selection in the existing library and passing stable deliverable identities to the existing streaming ZIP route preserves the one-library/one-export design without a new persistence model. Owner directive 2026-08-10: implement every uncovered manual assertion.
+
+## D-080: Embeds gain a stateless five-widget configurator and XML output — **accepted** (2026-08-10)
+
+**Decision:** The admin embed builder generates List of Sessions, List of Speakers, Agenda, Schedule Itinerary, and Speaker Gallery surfaces in script/basic HTML, iframe, JSON, XML, or iCal form. Track and approved-content filtering, optional card fields, three brand colors, and bounded custom CSS are encoded in URL parameters; no embed entity or saved configuration is introduced. Public HTML and feed routes apply the same parsed configuration. This supersedes D-075's deliberate zero-configuration scope and D-040's XML omission while retaining D-075's stated stateless architecture.
+
+**Rationale:** EMB-15's manual assertions grade the builder's exact widget/output/configuration breadth. Stateless URLs keep snippets portable, preserve storage abstraction, avoid lifecycle and migration complexity, and continue to work with public cacheable routes. Owner directive 2026-08-10: implement every uncovered manual assertion.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
@@ -479,8 +491,8 @@ Where our decisions deliberately don't match how Sessionboard actually works. Re
 | 2 | Native Accelevents connector (Accelevents pulls sessions/speakers hourly) | No Accelevents integration at all | Organizer explicitly dropped the requirement | D-004 (superseded), D-017 |
 | 3 | Manages sponsors & exhibitors (and syncs them to Accelevents) | Out of scope — speakers/sessions only (direct session entry covers sponsor *speakers*) | Not in the competition requirements | spec Out of Scope |
 | 4 | AI-powered evaluations are a built-in product feature | Skipped; human `approve/maybe/deny` only, small agentic admin helper as possible enhancement | Organizer: out of scope; admin UI is the priority | D-011, D-017 |
-| 5 | Full public API: webhooks, contacts/sponsors/exhibitors, media uploads, US/EU regions | Read-only public feeds are implemented (`/p/<slug>/feed.json` + `.ics`, CORS-open, no emails/ids); the authenticated write API remains design-only | Feeds power the "apps or databases" consumer that's actually judged; API breadth isn't | D-006, D-040, spec §10 |
+| 5 | Full public API: webhooks, contacts/sponsors/exhibitors, media uploads, US/EU regions | Read-only public JSON/XML/iCal feeds are implemented (CORS-open, no emails/ids); the authenticated write API remains design-only | Feeds power the "apps or databases" consumer that's actually judged; API breadth isn't | D-006, D-080, spec §10 |
 | 6 | Password accounts for organizers/admins (speakers get portal invites) | Magic links for every role, no passwords | Simpler, one auth path; acceptable UX for a small organizer team | D-007 |
-| 7 | Wiki/resource pages and integrations are shipped features | Embeds are implemented (`/embed/<event>` iframe pages plus the `/embed.js` one-line script embed); wiki/resources remain designed-only | Six firm requirements in 4 days; architecture accommodates them later | D-006, D-040 |
+| 7 | Wiki/resource pages and integrations are shipped features | Configurable embeds are implemented (`/embed/<event>` pages plus `/embed.js` and public feeds); wiki/resources remain designed-only | The evaluated public-program integration is complete; speaker resource pages remain outside core scope | D-006, D-080 |
 | 8 | Draft-submission reminders at a fixed 5 days and 1 day before the form closes | One reminder per draft, ever, inside the final 48 hours | One nudge is a service, three are a nag — and the once-ever rule is idempotency-cheap | D-038 |
-| 9 | Embeds offer XML output alongside JSON | JSON, iCal, and HTML/JS only — no XML | JSON serves the same "apps or databases" consumer; nothing judgeable reads XML | D-040 |
+| 9 | Embeds offer XML output alongside JSON | Matched: XML is available alongside JSON, iCal, iframe, and script/basic HTML | The stateless builder and all public feeds share one configuration model | D-080 |

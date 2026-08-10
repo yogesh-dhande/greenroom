@@ -16,7 +16,7 @@ import { signIn } from "./helpers";
  * freshly created tasks, with auto-assign switched off. Seeded speakers and
  * the six seeded task templates are left exactly as other specs expect them.
  *
- * Tests run in file order on one worker and build on each other's state.
+ * Each test creates the speaker and task records it mutates.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";

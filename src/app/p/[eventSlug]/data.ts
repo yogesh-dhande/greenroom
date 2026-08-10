@@ -42,7 +42,7 @@ export const getPublicEvent = cache(
 /** Every session for the event, with its speaker ids attached — the shape
  * src/domain/program.ts's grouping functions consume. Speakers the organizer
  * has marked declined are dropped here, so every public surface built on this
- * loader (schedule, gallery, embeds, JSON/iCal feeds) honours the override. */
+ * loader (schedule, gallery, embeds, JSON/XML/iCal feeds) honours the override. */
 const getSessionsWithSpeakers = cache(
   async (eventId: string): Promise<SessionWithSpeakers[]> => {
     const repos = await getRepos();

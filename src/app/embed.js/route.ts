@@ -5,8 +5,8 @@ import { EMBED_RESIZE_MESSAGE_TYPE } from "@/lib/embed-protocol";
  * Sessionboard's own customers actually paste, per their help center's
  * "Embed Styled HTML — one line of JavaScript"). Usage:
  *
- *   <script src="https://<host>/embed.js" data-event="<slug>"
- *           data-view="schedule|speakers" async></script>
+ *   <script src="https://<host>/embed.js"
+ *           data-path="/embed/<slug>/schedule?widget=agenda" async></script>
  *
  * Served as a plain hand-written string — no bundler, no build step — kept
  * dependency-free on purpose since it runs on an arbitrary third-party page
@@ -15,8 +15,8 @@ import { EMBED_RESIZE_MESSAGE_TYPE } from "@/lib/embed-protocol";
  *  1. Finds its own `<script>` tag (`document.currentScript`, with a
  *     `data-event` + `/embed.js` scan as a fallback for the rare browser/
  *     loader combination that leaves `currentScript` null).
- *  2. Reads `data-event`/`data-view` off that tag and injects an `<iframe>`
- *     pointing at the existing chrome-less `/embed/<event>/<view>` page,
+ *  2. Reads a same-origin `/embed/` path (or the legacy `data-event` and
+ *     `data-view` pair) and injects an `<iframe>` pointing at that page,
  *     right after the script tag.
  *  3. Listens for the auto-resize handshake (src/lib/embed-protocol.ts,
  *     emitted by `EmbedAutoSize` in the embed layout) and grows the iframe
@@ -42,17 +42,13 @@ const SCRIPT = `(function () {
     var candidates = document.getElementsByTagName("script");
     for (var i = candidates.length - 1; i >= 0; i--) {
       var candidate = candidates[i];
-      if (candidate.getAttribute("data-event") && /\\/embed\\.js(\\?|$)/.test(candidate.src)) {
+      if ((candidate.getAttribute("data-path") || candidate.getAttribute("data-event")) && /\\/embed\\.js(\\?|$)/.test(candidate.src)) {
         script = candidate;
         break;
       }
     }
   }
   if (!script) return;
-
-  var eventSlug = script.getAttribute("data-event");
-  var view = script.getAttribute("data-view") || "schedule";
-  if (!eventSlug || !VALID_VIEWS[view]) return;
 
   var scriptUrl;
   try {
@@ -61,7 +57,22 @@ const SCRIPT = `(function () {
     return;
   }
   var origin = scriptUrl.origin;
-  var embedUrl = origin + "/embed/" + encodeURIComponent(eventSlug) + "/" + view;
+  var configuredPath = script.getAttribute("data-path");
+  var embedUrl;
+  if (configuredPath) {
+    try {
+      var configuredUrl = new URL(configuredPath, origin);
+      if (configuredUrl.origin !== origin || configuredUrl.pathname.indexOf("/embed/") !== 0) return;
+      embedUrl = configuredUrl.href;
+    } catch (err) {
+      return;
+    }
+  } else {
+    var eventSlug = script.getAttribute("data-event");
+    var view = script.getAttribute("data-view") || "schedule";
+    if (!eventSlug || !VALID_VIEWS[view]) return;
+    embedUrl = origin + "/embed/" + encodeURIComponent(eventSlug) + "/" + view;
+  }
 
   var iframe = document.createElement("iframe");
   iframe.src = embedUrl;

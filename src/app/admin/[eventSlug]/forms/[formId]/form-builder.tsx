@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLinkIcon, PlusIcon, VideoIcon } from "lucide-react";
+import { ExternalLinkIcon, PlusIcon, Trash2Icon, VideoIcon } from "lucide-react";
 import { toast } from "sonner";
 import { RESERVED_FIELD_IDS, type FormField, type FormType } from "@/db/entities";
 import {
@@ -36,8 +36,18 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { FieldEditor } from "./field-editor";
-import { closeFormNow, saveForm, setFormPublished } from "../actions";
+import { closeFormNow, deleteForm, saveForm, setFormPublished } from "../actions";
 
 export interface FormDraft {
   id: string;
@@ -112,6 +122,9 @@ export function FormBuilder({
   const [isSaving, startSaving] = useTransition();
   const [isPublishing, startPublishing] = useTransition();
   const [isClosingNow, startClosingNow] = useTransition();
+  const [isDeleting, startDeleting] = useTransition();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // Server-rejected save, kept on screen (not just a transient toast) until
   // the user changes something or saves successfully — a failed save used to
   // leave no trace once the toast faded.
@@ -696,6 +709,76 @@ export function FormBuilder({
           </div>
         </TabsContent>
       </Tabs>
+
+      <Separator />
+
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+        <div>
+          <p className="text-sm font-medium text-foreground">Delete this form</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Only forms with no responses and no onboarding tasks pointing at them can be deleted.
+            To retire a form that has collected proposals, unpublish it instead.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={isSaving || isPublishing || isClosingNow || isDeleting}
+          onClick={() => {
+            setDeleteError(null);
+            setDeleteOpen(true);
+          }}
+        >
+          <Trash2Icon />
+          Delete form
+        </Button>
+      </div>
+
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!isDeleting) setDeleteOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{savedForm.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the form and its public link. Forms with responses or linked
+              onboarding tasks are protected and cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                startDeleting(async () => {
+                  const result = await deleteForm(eventSlug, draft.id);
+                  if (!result.ok) {
+                    setDeleteError(result.error);
+                    toast.error(result.error);
+                    return;
+                  }
+                  toast.success("Form deleted");
+                  router.push(`/admin/${eventSlug}/forms`);
+                  router.refresh();
+                });
+              }}
+            >
+              {isDeleting ? "Deleting…" : "Delete form"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

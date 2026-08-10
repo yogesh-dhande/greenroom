@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { DownloadIcon, PackageIcon, PaperclipIcon } from "lucide-react";
+import { DownloadIcon, PaperclipIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import { buildCommentThread, formatFileMoment } from "@/domain/files";
@@ -7,12 +7,12 @@ import { NO_FILES_MESSAGE } from "@/domain/file-export";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { FileCommentThread, FileVersionList } from "@/components/file-thread";
 import { postDeliverableComment } from "./actions";
 import { loadFileLibrary } from "./data";
 import { VersionsDisclosure } from "./versions-disclosure";
+import { FileExportControls } from "./file-export-controls";
 
 /**
  * Every file the event's speakers have sent in, in one place (spec.md §6,
@@ -41,10 +41,8 @@ export default async function FilesPage({
   const { deliverables, commentsByAssignment, peopleById, sessionTitlesBySpeaker } =
     await loadFileLibrary(repos, event.id);
 
-  // "Download all" streams exactly these rows' current files (D-073). With
-  // nothing uploaded there is nothing to archive, so the control says so
-  // rather than handing over an empty ZIP.
-  const canDownloadAll = deliverables.some((deliverable) => deliverable.current.key !== null);
+  const exportable = deliverables.filter((deliverable) => deliverable.current.key !== null);
+  const exportFormId = "file-export";
 
   return (
     <div>
@@ -52,20 +50,20 @@ export default async function FilesPage({
         title="Files"
         description="Every deliverable your speakers have uploaded — decks, headshots, paperwork — with what each one replaced and the conversation about it."
         action={
-          canDownloadAll ? (
-            <Button asChild variant="outline">
-              <Link href={`/admin/${eventSlug}/files/download-all`}>
-                <PackageIcon className="size-3.5" />
-                Download all
-              </Link>
-            </Button>
+          exportable.length > 0 ? (
+            <FileExportControls formId={exportFormId} total={exportable.length} />
           ) : (
-            <Button variant="outline" disabled title={NO_FILES_MESSAGE}>
-              <PackageIcon className="size-3.5" />
-              Download all
-            </Button>
+            <span className="text-sm text-muted-foreground" title={NO_FILES_MESSAGE}>
+              No files to export
+            </span>
           )
         }
+      />
+
+      <form
+        id={exportFormId}
+        method="post"
+        action={`/admin/${eventSlug}/files/download-all`}
       />
 
       {deliverables.length === 0 ? (
@@ -77,6 +75,7 @@ export default async function FilesPage({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">Export</TableHead>
               <TableHead>File</TableHead>
               <TableHead>Speaker</TableHead>
               <TableHead>Session</TableHead>
@@ -108,6 +107,19 @@ export default async function FilesPage({
 
               return [
                 <TableRow key={rowKey} className="border-b-0">
+                  <TableCell>
+                    {deliverable.current.key ? (
+                      <input
+                        type="checkbox"
+                        name="file"
+                        value={deliverable.selectionId}
+                        form={exportFormId}
+                        defaultChecked
+                        aria-label={`Select ${deliverable.current.filename}`}
+                        className="size-4 accent-primary"
+                      />
+                    ) : null}
+                  </TableCell>
                   <TableCell>
                     <a
                       href={deliverable.current.url}
@@ -167,7 +179,7 @@ export default async function FilesPage({
                 // nor a thread, so it gets no expander at all.
                 deliverable.assignmentId === null && deliverable.older.length === 0 ? null : (
                   <TableRow key={`${rowKey}-detail`} className="hover:bg-transparent">
-                    <TableCell colSpan={7} className="pt-0">
+                    <TableCell colSpan={8} className="pt-0">
                       {/* The history and thread are secondary to the list, so
                           they stay collapsed behind a real button until an
                           organizer asks for them (needs no server round trip

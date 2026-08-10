@@ -68,10 +68,11 @@ export async function loadFileLibrary(repos: Repos, eventId: string): Promise<Fi
   });
 
   const assignmentIds = assignments.map((assignment) => assignment.id);
-  const [versions, comments, profileVersions] = await Promise.all([
+  const [versions, comments, profileVersions, rosterPeople] = await Promise.all([
     repos.fileVersions.listByAssignments(assignmentIds),
     repos.fileComments.listByAssignments(assignmentIds),
     repos.fileVersions.listProfileVersionsByOwners([...rosterIds]),
+    repos.users.listByIds([...rosterIds]),
   ]);
 
   const deliverables = collectDeliverables({
@@ -79,6 +80,9 @@ export async function loadFileLibrary(repos: Repos, eventId: string): Promise<Fi
     formsById: new Map(forms.map((form) => [form.id, form])),
     versionsByAssignment: groupByAssignment(versions),
     profileVersionsBySpeaker: groupProfileVersionsBySpeaker(profileVersions),
+    profileCurrentUrlBySpeaker: new Map(
+      rosterPeople.map((person) => [person.id, person.headshotUrl] as const),
+    ),
   });
 
   const people = await repos.users.listByIds(

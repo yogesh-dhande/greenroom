@@ -1,4 +1,11 @@
-import { expect, test } from "@playwright/test";
+import {
+  addTrack,
+  createDirectSession,
+  createIsolatedForm,
+  expect,
+  publishForm,
+  test,
+} from "./fixtures";
 import { signIn } from "./helpers";
 
 /**
@@ -11,14 +18,13 @@ import { signIn } from "./helpers";
  * admin sees the same progress roll up on the onboarding dashboard, and one
  * speaker never sees another's submissions, sessions, or task answers.
  *
- * Runs against the seeded demo database. Tests run in file order on one
- * worker and build on each other's state.
+ * Seeded read-only checks remain stable; any mutation is contained in the
+ * same scenario that created or selected its data.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
 const TASKS_PAGE = `/admin/${EVENT_SLUG}/tasks`;
 const SPEAKERS_PAGE = `/admin/${EVENT_SLUG}/speakers`;
-const PUBLIC_SPEAKERS_PAGE = `/p/${EVENT_SLUG}/speakers`;
 
 /** Seeded speaker with an approved, scheduled talk — has a pending "form"
  * task (hotel) and a pending "file_request" task (bio & photos) to complete. */
@@ -62,7 +68,7 @@ async function openTask(page: import("@playwright/test").Page, title: string) {
   return region;
 }
 
-test("a speaker signs in and sees their onboarding tasks", async ({ page }) => {
+test("a speaker sees and completes onboarding work that rolls up for the admin", async ({ page }) => {
   await signIn(page, PRIYA);
   await page.goto("/portal");
 
@@ -87,14 +93,6 @@ test("a speaker signs in and sees their onboarding tasks", async ({ page }) => {
   await expect(taskRegion(page, FINALIZE_BIO_TASK)).toContainText("Due soon");
   // Seeded already completed for Priya at seed time.
   await expect(taskRegion(page, ANNOUNCE_TASK)).toContainText("Complete");
-});
-
-test("a speaker completes a form task and a file task, and it reflects on the admin onboarding dashboard", async ({
-  page,
-}) => {
-  await signIn(page, PRIYA);
-  await page.goto("/portal");
-
   // --- the "hotel stay" must-have: a structured form, not a plain upload ---
   const hotel = await openTask(page, HOTEL_TASK);
   await hotel.getByLabel("Do you need us to book your hotel room?").click();
@@ -229,6 +227,8 @@ test("an admin creates a task template using the canonical onboarding vocabulary
 
 test("a speaker edits their profile and it surfaces on the public gallery and admin roster", async ({
   page,
+  fixtureId,
+  isolatedEvent,
 }) => {
   // spec.md §6: a speaker "edits their own profile (name, title, company, bio,
   // social/web links) and headshot, which feed the admin roster and public
@@ -238,9 +238,16 @@ test("a speaker edits their profile and it surfaces on the public gallery and ad
   // Distinctive enough that finding it on the public page proves it came from
   // this edit and not from the seeded bio.
   const NEW_BIO = "Rebuilt ranking for a fleet of grumpy production indexes.";
-  const NEW_WEBSITE = "https://priya-raman.example.dev";
+  const NEW_WEBSITE = `https://${fixtureId}.example.dev`;
 
-  await signIn(page, PRIYA);
+  await signIn(page, "admin@greenroom.dev");
+  const session = await createDirectSession(page, isolatedEvent.slug, fixtureId);
+  // Direct-entry sessions are approved copy by definition.
+  await page.goto(`/admin/${isolatedEvent.slug}`);
+  await page.getByRole("button", { name: "Publish program" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Publish", exact: true }).click();
+
+  await signIn(page, session.speakerEmail);
   await page.goto("/portal/profile");
   await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
 
@@ -276,26 +283,25 @@ test("a speaker edits their profile and it surfaces on the public gallery and ad
   // A link that isn't a real link is refused, with the message under its own
   // input rather than a generic failure. (The same rule runs again in the
   // server action — src/domain/profile.ts — so a client bypass can't store it.)
-  await page.getByLabel("LinkedIn").fill("linkedin.com/in/priya");
+  await page.getByLabel("LinkedIn").fill("linkedin.com/in/speaker");
   await page.getByRole("button", { name: "Save profile" }).click();
   await expect(page.getByText("Enter a full link, starting with https://")).toBeVisible();
 
   // --- the public speaker gallery shows the new bio and link ---------------
-  await page.goto(PUBLIC_SPEAKERS_PAGE);
-  const card = page.getByRole("article").filter({ hasText: "Priya Raman" });
+  await page.goto(`/p/${isolatedEvent.slug}/speakers`);
+  const card = page.getByRole("article").filter({ hasText: session.speakerName });
   await expect(card).toContainText(NEW_BIO);
   await expect(card).toContainText(`${NEW_TITLE} · ${NEW_COMPANY}`);
-  await expect(card.getByRole("link", { name: "Priya Raman — Website" })).toHaveAttribute(
+  await expect(card.getByRole("link", { name: `${session.speakerName} — Website` })).toHaveAttribute(
     "href",
     NEW_WEBSITE,
   );
 
   // --- and the admin roster reads the same source of truth -----------------
   await signIn(page, "admin@greenroom.dev");
-  await page.goto(SPEAKERS_PAGE);
-  const row = page.getByRole("row", { name: /Priya Raman/ });
+  await page.goto(`/admin/${isolatedEvent.slug}/speakers`);
+  const row = page.getByRole("row", { name: new RegExp(session.speakerName) });
   await expect(row).toContainText(`${NEW_TITLE} · ${NEW_COMPANY}`);
-  await expect(row).toContainText("Complete");
 });
 
 // ---------------------------------------------------------------------------
@@ -304,40 +310,40 @@ test("a speaker edits their profile and it surfaces on the public gallery and ad
 // (D-051). Both tests build their own speakers — no seeded row is touched.
 // ---------------------------------------------------------------------------
 
-/** Seeded session-type form: submissions become confirmed sessions on arrival
- * (scripts/seed.ts, decisions.md D-041). Open for another 45 days, no
- * per-speaker cap, so a fresh draft on it is always accepted. */
-const INVITED_SLUG = "ai-engineer-summit-2026-invited";
-/** A brand-new speaker: no seeded account, no roster row, nothing for another
- * spec to trip over. The draft save is what creates the user record, which is
- * also what makes the magic-link sign-in below resolve to the same person. */
-const DIRECT_EMAIL = "e2e.direct.session@example.com";
-const DIRECT_NAME = "E2E Direct Session";
-const DIRECT_TITLE = "The sponsor slot we finished in the portal";
-
 test("a draft on a session-type form, finished in the portal, becomes a confirmed session", async ({
   page,
+  fixtureId,
+  isolatedEvent,
 }) => {
-  // --- save a half-finished draft on the public form, signed out -----------
-  await page.goto(`/submit/${INVITED_SLUG}`);
-  await expect(page.getByRole("heading", { name: "Invited & Sponsor Sessions" })).toBeVisible();
+  const track = `Track ${fixtureId}`;
+  const directEmail = `${fixtureId}@example.com`;
+  const directName = `Speaker ${fixtureId}`;
+  const directTitle = `Direct ${fixtureId}`;
+  await addTrack(page, isolatedEvent.slug, track);
+  const form = await createIsolatedForm(page, isolatedEvent.slug, fixtureId, { type: "session" });
+  await publishForm(page, form);
 
-  await page.getByLabel("Session title").fill(DIRECT_TITLE);
-  await page.getByLabel("Your name").fill(DIRECT_NAME);
-  await page.getByLabel("Your email").fill(DIRECT_EMAIL);
-  // Description, track and format are all required and all still blank —
+  // --- save a half-finished draft on the public form, signed out -----------
+  await page.context().clearCookies();
+  await page.goto(form.publicPath);
+  await expect(page.getByRole("heading", { name: form.name })).toBeVisible();
+
+  await page.getByLabel("Talk title").fill(directTitle);
+  await page.getByLabel("Your name").fill(directName);
+  await page.getByLabel("Your email").fill(directEmail);
+  // Description, track and biography are all required and all still blank —
   // that's what makes this a draft rather than a submission.
   await page.getByRole("button", { name: "Save draft" }).click();
-  await expect(page).toHaveURL(new RegExp(`/submit/${INVITED_SLUG}/resume/[0-9a-f]{32}$`));
+  await expect(page).toHaveURL(new RegExp(`/submit/${form.slug}/resume/[0-9a-f]{32}$`));
 
   // --- the same person signs in and finds the draft waiting ----------------
-  await signIn(page, DIRECT_EMAIL);
+  await signIn(page, directEmail);
   await page.goto("/portal");
   await expect(page.getByRole("heading", { name: "Your speaker home" })).toBeVisible();
   // The event is discoverable from the draft alone, before any acceptance.
-  await expect(page.getByRole("heading", { name: "AI Engineer Summit 2026" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: isolatedEvent.name })).toBeVisible();
 
-  const draftLink = page.getByRole("link", { name: DIRECT_TITLE });
+  const draftLink = page.getByRole("link", { name: directTitle });
   await expect(draftLink).toContainText("Draft");
   await draftLink.click();
   await expect(page).toHaveURL(/\/portal\/submissions\/[^/]+$/);
@@ -345,72 +351,70 @@ test("a draft on a session-type form, finished in the portal, becomes a confirme
 
   // --- finishing it here submits it, and the button says so ----------------
   await page
-    .getByLabel("Session description")
+    .getByLabel("Abstract")
     .fill("The slot we agreed in April, written the way it should be printed.");
-  await page.getByLabel("AI Engineering").check();
-  await page.getByLabel("Session format").click();
-  await page.getByRole("option", { name: "30-minute talk" }).click();
+  await page.getByLabel(track).check();
   await page.getByLabel("Speaker biography").fill("Ships sponsor sessions, eventually.");
   await page.getByRole("button", { name: "Submit proposal" }).click();
 
   // Same product event as finishing it on the public page: submitted, and a
   // confirmation email is promised (src/app/portal/submissions/[id]/actions.ts).
   await expect(
-    page.getByText(`Proposal submitted. A confirmation email is on its way to ${DIRECT_EMAIL}.`),
+    page.getByText(`Proposal submitted. A confirmation email is on its way to ${directEmail}.`),
   ).toBeVisible();
 
   // --- the portal now shows an accepted proposal AND a real session --------
   // This is the fix: without acceptOnArrival on the portal path the proposal
   // would sit at "Unreviewed" with no session behind it (D-041).
   await page.goto("/portal");
-  await expect(page.getByRole("link", { name: DIRECT_TITLE })).toContainText("Approved");
+  await expect(page.getByRole("link", { name: directTitle })).toContainText("Approved");
   await expect(
     page
       .getByRole("listitem")
-      .filter({ hasText: DIRECT_TITLE })
+      .filter({ hasText: directTitle })
       .filter({ hasText: "Not yet scheduled" }),
   ).toBeVisible();
 
   // --- and the organizer sees it as an accepted, unscheduled session -------
   await signIn(page, "admin@greenroom.dev");
-  await page.goto(`/admin/${EVENT_SLUG}/submissions?status=approved`);
-  const submissionRow = page.getByRole("row").filter({ hasText: DIRECT_TITLE });
+  await page.goto(`/admin/${isolatedEvent.slug}/submissions?status=approved`);
+  const submissionRow = page.getByRole("row").filter({ hasText: directTitle });
   await expect(submissionRow).toBeVisible();
   await expect(submissionRow.getByText("Direct to session")).toBeVisible();
 
-  await page.goto(`/admin/${EVENT_SLUG}/agenda`);
-  await expect(page.getByTestId("unscheduled-tray").getByText(DIRECT_TITLE)).toBeVisible();
+  await page.goto(`/admin/${isolatedEvent.slug}/agenda`);
+  await expect(page.getByTestId("unscheduled-tray").getByText(directTitle)).toBeVisible();
 });
 
 /** Added by hand on the roster and nothing else: no submission, no session, no
  * task. Deriving the portal's events from a speaker's *work* alone would show
  * this person "Nothing here yet" for an event they are visibly on. */
-const ROSTER_ONLY_EMAIL = "e2e.roster.only@example.com";
-const ROSTER_ONLY_NAME = "E2E Roster Only";
-
 test("a speaker added by hand sees the event in their portal before they have any work", async ({
   page,
+  fixtureId,
+  isolatedEvent,
 }) => {
-  await signIn(page, "admin@greenroom.dev");
-  await page.goto(`/admin/${EVENT_SLUG}/speakers`);
+  const email = `${fixtureId}@example.com`;
+  const name = `Roster ${fixtureId}`;
+  await page.goto(`/admin/${isolatedEvent.slug}/speakers`);
 
   await page.getByRole("button", { name: "Add speaker" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Name").fill(ROSTER_ONLY_NAME);
-  await dialog.getByLabel("Email").fill(ROSTER_ONLY_EMAIL);
+  await dialog.getByLabel("Name").fill(name);
+  await dialog.getByLabel("Email").fill(email);
   await dialog.getByRole("button", { name: "Add speaker" }).click();
-  await expect(page.getByText(`${ROSTER_ONLY_NAME} was added to the roster`)).toBeVisible();
+  await expect(page.getByText(`${name} was added to the roster`)).toBeVisible();
 
   // On the roster, with nothing attached to them.
-  await page.getByLabel("Search speakers").fill("Roster Only");
-  await expect(page.getByRole("link", { name: ROSTER_ONLY_NAME })).toBeVisible();
+  await page.getByLabel("Search speakers").fill(fixtureId);
+  await expect(page.getByRole("link", { name })).toBeVisible();
 
   // --- their portal is not empty, because the roster row is itself a stake --
-  await signIn(page, ROSTER_ONLY_EMAIL);
+  await signIn(page, email);
   await page.goto("/portal");
   await expect(page.getByRole("heading", { name: "Your speaker home" })).toBeVisible();
   await expect(page.getByText("Nothing here yet")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "AI Engineer Summit 2026" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: isolatedEvent.name })).toBeVisible();
 
   // The event section renders with all three slots empty — which is exactly
   // what "on the roster and nothing else" should look like, rather than the

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { devEmailsSince, signIn } from "./helpers";
 
 /**
  * Key flow: the org-level speaker CRM (spec.md "Org-level speaker CRM",
@@ -9,11 +9,8 @@ import { signIn } from "./helpers";
  * carrying the profile onto a roster, bulk outreach landing on the activity
  * feed, and the CRM overview.
  *
- * Tests run in order and build on one shared contact, Nova Delacroix — a
- * name and company no other spec or seed row uses, so nothing here disturbs
- * the roster/portal/comms fixtures (this file runs before portal/speakers in
- * the alphabetical single-worker order, and Nova matches none of their
- * filters).
+ * Nova's full contact-to-pipeline lifecycle is one scenario. Independent CRM
+ * assertions create their own contacts, so no test relies on file ordering.
  */
 
 const DIRECTORY = "/admin/directory";
@@ -67,7 +64,41 @@ test("directory search composes with the company filter and clears in one action
   await expect(page.getByRole("link", { name: "Hannah Kim" })).toBeVisible();
 });
 
-test("a hand-added contact takes tags and notes that survive reload", async ({ page }) => {
+test("bulk outreach personalizes and logs a separate message for every selected contact", async ({
+  page,
+}) => {
+  const startedAt = Date.now();
+  const subject = `Speak at our next event? ${startedAt.toString(36)}`;
+  const recipients = ["priya.raman@example.com", "hannah.kim@example.com"];
+
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(DIRECTORY);
+  await page.getByLabel("Select Priya Raman").click();
+  await page.getByLabel("Select Hannah Kim").click();
+  await page.getByRole("button", { name: "Email selected (2)" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Recipients (2)")).toBeVisible();
+  await dialog.getByLabel("Subject").fill(subject);
+  await dialog.getByLabel("Message").fill("Hi {{speakerFirstName}}, please join us.");
+  await dialog.getByRole("button", { name: "Send to 2 people" }).click();
+  await expect(dialog.getByText("Sent to 2 contacts")).toBeVisible();
+
+  await expect(async () => {
+    const messages = (await devEmailsSince(startedAt)).filter((body) => body.includes(subject));
+    expect(messages).toHaveLength(2);
+    expect(messages.map((body) => body.match(/^To: (.+)$/m)?.[1]).sort()).toEqual(
+      recipients.sort(),
+    );
+    expect(messages.some((body) => body.includes("Hi Priya,"))).toBe(true);
+    expect(messages.some((body) => body.includes("Hi Hannah,"))).toBe(true);
+    expect(messages.every((body) => !body.includes("{{speakerFirstName}}"))).toBe(true);
+  }).toPass({ timeout: 15_000 });
+});
+
+test("an isolated contact runs through profile, segment, pipeline, roster, outreach, and overview", async ({
+  page,
+}) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(DIRECTORY);
 
@@ -97,9 +128,6 @@ test("a hand-added contact takes tags and notes that survive reload", async ({ p
   await page.reload();
   await expect(page.getByRole("button", { name: "Remove tag vip" })).toBeVisible();
   await expect(page.getByText(NOTE_TEXT).first()).toBeVisible();
-});
-
-test("a saved segment is dynamic — it reopens as its stored criteria", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(DIRECTORY);
 
@@ -110,10 +138,10 @@ test("a saved segment is dynamic — it reopens as its stored criteria", async (
   await expect(page.getByRole("link", { name: "Priya Raman" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Save segment" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("1 contact matches right now.")).toBeVisible();
-  await dialog.getByLabel("Segment name").fill("VIP Prospects");
-  await dialog.getByRole("button", { name: "Save segment" }).click();
+  const segmentDialog = page.getByRole("dialog");
+  await expect(segmentDialog.getByText("1 contact matches right now.")).toBeVisible();
+  await segmentDialog.getByLabel("Segment name").fill("VIP Prospects");
+  await segmentDialog.getByRole("button", { name: "Save segment" }).click();
   await expect(page.getByText('Saved the segment "VIP Prospects"')).toBeVisible();
 
   // Reopening from a clean directory applies the criteria, not a stored list.
@@ -127,11 +155,6 @@ test("a saved segment is dynamic — it reopens as its stored criteria", async (
   await page.getByRole("link", { name: "Clear segment" }).click();
   await expect(page).not.toHaveURL(/segment=/);
   await expect(page.getByRole("link", { name: "Priya Raman" })).toBeVisible();
-});
-
-test("pipeline: enroll a prospect, move stages explicitly, history persists", async ({
-  page,
-}) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto("/admin/pipeline");
 
@@ -140,15 +163,15 @@ test("pipeline: enroll a prospect, move stages explicitly, history persists", as
   const interested = page.getByRole("region", { name: "Interested stage" });
 
   await page.getByRole("button", { name: "Add prospect" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog
+  const prospectDialog = page.getByRole("dialog");
+  await prospectDialog
     .getByLabel("Contact", { exact: true })
     .selectOption({ label: `${NOVA} (${NOVA_EMAIL})` });
-  await dialog.getByLabel("Score (optional)").fill("85");
-  await dialog
+  await prospectDialog.getByLabel("Score (optional)").fill("85");
+  await prospectDialog
     .getByLabel("Rationale (optional)")
     .fill("Ran the best-attended workshop last season.");
-  await dialog.getByRole("button", { name: "Add prospect" }).click();
+  await prospectDialog.getByRole("button", { name: "Add prospect" }).click();
   await expect(page.getByText(`${NOVA} added to Identified`)).toBeVisible();
   await expect(identified.getByRole("link", { name: NOVA })).toBeVisible();
   await expect(identified.getByText("Score 85")).toBeVisible();
@@ -183,19 +206,14 @@ test("pipeline: enroll a prospect, move stages explicitly, history persists", as
   await page.getByRole("button", { name: "Add note" }).click();
   await expect(page.getByText("Note added")).toBeVisible();
   await expect(page.getByText("Prefers a morning slot.")).toBeVisible();
-});
-
-test("add to event puts the contact on the roster with their profile carried over", async ({
-  page,
-}) => {
   await signIn(page, "admin@greenroom.dev");
   await openNovaProfile(page);
 
   await page.getByRole("button", { name: "Add to event" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Event").click();
+  const eventDialog = page.getByRole("dialog");
+  await eventDialog.getByRole("combobox", { name: "Event", exact: true }).click();
   await page.getByRole("option", { name: /AI Engineer Summit 2026/ }).click();
-  await dialog.getByRole("button", { name: "Add to event" }).click();
+  await eventDialog.getByRole("button", { name: "Add to event" }).click();
   await expect(page.getByText(`${NOVA} was added to AI Engineer Summit 2026`)).toBeVisible();
 
   // The profile now shows the connection...
@@ -209,34 +227,26 @@ test("add to event puts the contact on the roster with their profile carried ove
   await expect(page).toHaveURL(/q=Nova/);
   await expect(page.getByRole("link", { name: NOVA })).toBeVisible();
   await expect(page.getByText(NOVA_COMPANY)).toBeVisible();
-});
-
-test("bulk email from the directory lands on the contact's activity feed", async ({
-  page,
-}) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`${DIRECTORY}?q=Nova`);
 
   await page.getByLabel(`Select ${NOVA}`).click();
   await page.getByRole("button", { name: "Email selected (1)" }).click();
 
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText(`Recipients (1)`)).toBeVisible();
-  await dialog.getByLabel("Subject").fill(EMAIL_SUBJECT);
-  await dialog
+  const outreachDialog = page.getByRole("dialog");
+  await expect(outreachDialog.getByText(`Recipients (1)`)).toBeVisible();
+  await outreachDialog.getByLabel("Subject").fill(EMAIL_SUBJECT);
+  await outreachDialog
     .getByLabel("Message")
     .fill("Hi {{speakerFirstName}},\n\nWould you keynote our next event?");
-  await dialog.getByRole("button", { name: "Send to 1 person" }).click();
+  await outreachDialog.getByRole("button", { name: "Send to 1 person" }).click();
   await expect(page.getByText("Sent to 1 person")).toBeVisible();
-  await expect(dialog.getByText("Sent to 1 contact")).toBeVisible();
+  await expect(outreachDialog.getByText("Sent to 1 contact")).toBeVisible();
   await page.keyboard.press("Escape");
 
   // Sends are logged per recipient, so the profile's feed picks it up.
   await openNovaProfile(page);
   await expect(page.getByText(EMAIL_SUBJECT)).toBeVisible();
-});
-
-test("the CRM overview reflects the pipeline built above", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto("/admin/crm");
 
@@ -431,7 +441,7 @@ test("add to event from a pipeline card connects the contact and updates the ros
   // "from a profile or pipeline card").
   await page.getByRole("button", { name: "Add to event" }).click();
   const eventDialog = page.getByRole("dialog");
-  await eventDialog.getByLabel("Event").click();
+  await eventDialog.getByRole("combobox", { name: "Event", exact: true }).click();
   await page.getByRole("option", { name: /AI Engineer Summit 2026/ }).click();
   await eventDialog.getByRole("button", { name: "Add to event" }).click();
   await expect(page.getByText(`${QUILL} was added to AI Engineer Summit 2026`)).toBeVisible();

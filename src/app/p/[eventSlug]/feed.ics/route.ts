@@ -3,6 +3,7 @@ import { scheduleFeedEntries } from "@/domain/program";
 import { programVisible } from "@/domain/program-visibility";
 import { buildEmptyCalendar, buildItineraryCalendar } from "@/lib/ics";
 import { getRepos } from "@/lib/db";
+import { applyEmbedScheduleConfig, parseEmbedConfig } from "@/domain/embed-config";
 
 /**
  * Public iCal feed of every approved, scheduled session (spec.md "embeddable
@@ -20,7 +21,7 @@ import { getRepos } from "@/lib/db";
  * ../itinerary.ics/route.ts. Deliberately unauthenticated and CORS-open.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ eventSlug: string }> },
 ): Promise<Response> {
   const { eventSlug } = await params;
@@ -42,7 +43,8 @@ export async function GET(
     return icsResponse(buildEmptyCalendar(naming));
   }
 
-  const days = await getSchedule(eventSlug);
+  const config = parseEmbedConfig(new URL(request.url).searchParams);
+  const days = applyEmbedScheduleConfig(await getSchedule(eventSlug), config);
   const entries = scheduleFeedEntries(days);
   // Published, but nothing is on the agenda yet (or everything is still held
   // back by content status). Same empty-but-valid calendar as the unpublished

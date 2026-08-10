@@ -69,6 +69,23 @@ export function sortVersionsNewestFirst(versions: FileVersion[]): FileVersion[] 
 }
 
 /**
+ * Put the version named by the owning record first, then keep the remaining
+ * history newest-first. `createdAt` has only second resolution, while the
+ * assignment/profile URL is updated to the exact successful upload, so that
+ * pointer is the authoritative answer when two versions share a timestamp.
+ */
+function versionsWithCurrentFirst(
+  versions: FileVersion[],
+  currentUrl: string | null | undefined,
+): FileVersion[] {
+  const ordered = sortVersionsNewestFirst(versions);
+  if (!currentUrl) return ordered;
+  const currentIndex = ordered.findIndex((version) => version.url === currentUrl);
+  if (currentIndex <= 0) return ordered;
+  return [ordered[currentIndex], ...ordered.slice(0, currentIndex), ...ordered.slice(currentIndex + 1)];
+}
+
+/**
  * The current file and everything it replaced.
  *
  * An assignment completed before the versions table existed has no rows, and
@@ -84,7 +101,7 @@ export function buildFileHistory(
     return { current, older: [], versionCount: current ? 1 : 0 };
   }
 
-  const [newest, ...older] = sortVersionsNewestFirst(versions);
+  const [newest, ...older] = versionsWithCurrentFirst(versions, assignment.fileUrl);
   return {
     current: versionRef(newest),
     older: older.map(versionRef),
@@ -94,6 +111,9 @@ export function buildFileHistory(
 
 /** One file in the organizer's library, and the history behind it. */
 export interface Deliverable {
+  /** Stable public-to-the-admin identifier used by the selectable ZIP form.
+   * It contains domain ids only, never an R2 object key. */
+  selectionId: string;
   /**
    * The assignment this file answered, or null for a `profile` file — a
    * headshot belongs to the speaker, not to a task. Everything keyed off an
@@ -136,6 +156,9 @@ export interface CollectDeliverablesInput {
    * report on tasks.
    */
   profileVersionsBySpeaker?: Map<string, FileVersion[]>;
+  /** The profile's own current headshot pointer, used to break same-second
+   * version ties just as an assignment's `fileUrl` does. */
+  profileCurrentUrlBySpeaker?: Map<string, string | null>;
 }
 
 /**
@@ -155,8 +178,12 @@ export function collectDeliverables(input: CollectDeliverablesInput): Deliverabl
 
   for (const [speakerId, versions] of input.profileVersionsBySpeaker ?? []) {
     if (versions.length === 0) continue;
-    const [newest, ...older] = sortVersionsNewestFirst(versions);
+    const [newest, ...older] = versionsWithCurrentFirst(
+      versions,
+      input.profileCurrentUrlBySpeaker?.get(speakerId),
+    );
     deliverables.push({
+      selectionId: `profile:${speakerId}`,
       assignmentId: null,
       taskId: null,
       taskTitle: PROFILE_FILE_LABEL,
@@ -177,6 +204,7 @@ export function collectDeliverables(input: CollectDeliverablesInput): Deliverabl
     );
     if (history.current) {
       deliverables.push({
+        selectionId: `assignment:${assignment.id}:file`,
         assignmentId: assignment.id,
         taskId: task.id,
         taskTitle: task.title,
@@ -197,6 +225,7 @@ export function collectDeliverables(input: CollectDeliverablesInput): Deliverabl
       const value = assignment.responseJson[field.id];
       if (typeof value !== "string" || value === "") continue;
       deliverables.push({
+        selectionId: `assignment:${assignment.id}:field:${field.id}`,
         assignmentId: assignment.id,
         taskId: task.id,
         taskTitle: task.title,

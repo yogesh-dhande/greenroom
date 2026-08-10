@@ -192,9 +192,17 @@ export async function updateSessionContent(
       });
     }
     revalidatePath(agendaPath(eventSlug));
-    // The public program and its embed read this same session row.
+    // Every public program surface reads this same session row. Content
+    // status can add/remove it entirely, while title, abstract, track and
+    // speakers can change what the remaining surfaces render.
+    revalidatePath(`/p/${eventSlug}`);
     revalidatePath(`/p/${eventSlug}/schedule`);
+    revalidatePath(`/p/${eventSlug}/speakers`);
+    revalidatePath(`/p/${eventSlug}/feed.json`);
+    revalidatePath(`/p/${eventSlug}/feed.xml`);
+    revalidatePath(`/p/${eventSlug}/feed.ics`);
     revalidatePath(`/embed/${eventSlug}/schedule`);
+    revalidatePath(`/embed/${eventSlug}/speakers`);
     if (session.submissionId) {
       revalidatePath(`/admin/${eventSlug}/submissions`);
       revalidatePath(`/admin/${eventSlug}/submissions/${session.submissionId}`);

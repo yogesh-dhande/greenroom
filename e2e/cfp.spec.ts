@@ -1,6 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { signIn } from "./helpers";
+import { createIsolatedForm, expect, publishForm, test } from "./fixtures";
+import { devEmailsSince, signIn } from "./helpers";
 
 /**
  * Key flow: the whole call-for-speakers loop (spec.md §2, §3).
@@ -12,27 +11,11 @@ import { signIn } from "./helpers";
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
-const FORM_NAME = "E2E Call for Speakers";
-const FORM_SLUG = "e2e-call-for-speakers";
-const TALK_TITLE = "Shipping retrieval that survives Black Friday";
-const EDITED_TITLE = "Shipping retrieval that survives real traffic";
-const SPEAKER_EMAIL = "e2e.speaker@example.com";
-const CO_SPEAKER_EMAIL = "e2e.cospeaker@example.com";
 
 /** Seeded by scripts/seed.ts: closes in 30h, one proposal per speaker, and
  * carries an unfinished draft belonging to tom.beckett@example.com. */
 const LIGHTNING_SLUG = "ai-engineer-summit-2026-lightning";
 const LIGHTNING_DRAFT_TOKEN = "seed-draft-resume-lightning";
-const DRAFT_EMAIL = "e2e.drafter@example.com";
-
-/** Seeded session-type form: submissions become confirmed sessions on arrival
- * with no review step (decisions.md D-041). */
-const INVITED_SLUG = "ai-engineer-summit-2026-invited";
-const INVITED_TITLE = "The sponsor session we agreed in April";
-const INVITED_EMAIL = "e2e.sponsor@example.com";
-
-/** Set by the submission test, used by the edit test (one worker, in order). */
-let submissionUrl = "";
 
 /** A tiny but valid PNG, so the upload exercises the real R2 path. */
 const HEADSHOT = Buffer.from(
@@ -40,68 +23,37 @@ const HEADSHOT = Buffer.from(
   "base64",
 );
 
-/**
- * Messages the dev transport has written since `since`.
- *
- * Filenames are reused between runs (the transport numbers them per process),
- * so freshness is judged by mtime rather than by the file count.
- */
-async function devEmailsSince(since: number): Promise<string[]> {
-  const files = await readdir(".dev-emails").catch(() => [] as string[]);
-  const bodies = await Promise.all(
-    files
-      .filter((name) => name.endsWith(".txt"))
-      .map(async (name) => {
-        const path = `.dev-emails/${name}`;
-        const info = await stat(path);
-        return info.mtimeMs >= since ? readFile(path, "utf8") : "";
-      }),
-  );
-  return bodies.filter(Boolean);
-}
+test("an isolated CFP runs from build through submission and speaker edit", async ({
+  page,
+  fixtureId,
+}) => {
+  const startedAt = Date.now();
+  const formName = `CFP ${fixtureId}`;
+  const title = `Talk ${fixtureId}`;
+  const editedTitle = `Edited ${title}`;
+  const speakerEmail = `${fixtureId}@example.com`;
+  const coSpeakerEmail = `co-${fixtureId}@example.com`;
 
-test("admin builds a call-for-speakers form and publishes it", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
-  await page.goto(`/admin/${EVENT_SLUG}/forms`);
-
-  // The seeded form's response count is shown without loading its submissions.
-  await expect(page.getByRole("cell", { name: "Call for Speakers 2026" })).toBeVisible();
-
-  await page.getByRole("button", { name: "New form" }).click();
-  await page.getByLabel("Form name").fill(FORM_NAME);
-  await page.getByRole("button", { name: "Create form" }).click();
-
-  // A new form arrives as a working CFP, not a blank canvas.
-  await expect(page).toHaveURL(new RegExp(`/admin/${EVENT_SLUG}/forms/[^/]+$`));
-  await expect(page.getByRole("heading", { name: FORM_NAME })).toBeVisible();
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId, { name: formName });
   await expect(page.getByText("Talk title").first()).toBeVisible();
   await expect(page.getByText("Abstract").first()).toBeVisible();
   await expect(page.getByRole("switch", { name: "Allow co-speakers" })).toBeChecked();
-
-  // Give it a predictable public link and an open window.
-  await page.getByRole("tab", { name: "Window & link" }).click();
-  await page.getByLabel("Public link").fill(FORM_SLUG);
-  await page.getByLabel("Closes").fill("2027-12-31T17:00");
-
-  await page.getByRole("button", { name: "Save & publish" }).click();
-  await expect(page.getByText("Form published")).toBeVisible();
+  await publishForm(page, form);
   await expect(page.getByText("Open", { exact: true })).toBeVisible();
-});
-
-test("a visitor submits a talk with a co-speaker and gets a confirmation", async ({ page }) => {
-  const startedAt = Date.now();
 
   // No sign-in anywhere in this test: the public CFP page is open to anyone.
-  await page.goto(`/submit/${FORM_SLUG}`);
-  await expect(page.getByRole("heading", { name: FORM_NAME })).toBeVisible();
+  await page.context().clearCookies();
+  await page.goto(form.publicPath);
+  await expect(page.getByRole("heading", { name: formName })).toBeVisible();
 
-  await page.getByLabel("Talk title").fill(TALK_TITLE);
+  await page.getByLabel("Talk title").fill(title);
   await page
     .getByLabel("Abstract")
     .fill("What broke, what we measured, and the three changes that fixed it.");
   await page.getByLabel("AI Engineering").check();
   await page.getByLabel("Your name").fill("E2E Speaker");
-  await page.getByLabel("Your email").fill(SPEAKER_EMAIL);
+  await page.getByLabel("Your email").fill(speakerEmail);
   await page
     .getByLabel("Speaker biography")
     .fill("Builds retrieval systems, mostly at 3am during incidents.");
@@ -122,55 +74,50 @@ test("a visitor submits a talk with a co-speaker and gets a confirmation", async
   // Co-speakers are optional, so they only exist once you ask for a row.
   await page.getByRole("button", { name: "Add a co-speaker" }).click();
   await page.getByRole("group", { name: "Co-speaker 1" }).getByLabel("Name").fill("E2E Co-speaker");
-  await page.getByRole("group", { name: "Co-speaker 1" }).getByLabel("Email").fill(CO_SPEAKER_EMAIL);
+  await page.getByRole("group", { name: "Co-speaker 1" }).getByLabel("Email").fill(coSpeakerEmail);
 
   await page.getByRole("button", { name: "Submit proposal" }).click();
 
   await expect(page).toHaveURL(/\/submit\/.+\/thanks\/.+/);
   await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: TALK_TITLE })).toBeVisible();
+  await expect(page.getByRole("heading", { name: title })).toBeVisible();
   await expect(page.getByRole("link", { name: /Sign in to edit/ })).toBeVisible();
 
-  const thanksUrl = new URL(page.url());
-  submissionUrl = `/portal/submissions/${thanksUrl.pathname.split("/").pop()}`;
+  const submissionUrl = `/portal/submissions/${new URL(page.url()).pathname.split("/").pop()}`;
 
   // The real confirmation email went out through src/domain/comms.ts — and so
   // did the co-speaker's copy.
   await expect(async () => {
     const emails = await devEmailsSince(startedAt);
     const recipients = emails
-      .filter((body) => body.includes(TALK_TITLE))
+      .filter((body) => body.includes(title))
       .map((body) => body.match(/^To: (.+)$/m)?.[1]);
-    expect(recipients, "confirmation emails in .dev-emails/").toContain(SPEAKER_EMAIL);
-    expect(recipients).toContain(CO_SPEAKER_EMAIL);
+    expect(recipients, "confirmation emails in .dev-emails/").toContain(speakerEmail);
+    expect(recipients).toContain(coSpeakerEmail);
+    const speakerCopy = emails.find(
+      (body) => body.includes(title) && body.includes(`To: ${speakerEmail}`),
+    );
+    expect(speakerCopy).toContain("AI Engineer Summit 2026");
   }).toPass({ timeout: 15_000 });
-});
 
-test("the proposal appears in the admin submissions queue", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
-  await expect(page.getByText(TALK_TITLE)).toBeVisible();
-});
+  await expect(page.getByText(title)).toBeVisible();
 
-test("the submitter signs in and edits their own proposal", async ({ page }) => {
-  expect(submissionUrl, "the submission test must run first").not.toEqual("");
-
-  await signIn(page, SPEAKER_EMAIL);
+  await signIn(page, speakerEmail);
   await page.goto(submissionUrl);
 
   // Prefilled from what was submitted, including the co-speaker row.
-  await expect(page.getByLabel("Talk title")).toHaveValue(TALK_TITLE);
-  await expect(page.getByRole("group", { name: "Co-speaker 1" }).getByLabel("Email")).toHaveValue(CO_SPEAKER_EMAIL);
+  await expect(page.getByLabel("Talk title")).toHaveValue(title);
+  await expect(page.getByRole("group", { name: "Co-speaker 1" }).getByLabel("Email")).toHaveValue(coSpeakerEmail);
 
-  await page.getByLabel("Talk title").fill(EDITED_TITLE);
+  await page.getByLabel("Talk title").fill(editedTitle);
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Your proposal has been updated")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByLabel("Talk title")).toHaveValue(EDITED_TITLE);
-});
+  await expect(page.getByLabel("Talk title")).toHaveValue(editedTitle);
 
-test("a stranger cannot open someone else's submission", async ({ page }) => {
   await signIn(page, "priya.raman@example.com");
   const response = await page.goto(submissionUrl);
   expect(response?.status()).toBe(404);
@@ -191,17 +138,29 @@ test("a conditional question appears and disappears as the answer changes", asyn
   await expect(page.getByLabel("Workshop requirements")).toHaveCount(0);
 });
 
-test("required answers are enforced before anything is saved", async ({ page }) => {
-  await page.goto(`/submit/${FORM_SLUG}`);
+test("required answers are enforced before anything is saved", async ({ page, fixtureId }) => {
+  await signIn(page, "admin@greenroom.dev");
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId);
+  await publishForm(page, form);
+  await page.context().clearCookies();
+  await page.goto(form.publicPath);
   await page.getByRole("button", { name: "Submit proposal" }).click();
 
   await expect(page.getByText("Talk title is required")).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/submit/${FORM_SLUG}$`));
+  await expect(page).toHaveURL(form.publicPath);
 });
 
-test("an unpublished form is invisible to the public", async ({ page }) => {
-  const response = await page.goto(`/submit/${EVENT_SLUG}-av`);
-  expect(response?.status()).toBe(404);
+test("a known unpublished form renders an honest closed state", async ({ page, fixtureId }) => {
+  await signIn(page, "admin@greenroom.dev");
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId);
+  await page.context().clearCookies();
+  const response = await page.goto(form.publicPath);
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: form.name })).toBeVisible();
+  await expect(page.getByText("This call for speakers isn't open")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /public program/ })).toBeVisible();
+  await expect(page.getByText(/Submissions closed/)).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -235,10 +194,9 @@ test("a capped question counts down and refuses an over-long answer", async ({ p
 // The video-link preset (decisions.md D-034, D-038)
 // ---------------------------------------------------------------------------
 
-test("an organizer can accept video pitches in one click", async ({ page }) => {
+test("an organizer can accept video pitches in one click", async ({ page, fixtureId }) => {
   await signIn(page, "admin@greenroom.dev");
-  await page.goto(`/admin/${EVENT_SLUG}/forms`);
-  await page.getByRole("link", { name: FORM_NAME }).click();
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId);
 
   await page.getByRole("button", { name: "Accept video pitches" }).click();
   await expect(page.getByText("Video pitch or talk recording").first()).toBeVisible();
@@ -247,9 +205,11 @@ test("an organizer can accept video pitches in one click", async ({ page }) => {
 
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Form saved")).toBeVisible();
+  await publishForm(page, form);
 
   // It's a validated link on the public form, not free text.
-  await page.goto(`/submit/${FORM_SLUG}`);
+  await page.context().clearCookies();
+  await page.goto(form.publicPath);
   const video = page.getByLabel("Video pitch or talk recording");
   await expect(video).toBeVisible();
   await video.fill("my talk is on my laptop");
@@ -262,16 +222,24 @@ test("an organizer can accept video pitches in one click", async ({ page }) => {
 // Save as draft and resume (spec.md §2, decisions.md D-034, D-038)
 // ---------------------------------------------------------------------------
 
-test("a speaker saves a draft, gets a link, and finishes it later", async ({ page }) => {
+test("a speaker saves a draft, gets a link, and finishes it later", async ({
+  page,
+  fixtureId,
+}) => {
+  await signIn(page, "admin@greenroom.dev");
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId);
+  await publishForm(page, form);
+  await page.context().clearCookies();
   const startedAt = Date.now();
+  const draftEmail = `${fixtureId}@example.com`;
 
-  await page.goto(`/submit/${FORM_SLUG}`);
+  await page.goto(form.publicPath);
   await page.getByLabel("Talk title").fill("Half an idea about eval harnesses");
-  await page.getByLabel("Your email").fill(DRAFT_EMAIL);
+  await page.getByLabel("Your email").fill(draftEmail);
 
   // Required questions are still blank — that's the whole point of a draft.
   await page.getByRole("button", { name: "Save draft" }).click();
-  await expect(page).toHaveURL(new RegExp(`/submit/${FORM_SLUG}/resume/[0-9a-f]{32}$`));
+  await expect(page).toHaveURL(new RegExp(`/submit/${form.slug}/resume/[0-9a-f]{32}$`));
   await expect(page.getByText("Picking up where you left off")).toBeVisible();
   await expect(page.getByLabel("Talk title")).toHaveValue("Half an idea about eval harnesses");
 
@@ -280,9 +248,20 @@ test("a speaker saves a draft, gets a link, and finishes it later", async ({ pag
   // The link back really was emailed — that link *is* the authentication.
   await expect(async () => {
     const emails = await devEmailsSince(startedAt);
-    const mine = emails.filter((body) => body.includes(DRAFT_EMAIL));
+    const mine = emails.filter((body) => body.includes(draftEmail));
     expect(mine.join("\n"), "draft link email in .dev-emails/").toContain(resumePath);
   }).toPass({ timeout: 15_000 });
+
+  // If the same speaker returns signed in, the ordinary public form does not
+  // silently hand them a second blank proposal. It points at this draft while
+  // still allowing another submission when the form limit permits one.
+  await signIn(page, draftEmail);
+  await page.goto(form.publicPath);
+  await expect(page.getByText("You have an unfinished draft of this proposal")).toBeVisible();
+  const signedInResume = page.getByRole("link", { name: "pick up where you left off" });
+  await expect(signedInResume).toBeVisible();
+  await expect(signedInResume).toHaveAttribute("href", /\/portal\/submissions\//);
+  await expect(page.getByRole("button", { name: "Submit proposal" })).toBeVisible();
 
   // Coming back on a fresh visit — no session, no cookie, just the link.
   await page.context().clearCookies();
@@ -339,14 +318,18 @@ test("a draft is not offered to reviewers but is visible to admins", async ({ pa
 // Per-form submission limits (decisions.md D-034, D-038)
 // ---------------------------------------------------------------------------
 
-test("a two-proposal-per-speaker form turns the third attempt away", async ({ page }) => {
+test("a two-proposal-per-speaker form turns the third attempt away", async ({
+  page,
+  fixtureId,
+}) => {
+  const speakerEmail = `${fixtureId}@example.com`;
   // The seeded lightning call allows two per speaker (D-046 headroom), so the
   // limit trips on the third attempt, not the second.
   await page.goto(`/submit/${LIGHTNING_SLUG}`);
   await page.getByLabel("Lightning talk title").fill("Five minutes on flaky retries");
   await page.getByLabel("What's the idea?").fill("The retry that made the outage worse.");
   await page.getByLabel("Your name").fill("E2E Lightning");
-  await page.getByLabel("Your email").fill("e2e.lightning@example.com");
+  await page.getByLabel("Your email").fill(speakerEmail);
   await page.getByRole("button", { name: "Submit proposal" }).click();
   await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
 
@@ -354,7 +337,7 @@ test("a two-proposal-per-speaker form turns the third attempt away", async ({ pa
   await page.getByLabel("Lightning talk title").fill("Five more minutes");
   await page.getByLabel("What's the idea?").fill("The second idea, still within the limit.");
   await page.getByLabel("Your name").fill("E2E Lightning");
-  await page.getByLabel("Your email").fill("e2e.lightning@example.com");
+  await page.getByLabel("Your email").fill(speakerEmail);
   await page.getByRole("button", { name: "Submit proposal" }).click();
   await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
 
@@ -364,7 +347,7 @@ test("a two-proposal-per-speaker form turns the third attempt away", async ({ pa
   await page.getByLabel("Lightning talk title").fill("Another five minutes");
   await page.getByLabel("What's the idea?").fill("A third idea, one too many.");
   await page.getByLabel("Your name").fill("E2E Lightning");
-  await page.getByLabel("Your email").fill("e2e.lightning@example.com");
+  await page.getByLabel("Your email").fill(speakerEmail);
   await page.getByRole("button", { name: "Submit proposal" }).click();
   // The refusal shows twice — inline alert and toast — so pick the alert.
   await expect(
@@ -372,7 +355,7 @@ test("a two-proposal-per-speaker form turns the third attempt away", async ({ pa
   ).toBeVisible();
 
   // And a speaker we can already identify never sees the form at all.
-  await signIn(page, "e2e.lightning@example.com");
+  await signIn(page, speakerEmail);
   await page.goto(`/submit/${LIGHTNING_SLUG}`);
   await expect(page.getByText("You've used your proposals for this call")).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
@@ -382,10 +365,9 @@ test("a two-proposal-per-speaker form turns the third attempt away", async ({ pa
 // Co-speakers are never required (decisions.md D-034, D-038)
 // ---------------------------------------------------------------------------
 
-test("nothing in the builder can make co-speakers mandatory", async ({ page }) => {
+test("nothing in the builder can make co-speakers mandatory", async ({ page, fixtureId }) => {
   await signIn(page, "admin@greenroom.dev");
-  await page.goto(`/admin/${EVENT_SLUG}/forms`);
-  await page.getByRole("link", { name: FORM_NAME }).click();
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId);
 
   // Open the co-speaker question: it has no "must answer" switch to find.
   // The expand toggle's accessible name is "<label> <type> · built-in";
@@ -395,7 +377,9 @@ test("nothing in the builder can make co-speakers mandatory", async ({ page }) =
   await expect(page.getByLabel("Speakers must answer this")).toHaveCount(0);
 
   // And a solo speaker sails past it on the public form.
-  await page.goto(`/submit/${FORM_SLUG}`);
+  await publishForm(page, form);
+  await page.context().clearCookies();
+  await page.goto(form.publicPath);
   await expect(page.getByRole("button", { name: "Add a co-speaker" })).toBeVisible();
   await page.getByRole("button", { name: "Submit proposal" }).click();
   await expect(page.getByText("Talk title is required")).toBeVisible();
@@ -410,26 +394,27 @@ test("nothing in the builder can make co-speakers mandatory", async ({ page }) =
 // Entering a proposal for someone (decisions.md D-034, D-038)
 // ---------------------------------------------------------------------------
 
-test("an admin enters a proposal on a speaker's behalf", async ({ page }) => {
+test("an admin enters a proposal on a speaker's behalf", async ({ page, fixtureId }) => {
+  const title = `Admin-entered ${fixtureId}`;
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
   await page.getByRole("link", { name: "Add a submission" }).click();
 
   await page.getByRole("link", { name: "Lightning Talks (closing soon)" }).click();
-  await page.getByLabel("Lightning talk title").fill("The keynote we agreed in the hallway");
+  await page.getByLabel("Lightning talk title").fill(title);
   await page.getByLabel("What's the idea?").fill("Invited talk, entered by the organizer.");
   await page.getByLabel("Your name").fill("Invited Keynote");
-  await page.getByLabel("Your email").fill("e2e.invited@example.com");
+  await page.getByLabel("Your email").fill(`${fixtureId}@example.com`);
   await page.getByRole("button", { name: "Add proposal" }).click();
 
   // Lands in the queue like any other proposal.
   await expect(page).toHaveURL(new RegExp(`/admin/${EVENT_SLUG}/submissions/[^/]+$`));
   await expect(
-    page.getByRole("heading", { name: "The keynote we agreed in the hallway" }),
+    page.getByRole("heading", { name: title }),
   ).toBeVisible();
 
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
-  await expect(page.getByText("The keynote we agreed in the hallway")).toBeVisible();
+  await expect(page.getByText(title)).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -438,31 +423,38 @@ test("an admin enters a proposal on a speaker's behalf", async ({ page }) => {
 
 test("a session-type form turns a submission straight into a confirmed session", async ({
   page,
+  fixtureId,
 }) => {
-  // No sign-in: the invited/sponsor form is public like any other CFP.
-  await page.goto(`/submit/${INVITED_SLUG}`);
-  await expect(page.getByRole("heading", { name: "Invited & Sponsor Sessions" })).toBeVisible();
+  const title = `Direct session ${fixtureId}`;
+  const email = `${fixtureId}@example.com`;
+  await signIn(page, "admin@greenroom.dev");
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId, { type: "session" });
+  await publishForm(page, form);
 
-  await page.getByLabel("Session title").fill(INVITED_TITLE);
+  // No sign-in: the invited/sponsor form is public like any other CFP.
+  await page.context().clearCookies();
+  await page.goto(form.publicPath);
+  await expect(page.getByRole("heading", { name: form.name })).toBeVisible();
+
+  await page.getByLabel("Talk title").fill(title);
   await page
-    .getByLabel("Session description")
+    .getByLabel("Abstract")
     .fill("The sponsor slot we agreed in April, written the way it should be printed.");
   await page.getByLabel("AI Engineering").check();
-  await page.getByLabel("Session format").click();
-  await page.getByRole("option", { name: "30-minute talk" }).click();
   await page.getByLabel("Your name").fill("E2E Invited Speaker");
-  await page.getByLabel("Your email").fill(INVITED_EMAIL);
+  await page.getByLabel("Your email").fill(email);
+  await page.getByLabel("Speaker biography").fill("Speaks in guaranteed sponsor sessions.");
   await page.getByRole("button", { name: "Submit proposal" }).click();
 
   // The speaker sees the ordinary confirmation — nothing about review.
   await expect(page).toHaveURL(/\/submit\/.+\/thanks\/.+/);
   await expect(page.getByText("Proposal received", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: INVITED_TITLE })).toBeVisible();
+  await expect(page.getByRole("heading", { name: title })).toBeVisible();
 
   // For the organizer it is already accepted, and says why it skipped review.
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/submissions?status=approved`);
-  const row = page.getByRole("row").filter({ hasText: INVITED_TITLE });
+  const row = page.getByRole("row").filter({ hasText: title });
   await expect(row).toBeVisible();
   await expect(row.getByText("Approved")).toBeVisible();
   await expect(row.getByText("Direct to session")).toBeVisible();
@@ -470,7 +462,7 @@ test("a session-type form turns a submission straight into a confirmed session",
   // And it exists as a real session, confirmed but not yet placed on a day.
   await page.goto(`/admin/${EVENT_SLUG}/agenda`);
   await expect(
-    page.getByTestId("unscheduled-tray").getByText(INVITED_TITLE),
+    page.getByTestId("unscheduled-tray").getByText(title),
   ).toBeVisible();
 
   // A reviewer never sees it: it was a session before anyone could vote on it.
@@ -479,25 +471,24 @@ test("a session-type form turns a submission straight into a confirmed session",
   await signIn(page, "dana@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
   await expect(page.getByText("Retrieval that survives production traffic")).toBeVisible();
-  await expect(page.getByText(INVITED_TITLE)).toHaveCount(0);
+  await expect(page.getByText(title)).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------------------
-// Closing the window — runs last: it closes the form the earlier tests
-// submit to.
+// Closing the window.
 // ---------------------------------------------------------------------------
 
-test("a closed submission window shows a friendly closed page", async ({ page }) => {
+test("a closed submission window shows a friendly closed page", async ({ page, fixtureId }) => {
   await signIn(page, "admin@greenroom.dev");
-  await page.goto(`/admin/${EVENT_SLUG}/forms`);
-  await page.getByRole("link", { name: FORM_NAME }).click();
+  const form = await createIsolatedForm(page, EVENT_SLUG, fixtureId);
 
   await page.getByRole("tab", { name: "Window & link" }).click();
   await page.getByLabel("Closes").fill("2020-01-01T17:00");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("Form saved")).toBeVisible();
+  await page.getByRole("button", { name: "Save & publish" }).click();
+  await expect(page.getByText("Form published")).toBeVisible();
 
-  await page.goto(`/submit/${FORM_SLUG}`);
+  await page.context().clearCookies();
+  await page.goto(form.publicPath);
   await expect(page.getByText("This call for speakers is closed")).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
 });
@@ -511,38 +502,38 @@ test("a closed submission window shows a friendly closed page", async ({ page })
 
 /** Its own form, created and renamed here — renaming any seeded form's slug
  * would break the other specs that submit to it by slug. */
-const RENAME_FORM_NAME = "E2E Resume Rename";
-const RENAME_SLUG_BEFORE = "e2e-resume-rename";
-const RENAME_SLUG_AFTER = "e2e-resume-renamed";
-const RENAME_DRAFT_EMAIL = "e2e.rename@example.com";
-const RENAME_DRAFT_TITLE = "Half an idea about slug renames";
-
 test("an emailed draft link still works after the organizer changes the form's link", async ({
   page,
+  fixtureId,
 }) => {
   const startedAt = Date.now();
+  const formName = `Rename ${fixtureId}`;
+  const slugBefore = `before-${fixtureId}`.slice(0, 64).replace(/-+$/g, "");
+  const slugAfter = `after-${fixtureId}`.slice(0, 64).replace(/-+$/g, "");
+  const draftEmail = `${fixtureId}@example.com`;
+  const draftTitle = `Draft ${fixtureId}`;
 
   // --- a published, open form of our own -----------------------------------
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/forms`);
   await page.getByRole("button", { name: "New form" }).click();
-  await page.getByLabel("Form name").fill(RENAME_FORM_NAME);
+  await page.getByLabel("Form name").fill(formName);
   await page.getByRole("button", { name: "Create form" }).click();
-  await expect(page.getByRole("heading", { name: RENAME_FORM_NAME })).toBeVisible();
+  await expect(page.getByRole("heading", { name: formName })).toBeVisible();
 
   await page.getByRole("tab", { name: "Window & link" }).click();
-  await page.getByLabel("Public link").fill(RENAME_SLUG_BEFORE);
+  await page.getByLabel("Public link").fill(slugBefore);
   await page.getByLabel("Closes").fill("2027-12-31T17:00");
   await page.getByRole("button", { name: "Save & publish" }).click();
   await expect(page.getByText("Form published")).toBeVisible();
 
   // --- a visitor saves a draft on it, signed out ---------------------------
   await page.context().clearCookies();
-  await page.goto(`/submit/${RENAME_SLUG_BEFORE}`);
-  await page.getByLabel("Talk title").fill(RENAME_DRAFT_TITLE);
-  await page.getByLabel("Your email").fill(RENAME_DRAFT_EMAIL);
+  await page.goto(`/submit/${slugBefore}`);
+  await page.getByLabel("Talk title").fill(draftTitle);
+  await page.getByLabel("Your email").fill(draftEmail);
   await page.getByRole("button", { name: "Save draft" }).click();
-  await expect(page).toHaveURL(new RegExp(`/submit/${RENAME_SLUG_BEFORE}/resume/[0-9a-f]{32}$`));
+  await expect(page).toHaveURL(new RegExp(`/submit/${slugBefore}/resume/[0-9a-f]{32}$`));
 
   // The link we test with is the one that actually landed in their inbox —
   // that link *is* the authentication (D-038), so it's the thing that has to
@@ -550,10 +541,10 @@ test("an emailed draft link still works after the organizer changes the form's l
   let emailedPath = "";
   await expect(async () => {
     const emails = await devEmailsSince(startedAt);
-    const mine = emails.filter((body) => body.includes(RENAME_DRAFT_EMAIL));
+    const mine = emails.filter((body) => body.includes(draftEmail));
     const match = mine
       .join("\n")
-      .match(new RegExp(`/submit/${RENAME_SLUG_BEFORE}/resume/[0-9a-f]{32}`));
+      .match(new RegExp(`/submit/${slugBefore}/resume/[0-9a-f]{32}`));
     expect(match, "draft link email in .dev-emails/").not.toBeNull();
     emailedPath = match![0];
   }).toPass({ timeout: 15_000 });
@@ -561,23 +552,23 @@ test("an emailed draft link still works after the organizer changes the form's l
   // --- the organizer changes the public link -------------------------------
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/forms`);
-  await page.getByRole("link", { name: RENAME_FORM_NAME }).click();
+  await page.getByRole("link", { name: formName }).click();
   await page.getByRole("tab", { name: "Window & link" }).click();
-  await page.getByLabel("Public link").fill(RENAME_SLUG_AFTER);
+  await page.getByLabel("Public link").fill(slugAfter);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Form saved")).toBeVisible();
 
   // The old address is genuinely gone for the form itself...
-  const stale = await page.request.get(`/submit/${RENAME_SLUG_BEFORE}`);
+  const stale = await page.request.get(`/submit/${slugBefore}`);
   expect(stale.status()).toBe(404);
 
   // --- ...but the emailed resume link lands on the draft, not on a 404 -----
   await page.context().clearCookies();
   const response = await page.goto(emailedPath);
   expect(response?.status()).toBe(200);
-  await expect(page).toHaveURL(new RegExp(`/submit/${RENAME_SLUG_AFTER}/resume/[0-9a-f]{32}$`));
+  await expect(page).toHaveURL(new RegExp(`/submit/${slugAfter}/resume/[0-9a-f]{32}$`));
   await expect(page.getByText("Picking up where you left off")).toBeVisible();
-  await expect(page.getByLabel("Talk title")).toHaveValue(RENAME_DRAFT_TITLE);
+  await expect(page.getByLabel("Talk title")).toHaveValue(draftTitle);
 });
 
 /** Its own form: the seeded "Call for Speakers 2026" has no speaker_email
@@ -585,15 +576,12 @@ test("an emailed draft link still works after the organizer changes the form's l
  * built-in "Your email" question only exists in the builder on a form built
  * from DEFAULT_CFP_FIELDS. Nothing here is saved — the form is left exactly as
  * `createForm` made it. */
-const LOCKED_TYPE_FORM_NAME = "E2E Locked Answer Types";
-
-test("a built-in question's answer type is locked, a custom one's is not", async ({ page }) => {
+test("a built-in question's answer type is locked, a custom one's is not", async ({
+  page,
+  fixtureId,
+}) => {
   await signIn(page, "admin@greenroom.dev");
-  await page.goto(`/admin/${EVENT_SLUG}/forms`);
-  await page.getByRole("button", { name: "New form" }).click();
-  await page.getByLabel("Form name").fill(LOCKED_TYPE_FORM_NAME);
-  await page.getByRole("button", { name: "Create form" }).click();
-  await expect(page.getByRole("heading", { name: LOCKED_TYPE_FORM_NAME })).toBeVisible();
+  await createIsolatedForm(page, EVENT_SLUG, fixtureId);
 
   // --- "Your email": one allowed type, so the picker is dead ---------------
   // The expand toggle's accessible name starts with the question's label and
@@ -636,37 +624,3 @@ test("a built-in question's answer type is locked, a custom one's is not", async
   // Nothing is saved: the form stays as created, so no other spec inherits a
   // stray "New question".
 });
-
-// `deleteForm` (src/app/admin/[eventSlug]/forms/actions.ts) currently has no
-// caller anywhere in src/ — neither the forms table nor the builder renders a
-// delete affordance, so its task-link guard is unreachable from a browser.
-// Written against the UI the guard implies and marked fixme so the gap stays
-// visible without failing the suite; flip to test() once the affordance
-// exists and adjust the two "Delete form" selectors to match it.
-test.fixme(
-  "a form an onboarding task points at cannot be deleted, and the error names the task",
-  async ({ page }) => {
-    // Seeded: "Hotel Stay Requirements" is the form behind the "Hotel stay
-    // requirement form" onboarding task (scripts/seed.ts — hotelForm.id is the
-    // task's formId), and it has no submissions of its own, so the
-    // submissions-first guard in `deleteForm` is not what trips here.
-    await signIn(page, "admin@greenroom.dev");
-    await page.goto(`/admin/${EVENT_SLUG}/forms`);
-    await page.getByRole("link", { name: "Hotel Stay Requirements" }).click();
-
-    await page.getByRole("button", { name: "Delete form" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Delete form" }).click();
-
-    // The refusal names the task by title so an organizer knows what to fix
-    // first — a generic "in use" would leave them hunting.
-    await expect(
-      page.getByText(
-        /The onboarding task "Hotel stay requirement form" asks speakers to fill this form in/,
-      ),
-    ).toBeVisible();
-
-    // And it really is still there.
-    await page.goto(`/admin/${EVENT_SLUG}/forms`);
-    await expect(page.getByRole("link", { name: "Hotel Stay Requirements" })).toBeVisible();
-  },
-);

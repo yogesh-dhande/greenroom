@@ -1,6 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { signIn } from "./helpers";
+import { addRoom, createDirectSession, expect, test, type IsolatedEvent } from "./fixtures";
+import { devEmailsSince, signIn } from "./helpers";
+import type { Page } from "@playwright/test";
 
 /**
  * Key flow: communications (spec.md §7) — the per-speaker log, one-off
@@ -12,7 +12,8 @@ import { signIn } from "./helpers";
  * this screen exists to prevent. The dev transport writes each message to
  * `.dev-emails/`, so a test can read exactly what a speaker would receive.
  *
- * Tests run in file order on one worker and build on each other's state.
+ * Mutating calendar coverage uses an isolated event; the digest template and
+ * send are one scenario so no test depends on a prior template edit.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
@@ -20,9 +21,6 @@ const COMMS = `/admin/${EVENT_SLUG}/communications`;
 
 const PRIYA = "Priya Raman";
 const PRIYA_EMAIL = "priya.raman@example.com";
-/** Seeded, scheduled, on Main Stage with Priya speaking — invitable. */
-const RETRIEVAL = "Retrieval that survives production traffic";
-
 /** The roster page, for the manual "Add speaker" flow (decisions.md D-051). */
 const SPEAKERS = `/admin/${EVENT_SLUG}/speakers`;
 
@@ -42,23 +40,17 @@ const DANA = "Dana Okoye";
  * person. */
 const HANNAH_EMAIL = "hannah.kim@example.com";
 
-/** Transcripts the dev transport wrote since `since` (mtime in ms). */
-async function devEmailsSince(since: number, extension = ".txt"): Promise<string[]> {
-  const files = await readdir(".dev-emails").catch(() => [] as string[]);
-  const bodies = await Promise.all(
-    files
-      .filter((name) => name.endsWith(extension))
-      .map(async (name) => {
-        const path = `.dev-emails/${name}`;
-        const info = await stat(path);
-        return info.mtimeMs >= since ? readFile(path, "utf8") : "";
-      }),
-  );
-  return bodies.filter(Boolean);
-}
-
 async function openTab(page: Page, name: string): Promise<void> {
   await page.getByRole("tab", { name }).click();
+}
+
+function eventDayLabel(event: IsolatedEvent): string {
+  return new Date(`${event.startDate}T00:00:00Z`).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 test("an admin writes a one-off message and it reaches the speaker", async ({ page }) => {
@@ -104,6 +96,40 @@ test("an admin writes a one-off message and it reaches the speaker", async ({ pa
   await expect(page.getByRole("cell").filter({ hasText: marker })).toBeVisible();
 });
 
+test("an admin sends one personalized announcement to a selected speaker group", async ({
+  page,
+}) => {
+  const startedAt = Date.now();
+  const subject = `Welcome, speakers — ${startedAt.toString(36)}`;
+
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(COMMS);
+  await openTab(page, "Compose");
+
+  for (const email of [PRIYA_EMAIL, HANNAH_EMAIL]) {
+    await page.getByRole("listitem").filter({ hasText: email }).getByRole("checkbox").click();
+  }
+  await page.locator("#compose-subject").fill(subject);
+  await page.locator("#compose-body").fill("Hi {{speakerFirstName}}, welcome to {{eventName}}.");
+  await expect(page.getByRole("button", { name: "Send to 2 people" })).toBeEnabled();
+  await page.getByRole("button", { name: "Send to 2 people" }).click();
+  await expect(page.getByText("Sent to 2 people")).toBeVisible();
+
+  await expect(async () => {
+    const messages = (await devEmailsSince(startedAt)).filter((body) => body.includes(subject));
+    expect(messages).toHaveLength(2);
+    expect(messages.some((body) => body.includes("Hi Priya, welcome to AI Engineer Summit 2026."))).toBe(
+      true,
+    );
+    expect(messages.some((body) => body.includes("Hi Hannah, welcome to AI Engineer Summit 2026."))).toBe(
+      true,
+    );
+  }).toPass({ timeout: 15_000 });
+
+  await openTab(page, "Log");
+  await expect(page.getByRole("cell").filter({ hasText: subject })).toHaveCount(2);
+});
+
 test("the log narrows to one speaker's correspondence", async ({ page }) => {
   // Someone else's mail, seeded: a bounced calendar invite to a co-speaker.
   const OTHER = "l.fernandez@example.com";
@@ -129,7 +155,7 @@ test("the log narrows to one speaker's correspondence", async ({ page }) => {
   await expect(page.getByRole("cell").filter({ hasText: "Submission received" })).toHaveCount(0);
 });
 
-test("a template edit with a bad merge field is refused, a good one sticks", async ({ page }) => {
+test("a saved digest template drives one cooldown-protected send", async ({ page }) => {
   await signIn(page, "admin@greenroom.dev");
   await page.goto(COMMS);
   await openTab(page, "Templates");
@@ -163,12 +189,8 @@ test("a template edit with a bad merge field is refused, a good one sticks", asy
   await page.getByRole("button", { name: "Weekly task digest" }).click();
   await expect(page.locator("textarea[id^='body-']")).toHaveValue(/Our team is around all week/);
   await expect(page.getByText("Edited")).toBeVisible();
-});
 
-test("a digest run sends once per speaker, then respects the cooldown", async ({ page }) => {
   const startedAt = Date.now();
-
-  await signIn(page, "admin@greenroom.dev");
   await page.goto(COMMS);
 
   await page.getByRole("button", { name: "Send task digest now" }).click();
@@ -178,8 +200,8 @@ test("a digest run sends once per speaker, then respects the cooldown", async ({
   // has something to do (the manual path bypasses the Monday window, D-039).
   await expect(page.getByText(/Sent \d+ emails?/)).toBeVisible({ timeout: 30_000 });
 
-  // The digest used this event's saved wording from the previous test —
-  // proof the override reaches the send path, not just the editor.
+  // The digest uses the wording saved earlier in this same isolated scenario,
+  // proving the override reaches the send path rather than only the editor.
   await expect(async () => {
     const digests = (await devEmailsSince(startedAt)).filter((body) =>
       body.includes("X-Greenroom-Log: task_digest"),
@@ -202,16 +224,29 @@ test("a digest run sends once per speaker, then respects the cooldown", async ({
   expect(afterSecond).toHaveLength(0);
 });
 
-test("a calendar invitation goes out as a real .ics, and re-sending updates it", async ({
+test("a real room change re-sends the same calendar event with a higher sequence", async ({
   page,
+  fixtureId,
+  isolatedEvent,
 }) => {
+  const firstRoom = `Alpha ${fixtureId}`;
+  const secondRoom = `Beta ${fixtureId}`;
+  await addRoom(page, isolatedEvent.slug, firstRoom);
+  await addRoom(page, isolatedEvent.slug, secondRoom);
+  const session = await createDirectSession(page, isolatedEvent.slug, fixtureId);
+  await page.getByTestId("unscheduled-tray").getByText(session.title).click();
+  await page.locator("#session-day").click();
+  await page.getByRole("option", { name: eventDayLabel(isolatedEvent) }).click();
+  await page.locator("#session-room").click();
+  await page.getByRole("option", { name: firstRoom, exact: true }).click();
+  await page.locator("#session-start").fill("11:00");
+  await page.getByRole("dialog").getByRole("button", { name: "Save time" }).click();
   const startedAt = Date.now();
 
-  await signIn(page, "admin@greenroom.dev");
-  await page.goto(COMMS);
+  await page.goto(`/admin/${isolatedEvent.slug}/communications`);
   await openTab(page, "Calendar invites");
 
-  const row = page.getByRole("listitem").filter({ hasText: RETRIEVAL });
+  const row = page.getByRole("listitem").filter({ hasText: session.title });
   await row.getByRole("button", { name: "Send invitation" }).click();
   await expect(page.getByText(/Invitation sent to \d+ speakers?/)).toBeVisible({
     timeout: 30_000,
@@ -219,20 +254,27 @@ test("a calendar invitation goes out as a real .ics, and re-sending updates it",
 
   await expect(async () => {
     const invites = (await devEmailsSince(startedAt, ".ics")).filter((ics) =>
-      ics.includes(RETRIEVAL),
+      ics.includes(session.title),
     );
     expect(invites.length).toBeGreaterThan(0);
     const ics = invites[0];
     expect(ics).toContain("METHOD:REQUEST");
     expect(ics).toContain("SEQUENCE:0");
+    expect(ics).toContain(`LOCATION:${firstRoom}`);
     expect(ics).toMatch(/^UID:session-.+$/m);
   }).toPass({ timeout: 20_000 });
 
-  // Re-sending is the room-change story (decisions.md D-020): same UID, higher
-  // SEQUENCE, so the speaker's existing calendar entry updates in place
-  // instead of a second one appearing.
+  // A real agenda edit, not merely a second press on the send button.
+  await page.goto(`/admin/${isolatedEvent.slug}/agenda`);
+  await page.getByText(session.title).first().click();
+  await page.locator("#session-room").click();
+  await page.getByRole("option", { name: secondRoom, exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Save time" }).click();
+
+  // Same UID, higher SEQUENCE and new LOCATION: calendar clients update the
+  // existing entry instead of creating a duplicate.
   const resendAt = Date.now();
-  await page.reload();
+  await page.goto(`/admin/${isolatedEvent.slug}/communications`);
   await openTab(page, "Calendar invites");
   await expect(row.getByText(/invites? sent/)).toBeVisible();
   await row.getByRole("button", { name: "Re-send invitation" }).click();
@@ -240,10 +282,11 @@ test("a calendar invitation goes out as a real .ics, and re-sending updates it",
 
   await expect(async () => {
     const invites = (await devEmailsSince(resendAt, ".ics")).filter((ics) =>
-      ics.includes(RETRIEVAL),
+      ics.includes(session.title),
     );
     expect(invites.length).toBeGreaterThan(0);
     expect(invites[0]).toContain("SEQUENCE:1");
+    expect(invites[0]).toContain(`LOCATION:${secondRoom}`);
   }).toPass({ timeout: 20_000 });
 });
 
