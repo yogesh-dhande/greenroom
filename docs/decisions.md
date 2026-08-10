@@ -465,6 +465,12 @@ Investigation no longer needed — Accelevents integration dropped by the organi
 
 **Rationale:** D-059 declined the area to protect graded-core work ahead of run 4; that trade is complete — run 4 is triaged, W25–W27 are deployed, and the graded core sits at 82–94%. CRM is now the largest single score lever left: 19 rubric weight scored 34.2%, and the run-4 triage attributes the loss almost entirely to architectural absence, not defects. The hard part already exists — identity is global by email in `users`, so speakers are cross-event contacts today with no surface showing it. The build is therefore new surfaces plus four small org-scoped tables (tags, contact notes, pipeline cards + history, segments), not a re-architecture. Merge stays excluded for D-065's original reason (multi-table identity rewrite with auth implications) and because the rubric prices it at 1 weight of 19.
 
+## D-078: Landing page — product-first direction on House Lights tokens — **accepted** (2026-08-10)
+
+**Decision:** The marketing landing page follows the "product-first" direction the owner picked from four mocked directions (dark-theatrical, call-sheet, playbill, product-first): a standard nav, the plain-spoken claim "Speaker management you actually own," an illustrative agenda-builder vignette (with a conflict flag) as hero proof, a six-feature grid, and GitHub/self-host framing. It uses only the D-018/D-019 House Lights theme tokens — no landing-only palette and no second typeface — so light/dark theming and any future rebrand flow through the token block automatically.
+
+**Rationale:** Owner choice 2026-08-10 ("let's go with direction D", after "keep the colors consistent with rest of the app"). Product-first reads instantly as capable software and shows the app's actual value (conflict detection) instead of describing it; staying token-faithful keeps one brand surface days before the deadline, where the other directions would have introduced a landing-only dark treatment or a display serif.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
