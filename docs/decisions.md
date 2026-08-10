@@ -47,11 +47,11 @@ Record caps (50k/base on Team) are a non-issue at conference scale. These constr
 
 **Rationale:** Judges will review on GitHub; the Forge bonus is explicitly "teeny" and not worth the workflow risk.
 
-## D-006: Remaining design-only optional features — wiki/resource pages and authenticated public API — **accepted (rewritten 2026-08-09)**
+## D-006: Wiki/resource pages remain design-only — **accepted; API portion superseded by D-081** (rewritten 2026-08-10)
 
-**Decision:** Wiki/resource pages and the authenticated write API stay design-only for the competition submission. The rest of the original design-only list has since shipped or been dropped: configurable embeds and read-only public feeds are implemented (D-080 — `/embed/<event>` pages, `/embed.js`, and JSON/XML/iCal feeds), and Accelevents sync was dropped by the organizer (D-017).
+**Decision:** Wiki/resource pages remain design-only for the competition submission. Configurable embeds and unauthenticated public feeds are implemented (D-080 — `/embed/<event>` pages, `/embed.js`, and JSON/XML/iCal feeds), while Accelevents sync was dropped by the organizer (D-017). D-081 replaces this decision's former conclusion that an authenticated API would remain design-only.
 
-**Rationale:** Originally all optional features (spec §7–10) were design-only to protect the six firm requirements under the 4-day deadline. Embeds/feeds were promoted to implemented because Public Widgets is a judged 20% area; wiki pages and a write API are not judged by the evaluator, so they keep the design-only treatment. (Rewritten from the pre-2026-08-09 entry, which listed embeds and the public API as design-only — that no longer described reality; audit 2026-08-09 flagged the drift.)
+**Rationale:** Protecting the core competition path originally justified leaving optional integrations at design depth. Public widgets were promoted because they are a heavily judged area, and the owner has now separately approved a bounded Core API v1 and remote MCP server (D-081). Wiki/resource pages remain outside the approved implementation scope.
 
 ## D-007: Auth — magic links for everyone — **accepted**
 
@@ -73,7 +73,7 @@ Record caps (50k/base on Team) are a non-issue at conference scale. These constr
 
 ## D-010: Cache & invalidation strategy — **accepted**
 
-**Decision:** With D1 as primary (D-002), no separate cache layer is needed for correctness or rate limits. Public pages (CFP, embeds, gallery/schedule, public API) use Next.js caching/ISR with tag-based revalidation on writes; everything else reads D1 directly.
+**Decision:** With D1 as primary (D-002), no separate cache layer is needed for correctness or rate limits. Public pages and feeds (CFP, embeds, gallery/schedule, JSON/XML/iCal) use Next.js caching/ISR with tag-based revalidation on writes; everything else reads D1 directly.
 
 **Rationale:** The KV read-through cache was an Airtable rate-limit mitigation; D1 has no such limit. ISR still gives edge-fast public pages for the speed bonus.
 
@@ -483,6 +483,34 @@ Investigation no longer needed — Accelevents integration dropped by the organi
 
 **Rationale:** EMB-15's manual assertions grade the builder's exact widget/output/configuration breadth. Stateless URLs keep snippets portable, preserve storage abstraction, avoid lifecycle and migration complexity, and continue to work with public cacheable routes. Owner directive 2026-08-10: implement every uncovered manual assertion.
 
+## D-081: Ship an admin-only Core API v1 and remote MCP server — **accepted** (2026-08-10)
+
+**Decision:** Greenroom ships two authenticated external surfaces over the same storage-agnostic application workflows as the organizer UI: a REST API at `/api/v1` and a stateless Streamable HTTP MCP server at `/mcp`. V1 exposes read access to events and their configuration, sessions, speakers, and submissions, plus bounded writes for speaker and direct-session creation, speaker/session edits, speaker confirmation and assignment, session placement/unscheduling, slot suggestions, and submission decisions. Explicit DTOs redact auth records and resume tokens; compact list DTOs and richer detail DTOs have stable pagination, filtering, sorting, date, response, and error contracts. OpenAPI 3.1, an interactive API reference, OAuth discovery metadata, typed MCP tool results/resources, safety annotations, origin/host validation, and legacy stateless MCP-client compatibility are part of the public contract.
+
+Both REST and MCP accept `gr_` API keys or OAuth 2.1 bearer tokens. Better Auth's API-key and OAuth provider plugins own credential/protocol state in prefixed auth tables; its deprecated MCP-specific provider is not used. Keys are organization-managed as Read-only or Read & write, restricted to selected events or all current/future events, expire after 30, 90, or 365 days (90 by default), disclose the secret once, and remain revocable. OAuth uses the existing magic-link identity, admin-only consent, PKCE, dynamic public-client registration, `greenroom:read`/`greenroom:write`, one-hour access tokens, and 30-day refresh tokens. Every request rechecks that the credential owner is still an active admin; write implies read, event allowlists apply on both surfaces, and out-of-scope events return 404. A shared Cloudflare rate-limit binding allows 120 authenticated requests per credential per minute and returns 429 with `Retry-After`; raw tokens and private request bodies are never logged.
+
+The external surfaces must preserve UI behavior rather than reproduce it: validation, speaker deduplication by email, acceptance conversion and reversal, onboarding creation, abstract revision history, cache invalidation, scheduling conflicts, sender identity, email templates, and communication logging all run through the same application services. Accept and Decline default `notify` on; Waitlist defaults it off; callers may override it explicitly. V1 intentionally excludes deletes, event/configuration writes, form/review/task/file/communication CRUD, CRM operations, webhooks, generated SDKs, a stdio MCP server, MCP prompts, and registry publication. Existing unauthenticated public feeds remain unchanged.
+
+**Rationale:** REST integrations and AI clients need the same small set of organizer operations, but parallel route-specific business logic would drift on the product's most consequential side effects — acceptance conversion, conflicts, revision history, and email. One injected application-service layer keeps UI, REST, and MCP behavior storage-agnostic and testable while explicit DTOs and per-request authorization prevent database or credential internals from becoming an accidental public contract. Bounded v1 scope, expiring event-scoped credentials, active-admin rechecks, discovery documents, and a shared rate limit make the surface useful without opening the broader Sessionboard API or CMS product.
+
+## D-082: Initialize the Next server handler at Worker startup — **accepted** (2026-08-10)
+
+**Decision:** The custom Cloudflare Worker entry statically imports the OpenNext-generated Next server handler before importing OpenNext's request dispatcher. Cron-only repository, Airtable, communications, and email modules load inside the scheduled handler instead of the fetch startup graph.
+
+**Rationale:** Production traces tied recurring 45–210-second outages to canceled, near-zero-CPU promises during concurrent cold-isolate initialization. OpenNext 1.20.2 dynamically imports the full Next handler from inside the first request, exposing that module-loader promise to sibling request contexts; Cloudflare does not permit request-owned I/O promises to cross those contexts. Eager initialization moves the promise into the isolate lifecycle, while deferring cron-only modules offsets unnecessary fetch startup work. A standalone Workers deployment verified the final bundle no longer contains the request-time handler import and remained healthy through 256 post-fix concurrent browser/data requests; fresh deployments would not reproduce the intermittent long-lived-isolate cancellation itself, so production observability remains the final validation.
+
+## D-083: Keep the stable OAuth provider while API and MCP remain one trust plane — **accepted** (2026-08-10)
+
+**Decision:** Greenroom stays on the current stable `@better-auth/oauth-provider` release while its published [resource-indicator audience-binding advisory](https://github.com/advisories/GHSA-p2fr-6hmx-4528) has no stable fix. `/api/v1` and `/mcp` remain deliberately equivalent resource audiences: both are admin-only, expose the same bounded workflows and data, accept the same `greenroom:read`/`greenroom:write` scopes, and perform the same active-admin and event-access checks. Upgrade to a patched stable release when one exists; do not add a resource audience with different privileges before that upgrade.
+
+**Rationale:** The advisory permits a client to substitute one registered resource indicator for another during authorization. That substitution does not cross a Greenroom privilege boundary because REST and MCP are two protocols over the same authorization plane, and each resource server still verifies its own audience. Moving production auth to a prerelease provider days before the competition would introduce a broader protocol risk than the advisory does in this two-equivalent-resource topology. This exception must be revisited if the audiences diverge.
+
+## D-084: Blind-round participation anonymizes the reviewer's whole event workspace — **accepted** (2026-08-10)
+
+**Decision:** If a reviewer holds any assignment in a blind round on an event, every submission row and record they can reach on that event withholds author identity, including unassigned rows in the deliberately broader track-scoped list. Speaker-facing decision notes are identity-bearing and are withheld too. Admin surfaces remain unblinded. This supersedes D-061's narrower per-submission trigger while retaining its track-scoped read-access model.
+
+**Rationale:** The latest evaluator found two paths around D-061: the wider "All talks in your tracks" list printed names on unassigned rows, and a decided submission's speaker note addressed the author by name below an otherwise blinded proposal. Because the wider list has no round context, per-submission blinding cannot keep that mixed workspace safe. Event-wide reviewer blinding is conservative, easy to explain, and prevents identity from leaking through list rows, records, search values, or decision copy without hiding anything from organizers. Owner directive 2026-08-10: apply the remaining fixes from the latest evaluator triage. This closes Q10.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
@@ -491,7 +519,7 @@ Where our decisions deliberately don't match how Sessionboard actually works. Re
 | 2 | Native Accelevents connector (Accelevents pulls sessions/speakers hourly) | No Accelevents integration at all | Organizer explicitly dropped the requirement | D-004 (superseded), D-017 |
 | 3 | Manages sponsors & exhibitors (and syncs them to Accelevents) | Out of scope — speakers/sessions only (direct session entry covers sponsor *speakers*) | Not in the competition requirements | spec Out of Scope |
 | 4 | AI-powered evaluations are a built-in product feature | Skipped; human `approve/maybe/deny` only, small agentic admin helper as possible enhancement | Organizer: out of scope; admin UI is the priority | D-011, D-017 |
-| 5 | Full public API: webhooks, contacts/sponsors/exhibitors, media uploads, US/EU regions | Read-only public JSON/XML/iCal feeds are implemented (CORS-open, no emails/ids); the authenticated write API remains design-only | Feeds power the "apps or databases" consumer that's actually judged; API breadth isn't | D-006, D-080, spec §10 |
+| 5 | Full public API: webhooks, contacts/sponsors/exhibitors, media uploads, US/EU regions | Authenticated Core API v1 and remote MCP cover bounded admin workflows; public JSON/XML/iCal feeds remain CORS-open | Core integrations get safe read/write access without adopting the unrelated breadth of Sessionboard's API | D-081, D-080, spec §10 |
 | 6 | Password accounts for organizers/admins (speakers get portal invites) | Magic links for every role, no passwords | Simpler, one auth path; acceptable UX for a small organizer team | D-007 |
 | 7 | Wiki/resource pages and integrations are shipped features | Configurable embeds are implemented (`/embed/<event>` pages plus `/embed.js` and public feeds); wiki/resources remain designed-only | The evaluated public-program integration is complete; speaker resource pages remain outside core scope | D-006, D-080 |
 | 8 | Draft-submission reminders at a fixed 5 days and 1 day before the form closes | One reminder per draft, ever, inside the final 48 hours | One nudge is a service, three are a nag — and the once-ever rule is idempotency-cheap | D-038 |

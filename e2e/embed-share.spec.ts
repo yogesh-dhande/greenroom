@@ -11,7 +11,9 @@ test("the organizer and public share surfaces expose every supported embed forma
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}`);
 
-  const card = page.locator('[data-slot="card"]').filter({ hasText: "Embeds & feeds" });
+  const card = page
+    .locator('[data-slot="card"]')
+    .filter({ hasText: "Embeds & feeds" });
   await expect(card).toContainText(`/embed/${EVENT_SLUG}/schedule`);
   await expect(card).toContainText(`/embed/${EVENT_SLUG}/speakers`);
   await expect(card).toContainText(`/p/${EVENT_SLUG}/feed.json`);
@@ -35,7 +37,9 @@ test("the organizer and public share surfaces expose every supported embed forma
     "iCal",
   ]);
   await widget.selectOption("sessions");
-  await page.getByLabel("Track filter").selectOption({ label: "AI Engineering" });
+  await page
+    .getByLabel("Track filter")
+    .selectOption({ label: "AI Engineering" });
   await page.getByLabel("Description").uncheck();
   await page.getByLabel("Primary color").fill("#ff0000");
   await page.getByLabel("Custom CSS").fill("article { border-radius: 0; }");
@@ -47,7 +51,9 @@ test("the organizer and public share surfaces expose every supported embed forma
 
   await page.getByLabel("Output format").selectOption("xml");
   await expect(output).toContainText(`/p/${EVENT_SLUG}/feed.xml`);
-  const xml = await page.request.get(`/p/${EVENT_SLUG}/feed.xml?track=AI%20Engineering&description=0`);
+  const xml = await page.request.get(
+    `/p/${EVENT_SLUG}/feed.xml?track=AI%20Engineering&description=0`,
+  );
   expect(xml.status()).toBe(200);
   expect(xml.headers()["content-type"]).toContain("application/xml");
   expect(await xml.text()).toContain("<program>");
@@ -58,12 +64,18 @@ test("the organizer and public share surfaces expose every supported embed forma
   await expect(popover).toContainText(
     `<script src="${new URL(page.url()).origin}/embed.js" data-event="${EVENT_SLUG}" data-view="schedule" async></script>`,
   );
-  await expect(popover).toContainText(`<iframe src="${new URL(page.url()).origin}/embed/${EVENT_SLUG}/schedule"`);
-  await expect(popover.getByRole("link", { name: /feed\.json/ })).toHaveAttribute(
+  await expect(popover).toContainText(
+    `<iframe src="${new URL(page.url()).origin}/embed/${EVENT_SLUG}/schedule"`,
+  );
+  await expect(
+    popover.getByRole("link", { name: /feed\.json/ }),
+  ).toHaveAttribute(
     "href",
     `${new URL(page.url()).origin}/p/${EVENT_SLUG}/feed.json`,
   );
-  await expect(popover.getByRole("link", { name: /feed\.ics/ })).toHaveAttribute(
+  await expect(
+    popover.getByRole("link", { name: /feed\.ics/ }),
+  ).toHaveAttribute(
     "href",
     `${new URL(page.url()).origin}/p/${EVENT_SLUG}/feed.ics`,
   );
@@ -86,13 +98,20 @@ test("a configured script applies widget, track, field, color, and CSS choices",
   await expect(frame.getByTestId("session-list-widget")).toBeVisible();
   await expect(frame.getByText(RETRIEVAL)).toBeVisible();
   await expect(frame.getByText(HOSPITAL)).toHaveCount(0);
-  await expect(frame.getByText("Most RAG demos fall over", { exact: false })).toHaveCount(0);
+  await expect(
+    frame.getByText("Most RAG demos fall over", { exact: false }),
+  ).toHaveCount(0);
   expect(
     await frame
       .locator('[data-widget="sessions"]')
-      .evaluate((element) => (element as HTMLElement).style.getPropertyValue("--primary")),
+      .evaluate((element) =>
+        (element as HTMLElement).style.getPropertyValue("--primary"),
+      ),
   ).toBe("#ff0000");
-  await expect(frame.locator("article").first()).toHaveCSS("border-radius", "0px");
+  await expect(frame.locator("article").first()).toHaveCSS(
+    "border-radius",
+    "0px",
+  );
 });
 
 test("the one-line script renders a live interactive schedule on a third-party page", async ({
@@ -110,13 +129,25 @@ test("the one-line script renders a live interactive schedule on a third-party p
   `);
 
   const iframe = page.locator('iframe[title="Event program"]');
-  await expect(iframe).toHaveAttribute("src", `${baseURL}/embed/${EVENT_SLUG}/schedule`);
+  await expect(iframe).toHaveAttribute(
+    "src",
+    `${baseURL}/embed/${EVENT_SLUG}/schedule`,
+  );
   const widget = page.frameLocator('iframe[title="Event program"]');
   await expect(widget.getByText(RETRIEVAL)).toBeVisible();
-  await widget.getByLabel("Search sessions").fill("hospital");
-  await expect(widget.getByText(HOSPITAL)).toBeVisible();
+  const search = widget.getByLabel("Search sessions");
+  // The iframe can paint its server-rendered sessions just before React owns
+  // the controlled search input. Retry the interaction so a hydration reset
+  // cannot discard the query under full-suite load.
+  await expect(async () => {
+    await search.fill("hospital");
+    await expect(search).toHaveValue("hospital");
+    await expect(widget.getByText(HOSPITAL)).toBeVisible();
+  }).toPass({ timeout: 10_000 });
   await expect(widget.getByText(RETRIEVAL)).toHaveCount(0);
   await expect
-    .poll(() => iframe.evaluate((element) => (element as HTMLIFrameElement).style.height))
+    .poll(() =>
+      iframe.evaluate((element) => (element as HTMLIFrameElement).style.height),
+    )
     .not.toBe("");
 });

@@ -140,6 +140,52 @@ export interface Deliverable {
   source: "assignment" | "profile";
 }
 
+export interface DeliverableSessionScope {
+  label: string;
+  /** Full explanation for a tooltip when the compact table label cannot name
+   * every session honestly. */
+  description: string;
+}
+
+/**
+ * How the Files table describes a file's session relationship.
+ *
+ * Task assignments and profile uploads belong to a speaker, not to one
+ * session id. Printing the first session title therefore invents a false
+ * association as soon as that speaker has multiple talks. Name the sole
+ * session when it is unambiguous; otherwise say that the scope is speaker-wide
+ * and leave the complete title list in the tooltip.
+ */
+export function deliverableSessionScope(
+  source: Deliverable["source"],
+  sessionTitles: string[],
+): DeliverableSessionScope {
+  if (source === "profile") {
+    return {
+      label: "Speaker profile",
+      description: "Profile uploads belong to the speaker, not to a particular session.",
+    };
+  }
+  if (sessionTitles.length === 0) {
+    return {
+      label: "No session yet",
+      description: "This task upload belongs to the speaker; they have no session on this event yet.",
+    };
+  }
+  if (sessionTitles.length === 1) {
+    return {
+      label: sessionTitles[0],
+      description: `This speaker-wide task upload currently relates to their only session: ${sessionTitles[0]}.`,
+    };
+  }
+  return {
+    label: `${sessionTitles.length} speaker sessions`,
+    description: `This task upload is speaker-wide and is not assigned to one session. Sessions: ${sessionTitles.join(
+      ", ",
+    )}.`,
+  };
+}
+
 /** How a tracked profile file is named in the library and on a speaker's
  * record. Only headshots are stored this way today, and the suffix says
  * which surface the file came from rather than which task. */

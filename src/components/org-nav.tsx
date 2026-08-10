@@ -8,12 +8,13 @@ const NAV_ITEMS = [
   { label: "Overview", href: "/admin/crm" },
   { label: "Directory", href: "/admin/directory" },
   { label: "Pipeline", href: "/admin/pipeline" },
+  { label: "API & MCP", href: "/admin/api" },
 ] as const;
 
-/** Left nav for the org-level speaker CRM area (spec.md "Org-level speaker
- * CRM", D-077). Mirrors AdminNav's styling so the CRM reads as a sibling of
- * the event workspaces; client-only for active-path styling. Admin-only by
- * construction: the (org) layout guards, so there is no role prop here. */
+/** Left nav for organization-wide admin tools. Mirrors AdminNav's styling so
+ * these pages read as siblings of the event workspaces; client-only for
+ * active-path styling. Admin-only by construction: the (org) layout guards,
+ * so there is no role prop here. */
 export function OrgNav() {
   const pathname = usePathname();
 

@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { speakerConfirmationSchema, type Event, type User } from "@/db/entities";
 import type { Repos } from "@/db/repos";
+import {
+  AdminWorkflowError,
+  createSpeaker as createAdminSpeaker,
+  setSpeakerConfirmation as setAdminSpeakerConfirmation,
+  updateSpeaker as updateAdminSpeaker,
+} from "@/domain/admin-api";
 import { sendPortalInvite, sendTaskAssignmentNotification } from "@/domain/comms";
 import { normalizeEmail } from "@/domain/team";
 import { planAssignToSpeakers } from "@/domain/task-assign";
@@ -31,6 +37,10 @@ import {
 
 function fail(error: string) {
   return { ok: false as const, error };
+}
+
+function workflowFailure(error: unknown, fallback: string) {
+  return fail(error instanceof AdminWorkflowError ? error.message : fallback);
 }
 
 function rosterPath(eventSlug: string) {
@@ -118,29 +128,27 @@ export async function addSpeaker(eventSlug: string, input: AddSpeakerInput) {
   const repos = await getRepos();
   const email = normalizeEmail(parsed.data.email);
 
-  let result: { user: User; created: boolean };
   try {
-    result = await createOrReuseSpeaker(repos, event, {
+    const result = await createAdminSpeaker({ repos }, event.id, {
       name: parsed.data.name,
       email,
       title: parsed.data.title || null,
       company: parsed.data.company || null,
       bio: parsed.data.bio || null,
     });
-  } catch {
-    return fail("Couldn't add that speaker — try again");
+    revalidatePath(rosterPath(eventSlug));
+    return {
+      ok: true as const,
+      data: {
+        speakerId: result.speaker.id,
+        message: result.created
+          ? `${parsed.data.name} was added to the roster`
+          : `${email} already had an account — they're on the roster now`,
+      },
+    };
+  } catch (error) {
+    return workflowFailure(error, "Couldn't add that speaker — try again");
   }
-
-  revalidatePath(rosterPath(eventSlug));
-  return {
-    ok: true as const,
-    data: {
-      speakerId: result.user.id,
-      message: result.created
-        ? `${parsed.data.name} was added to the roster`
-        : `${email} already had an account — they're on the roster now`,
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -243,23 +251,22 @@ export async function updateSpeakerProfile(eventSlug: string, input: UpdateSpeak
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check those details");
 
   const repos = await getRepos();
-  const speaker = await loadRosterSpeaker(repos, event, parsed.data.speakerId);
-  if (!speaker) return fail("That speaker isn't on this event's roster");
-
   try {
-    await repos.users.update(speaker.id, {
+    const speaker = await updateAdminSpeaker({ repos }, event.id, parsed.data.speakerId, {
       name: parsed.data.name,
       title: parsed.data.title || null,
       company: parsed.data.company || null,
       bio: parsed.data.bio || null,
     });
-  } catch {
-    return fail("Couldn't save those details — try again");
+    revalidatePath(rosterPath(eventSlug));
+    revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
+    return { ok: true as const, data: { message: "Profile updated" } };
+  } catch (error) {
+    if (error instanceof AdminWorkflowError && error.code === "not_found") {
+      return fail("That speaker isn't on this event's roster");
+    }
+    return workflowFailure(error, "Couldn't save those details — try again");
   }
-
-  revalidatePath(rosterPath(eventSlug));
-  revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
-  return { ok: true as const, data: { message: "Profile updated" } };
 }
 
 /** Same object-key namespace the speaker's own upload uses (spec.md §6,
@@ -355,18 +362,19 @@ export async function saveSpeakerNotes(eventSlug: string, input: SpeakerNotesInp
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Couldn't save those notes");
 
   const repos = await getRepos();
-  const speaker = await loadRosterSpeaker(repos, event, parsed.data.speakerId);
-  if (!speaker) return fail("That speaker isn't on this event's roster");
-
   const notes = parsed.data.notes.trim();
   try {
-    await repos.eventSpeakers.setNotes(event.id, speaker.id, notes || null);
-  } catch {
-    return fail("Couldn't save those notes — try again");
+    await updateAdminSpeaker({ repos }, event.id, parsed.data.speakerId, {
+      notes: notes || null,
+    });
+    revalidatePath(`${rosterPath(eventSlug)}/${parsed.data.speakerId}`);
+    return { ok: true as const, data: { message: notes ? "Notes saved" : "Notes cleared" } };
+  } catch (error) {
+    if (error instanceof AdminWorkflowError && error.code === "not_found") {
+      return fail("That speaker isn't on this event's roster");
+    }
+    return workflowFailure(error, "Couldn't save those notes — try again");
   }
-
-  revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
-  return { ok: true as const, data: { message: notes ? "Notes saved" : "Notes cleared" } };
 }
 
 // ---------------------------------------------------------------------------
@@ -406,31 +414,35 @@ export async function setSpeakerConfirmation(
   if (!parsed.success) return fail("That isn't a confirmation status");
 
   const repos = await getRepos();
-  const speaker = await loadRosterSpeaker(repos, event, parsed.data.speakerId);
-  if (!speaker) return fail("That speaker isn't on this event's roster");
-
   try {
-    await repos.eventSpeakers.setConfirmation(event.id, speaker.id, parsed.data.confirmation);
-  } catch {
-    return fail("Couldn't save that status — try again");
+    await setAdminSpeakerConfirmation(
+      { repos },
+      event.id,
+      parsed.data.speakerId,
+      parsed.data.confirmation,
+    );
+    revalidatePath(rosterPath(eventSlug));
+    revalidatePath(`${rosterPath(eventSlug)}/${parsed.data.speakerId}`);
+    // "Assign to confirmed speakers" reads the same roster (decisions.md D-069),
+    // so a declined speaker has to drop out of that picker too.
+    revalidatePath(`/admin/${eventSlug}/tasks`);
+    return {
+      ok: true as const,
+      data: {
+        message:
+          parsed.data.confirmation === null
+            ? "Confirmation back to automatic"
+            : parsed.data.confirmation === "confirmed"
+              ? "Marked confirmed"
+              : "Marked declined",
+      },
+    };
+  } catch (error) {
+    if (error instanceof AdminWorkflowError && error.code === "not_found") {
+      return fail("That speaker isn't on this event's roster");
+    }
+    return workflowFailure(error, "Couldn't save that status — try again");
   }
-
-  revalidatePath(rosterPath(eventSlug));
-  revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
-  // "Assign to confirmed speakers" reads the same roster (decisions.md D-069),
-  // so a declined speaker has to drop out of that picker too.
-  revalidatePath(`/admin/${eventSlug}/tasks`);
-  return {
-    ok: true as const,
-    data: {
-      message:
-        parsed.data.confirmation === null
-          ? "Confirmation back to automatic"
-          : parsed.data.confirmation === "confirmed"
-            ? "Marked confirmed"
-            : "Marked declined",
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------

@@ -92,6 +92,13 @@
       "when": 1786333423602,
       "tag": "0012_org_speaker_crm",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1786398906465,
+      "tag": "0013_api_oauth_credentials",
+      "breakpoints": true
     }
   ]
 }

@@ -4,16 +4,57 @@ import { getSessionUser, homePathForRole } from "@/lib/session";
 
 const REPO_URL = "https://github.com/yogesh-dhande/greenroom";
 
-const FEATURES = [
-  { title: "Call for papers", body: "Public submission forms with your questions, tracks, and deadlines." },
-  { title: "Review rounds", body: "Track-scoped reviewers with structured scoring, round by round." },
-  { title: "Speaker portal", body: "Checklists, uploads, and magic-link sign-in for every speaker." },
-  { title: "Communications", body: "Templated email to the right speakers, with a full send log." },
-  { title: "Agenda builder", body: "Rooms, times, and automatic conflict flags before attendees notice." },
-  { title: "Public program", body: "Published schedule with a calendar feed and embeddable widgets." },
+const INTEGRATION_HIGHLIGHTS = [
+  {
+    eyebrow: "AUTOMATION",
+    title: "Airtable sync, already built in",
+    body: "Greenroom creates the tables and pushes event data on schedule or on demand, so your existing Airtable automations keep working.",
+  },
+  {
+    eyebrow: "EXTENSIBILITY",
+    title: "REST API + remote MCP",
+    body: "Connect software or AI tools with event-scoped API keys or OAuth. Both surfaces use the same guarded workflows as the organizer UI.",
+  },
+  {
+    eyebrow: "SPEAKER CRM",
+    title: "Relationships across events",
+    body: "Keep one searchable directory with tags, saved segments, event history, bulk email, and a sourcing pipeline.",
+  },
 ];
 
-type MockSession = { title: string; meta: string; warn?: boolean; conflict?: string };
+const FEATURES = [
+  {
+    title: "CFP to published program",
+    body: "Build forms, collect drafts, review, decide, onboard, schedule, and publish without re-entering a record.",
+  },
+  {
+    title: "Structured review rounds",
+    body: "Track-scoped queues, explicit assignments, and weighted scorecards round by round.",
+  },
+  {
+    title: "Speaker portal",
+    body: "Magic-link access to profiles, checklists, forms, uploads, and session status.",
+  },
+  {
+    title: "Real email + calendar",
+    body: "Send templated email, keep a delivery log, and issue calendar invites that update in place.",
+  },
+  {
+    title: "Conflict-aware agenda",
+    body: "Drag sessions across rooms and times with blocking and advisory conflicts called out immediately.",
+  },
+  {
+    title: "Widgets and open feeds",
+    body: "Publish five configurable widget types through script, iframe, JSON, XML, and iCal outputs.",
+  },
+];
+
+type MockSession = {
+  title: string;
+  meta: string;
+  warn?: boolean;
+  conflict?: string;
+};
 
 const AGENDA_MOCK: { day: string; sessions: MockSession[] }[] = [
   {
@@ -49,7 +90,10 @@ const AGENDA_MOCK: { day: string; sessions: MockSession[] }[] = [
 export default async function Home() {
   const user = await getSessionUser();
   const home = user
-    ? { href: homePathForRole(user.role), label: user.role === "speaker" ? "Go to your portal" : "Go to admin" }
+    ? {
+        href: homePathForRole(user.role),
+        label: user.role === "speaker" ? "Go to your portal" : "Go to admin",
+      }
     : null;
   const cta = home ?? { href: "/login", label: "Start your event" };
 
@@ -61,7 +105,10 @@ export default async function Home() {
             <span aria-hidden className="size-2.5 rounded-[3px] bg-primary" />
             Greenroom
           </span>
-          <Link href="#features" className="hidden text-sm text-muted-foreground hover:text-foreground sm:block">
+          <Link
+            href="#features"
+            className="hidden text-sm text-muted-foreground hover:text-foreground sm:block"
+          >
             Features
           </Link>
           <a
@@ -88,8 +135,9 @@ export default async function Home() {
               Speaker management you actually own.
             </h1>
             <p className="mt-4 max-w-md text-lg leading-7 text-muted-foreground">
-              Call for papers, review rounds, a speaker portal, communications, and a public program
-              with embeddable widgets — deployed to your own Cloudflare account in minutes.
+              One fast workflow from call for papers to published program, with
+              real communications, Airtable sync, and APIs for the tools your
+              team already uses.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild>
@@ -101,7 +149,8 @@ export default async function Home() {
                 </a>
               </Button>
               <code className="rounded-lg border border-border bg-card px-3.5 py-2.5 font-mono text-xs text-muted-foreground">
-                $ <span className="text-primary">wrangler deploy</span> — and it&rsquo;s yours
+                $ <span className="text-primary">npm run deploy</span> — and
+                it&rsquo;s yours
               </code>
             </div>
           </div>
@@ -138,8 +187,12 @@ export default async function Home() {
                         s.warn ? "border-l-warning" : "border-l-primary"
                       }`}
                     >
-                      <span className="block text-[0.8rem] font-semibold text-foreground">{s.title}</span>
-                      <span className="text-xs text-muted-foreground">{s.meta}</span>
+                      <span className="block text-[0.8rem] font-semibold text-foreground">
+                        {s.title}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {s.meta}
+                      </span>
                       {s.conflict ? (
                         <span className="mt-1.5 inline-block rounded-full bg-warning/15 px-2 py-0.5 text-[0.68rem] font-semibold text-warning">
                           ⚠ {s.conflict}
@@ -155,11 +208,35 @@ export default async function Home() {
 
         <section id="features" className="mx-auto w-full max-w-6xl px-6 pb-20">
           <h2 className="sr-only">Features</h2>
+          <div className="mb-8 grid overflow-hidden rounded-xl border border-border bg-card lg:grid-cols-3">
+            {INTEGRATION_HIGHLIGHTS.map((highlight, index) => (
+              <div
+                key={highlight.title}
+                className={`px-5 py-5 sm:px-6 ${index > 0 ? "border-t border-border lg:border-t-0 lg:border-l" : ""}`}
+              >
+                <p className="font-mono text-[0.68rem] font-semibold tracking-[0.14em] text-primary">
+                  {highlight.eyebrow}
+                </p>
+                <h3 className="mt-2 text-base font-semibold text-foreground">
+                  {highlight.title}
+                </h3>
+                <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                  {highlight.body}
+                </p>
+              </div>
+            ))}
+          </div>
           <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
-              <div key={f.title} className="rounded-lg border border-border bg-card px-5 py-4">
+              <div
+                key={f.title}
+                className="rounded-lg border border-border bg-card px-5 py-4"
+              >
                 <h3 className="flex items-center gap-2.5 text-[0.96rem] font-semibold text-foreground">
-                  <span aria-hidden className="size-2 rounded-full bg-primary" />
+                  <span
+                    aria-hidden
+                    className="size-2 rounded-full bg-primary"
+                  />
                   {f.title}
                 </h3>
                 <p className="mt-1.5 text-sm text-muted-foreground">{f.body}</p>
@@ -171,7 +248,12 @@ export default async function Home() {
 
       <footer className="border-t border-border px-6 py-4 text-center text-xs text-muted-foreground">
         Open source on{" "}
-        <a href={REPO_URL} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noreferrer">
+        <a
+          href={REPO_URL}
+          className="underline underline-offset-2 hover:text-foreground"
+          target="_blank"
+          rel="noreferrer"
+        >
           GitHub
         </a>
         . Self-host on Cloudflare — your data stays yours.

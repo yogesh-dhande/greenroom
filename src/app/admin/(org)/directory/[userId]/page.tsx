@@ -56,6 +56,22 @@ function activityKindLabel(item: ContactActivityItem): string {
   }
 }
 
+/** Org activity spans events and therefore has no event timezone. Include an
+ * exact UTC time so two same-day sends with the same subject remain
+ * distinguishable instead of collapsing into identical-looking rows. */
+function activityMoment(at: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(at);
+}
+
 /**
  * One contact's org-level profile (spec.md "Org-level speaker CRM",
  * decisions.md D-077): who they are, what your team thinks of them, every
@@ -297,7 +313,7 @@ export default async function ContactProfilePage({
                           ) : null}
                         </div>
                         <span className="text-xs text-muted-foreground">
-                          {activityKindLabel(item)} · {formatDate(item.at)}
+                          {activityKindLabel(item)} · {activityMoment(item.at)}
                         </span>
                       </li>
                     ))}

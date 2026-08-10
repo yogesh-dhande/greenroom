@@ -40,6 +40,7 @@ import {
   summarizeRound,
   validateScorecard,
   viewerHasBlindAssignment,
+  viewerParticipatesInBlindRound,
   withoutSpeakers,
   type ResultRow,
 } from "@/domain/rounds";
@@ -903,6 +904,27 @@ describe("blind review (D-049)", () => {
     expect(
       viewerHasBlindAssignment([{ round: round() }, { round: round({ blindReview: true }) }]),
     ).toBe(true);
+  });
+
+  it("keeps the reviewer's whole event workspace blind while they participate in a blind round", () => {
+    const rounds = [round({ id: "round-1" }), round({ id: "round-2", blindReview: true })];
+    expect(viewerParticipatesInBlindRound(rounds, [])).toBe(false);
+    expect(
+      viewerParticipatesInBlindRound(rounds, [
+        assignment({ id: "a1", roundId: "round-1" }),
+      ]),
+    ).toBe(false);
+    expect(
+      viewerParticipatesInBlindRound(rounds, [
+        assignment({ id: "a2", roundId: "round-2" }),
+      ]),
+    ).toBe(true);
+    // An assignment from another event cannot activate this event's blind UI.
+    expect(
+      viewerParticipatesInBlindRound(rounds, [
+        assignment({ id: "a3", roundId: "round-9" }),
+      ]),
+    ).toBe(false);
   });
 
   it("keys the viewer's blind submissions for a list, ignoring other events' rounds", () => {

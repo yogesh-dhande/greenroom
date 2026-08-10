@@ -12,6 +12,11 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 - [ ] **Run 5 manual checklist** — 17 items in `~/projects/killmysaas-evals/runs/2026-08-10T04-30-18/manual-checklist.md`. This supersedes the run-4 checklist (its data was wiped by the approved pre-run-5 reset, so those 22 items are no longer checkable). Same timing trap as before: the SPK weekly-digest item only observably fires **Mondays 07:00–07:15 UTC** (D-039 schedule + 6-day cooldown) — check it in that window or it will look broken when it isn't.
 - [ ] **Re-authenticate evaluator personas when sessions expire** — for each of `speaker`/`organizer`/`reviewer`: run `npm run sbek -- auth --persona <name>` in `~/projects/killmysaas-evals` and complete the magic-link login entirely inside the Chromium window it opens (fetch the link from your inbox, paste into *that window's* address bar; your normal browser authenticates the wrong session). Sessions land in `.auth/` — live cookies, treat as secrets. Only needed on expiry; all three are currently valid.
 
+## API & MCP rollout
+
+- [ ] **Create the walkthrough API key after deployment** — while signed in as an active admin, create a 30-day Read & write `gr_` key restricted to the demo event, save the one-time secret directly in a password manager, and revoke it after the walkthrough. Never paste it into chat, source control, screenshots, or recorded terminal history.
+- [ ] **Authorize the walkthrough MCP client and add the connection step to the demo** — complete the interactive magic-link/admin-consent flow yourself, then demonstrate one read and one bounded write through the remote server without exposing the bearer token or refresh token in the recording.
+
 ## Done
 
 - [x] **Run 5 complete (2026-08-10 06:26 UTC): overall 93.9%** (99% coverage) — up from 88.5. Areas: CFP 89.4, ABS 96.4, SPK 98.4, CNT 91.9, AIA 100, EMB 91.2, **CRM 92.1 (was 34.2 — W28 delivered)**. Score history: 68.4 → 72.0 → 81.8 → 88.5 → 93.9. Mid-run: authed-route stalls escalated (worker-side hanging promises, ~10ms CPU vs 60–210s wall, eventually touched eval traffic twice) — remediated live with a same-code redeploy at 06:10 UTC and by stopping the synthetic probe bursts; zero stalls after. Fix wave W29 triaged from the defect list.

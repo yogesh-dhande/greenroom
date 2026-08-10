@@ -2,10 +2,32 @@
 
 Open-source speaker & event content management platform — an alternative to
 [Sessionboard](https://www.sessionboard.com/). Call-for-proposals → evaluation
-→ acceptance → onboarding → agenda → publishing, in one deployment. See
+→ acceptance → onboarding → agenda → publishing, in one Cloudflare deployment.
+The organizer UI, authenticated REST API, and remote MCP server all use the
+same workflows, so automations do not bypass validation, email, or scheduling
+rules. See
 [spec.md](docs/spec.md) for the full product requirements and
 [decisions.md](docs/decisions.md) for the key technical decisions and their
 rationale.
+
+## Highlights
+
+- **A complete CFP-to-program workflow** — configurable forms and drafts,
+  scored review rounds, decisions, automatic speaker/session/task creation,
+  onboarding, agenda placement, and a publishable public program.
+- **Airtable sync is implemented** — Greenroom provisions an owner-provided
+  base and pushes events, speakers, submissions, sessions, and task assignments
+  every 15 minutes (or on demand), preserving Airtable row automations while
+  Greenroom remains the source of truth.
+- **REST API + remote MCP** — event-scoped `gr_` API keys or OAuth 2.1 bearer
+  tokens unlock the same read/write organizer workflows at `/api/v1` and
+  `/mcp`. OpenAPI 3.1 lives at `/api/v1/openapi.json`, with an interactive
+  reference at `/api/docs`; admins manage credentials and copy connection
+  examples from `/admin/api`.
+- **Built for real event operations** — SendGrid delivery and logged `.ics`
+  calendar updates, conflict-aware scheduling, configurable public widgets and
+  JSON/XML/iCal feeds, plus a cross-event speaker CRM with tags, segments, and
+  a sourcing pipeline.
 
 ## What it does
 
@@ -16,13 +38,11 @@ rationale.
   submitter until the form closes. A form can also be **session-type** (for
   invited or sponsor slots): its submissions skip review and become
   confirmed sessions on arrival.
-- **Track-based review routing** — submissions pick tracks, reviewers own
-  tracks (`src/domain/review.ts`), so each reviewer's queue is scoped
-  automatically. No separate routing engine.
-- **Review & decisions** — reviewers record a non-binding
-  approve/maybe/deny recommendation; an admin records the binding decision,
-  can request changes from a speaker mid-review, and attaches personal
-  feedback to the accept/waitlist/decline email.
+- **Review & decisions** — track ownership scopes each reviewer's queue;
+  organizers can also run named, date-bounded review rounds with explicit
+  assignments and weighted scorecards. Reviewers record recommendations while
+  admins make binding accept/waitlist/decline decisions, request changes, and
+  attach feedback to decision email.
 - **Automatic acceptance conversion** — accepting a submission creates the
   speaker record(s), an unscheduled session, and the event's standard
   onboarding tasks, with no manual re-entry (`planAcceptanceConversion` in
@@ -31,6 +51,10 @@ rationale.
   outstanding tasks, and complete them in place, including structured
   **form-type tasks** (e.g. a hotel or flight-reimbursement form), not just
   uploads and confirmations.
+- **Speaker operations and CRM** — organizers manage profile data, confirmation
+  overrides, task status, files and versions, notes, and email history per
+  speaker. The organization-wide CRM adds reusable contacts, tags, saved
+  dynamic segments, cross-event history, bulk email, and a sourcing pipeline.
 - **Agenda builder** — day/room drag-and-drop placement (`@dnd-kit`) with
   live conflict detection: **blocking** conflicts (a speaker or room
   double-booked — physically impossible) and **advisory** ones (two talks
@@ -47,12 +71,23 @@ rationale.
   digest of everything still open on their checklist (Mondays, 07:00 UTC),
   stopping once the list is clear or the event has started (`runReminderJob`,
   wired in `custom-worker.ts`).
-- **Public program pages** — `/p/<slug>` renders a speaker gallery and
-  schedule; `/embed/<slug>` serves the same content chrome-less for
-  iframing, with a one-line `<script src=".../embed.js">` embed (auto-sizing
-  iframe) and copy-paste snippets built into the public page itself. The
-  program is also machine-readable: `/p/<slug>/feed.json` (CORS-open) and
-  `/p/<slug>/feed.ics`.
+- **Airtable automation** — a storage-agnostic projection job creates and
+  maintains the required Airtable tables, then upserts Greenroom records in
+  rate-limited batches. It runs on the cron and from an event's Settings page;
+  resume tokens and private answer blobs never leave Greenroom
+  (`src/domain/airtable-sync.ts`).
+- **Core API and remote MCP** — authenticated clients can read event
+  configuration, sessions, speakers, and submissions, then perform bounded
+  speaker, session, placement, and decision writes through the same application
+  services as the UI. Keys are expiring, revocable, read-only or read/write,
+  and optionally event-limited; OAuth supports PKCE and dynamic public-client
+  registration. Both surfaces share a 120-request-per-minute credential limit.
+- **Public program and embed builder** — `/p/<slug>` renders the published
+  speaker gallery and schedule. Organizers can generate List of Sessions, List
+  of Speakers, Agenda, Schedule Itinerary, and Speaker Gallery widgets as
+  script/basic HTML, iframe, JSON, XML, or iCal, with stateless filters, fields,
+  brand colors, and bounded custom CSS. The CORS-open feeds live at
+  `/p/<slug>/feed.json`, `/p/<slug>/feed.xml`, and `/p/<slug>/feed.ics`.
 
 ## Stack
 
@@ -64,8 +99,9 @@ rationale.
   cron trigger for reminders (see `wrangler.jsonc`)
 - **Data layer:** Drizzle ORM over D1/SQLite, behind a storage-agnostic
   repository layer (see [Architecture](#architecture) below)
-- **Auth:** better-auth, magic-link plugin, Drizzle adapter — every role
-  (organizer, reviewer, speaker) signs in with an email link, no passwords
+- **Auth:** better-auth with magic-link, API-key, and OAuth 2.1 provider
+  plugins over the Drizzle adapter — people sign in with email links, while
+  external clients use expiring API keys or OAuth bearer tokens
 - **Email:** SendGrid, with a dev stub sender that logs instead of sending
 - **Forms/validation:** react-hook-form + Zod
 
@@ -143,11 +179,13 @@ depending on the role. Anonymous requests to either area redirect to `/login`.
 - **`npm run test`** — Vitest. Colocated `*.test.ts` files next to the pure
   logic they cover in `src/domain/` and `src/lib/` (conflict detection,
   template rendering, `.ics` generation, slug/validation rules, reminder
-  cadence, …). No datastore or network involved. ~260 unit tests.
+  cadence, API DTO/auth behavior, MCP result shaping, …). Tests use in-memory
+  repositories and local route boundaries rather than live production data.
 - **`npm run test:e2e`** — Playwright, specs in `e2e/` covering the
   acceptance path end to end (public CFP submission, review & accept, portal
   task completion, agenda placement + conflict detection, the public
-  program). ~50 e2e tests. This command **seeds the local D1 database
+  program), plus credential creation/revocation and authenticated API access.
+  This command **seeds the local D1 database
   destructively** (same as `npm run seed`), temporarily swaps `.dev.vars` to
   run the dev server on port 3010, and restores the original `.dev.vars` via
   a global teardown once the run finishes. It needs the local database and
@@ -159,23 +197,23 @@ Both are expected to pass before every commit, alongside `npm run typecheck`,
 
 ## Scripts
 
-| Script                    | What it does                                              |
-| -------------------------- | ---------------------------------------------------------- |
-| `npm run dev`               | Next.js dev server (Turbopack)                             |
-| `npm run build`             | Production Next.js build                                   |
-| `npm run start`             | Serve a production `next build` locally                    |
-| `npm run lint`              | ESLint                                                      |
-| `npm run typecheck`         | `tsc --noEmit`                                              |
-| `npm run test`              | Vitest unit tests (`src/domain/`, `src/lib/`)               |
-| `npm run test:watch`        | Vitest in watch mode                                        |
-| `npm run test:e2e`          | Playwright e2e tests (`e2e/`) — see [Testing](#testing)     |
-| `npm run seed`              | Reset the local D1 database and load the demo event         |
-| `npm run db:reset:local`    | Delete the local D1 state (`.wrangler/state/v3/d1`)         |
-| `npm run db:generate`       | Generate a Drizzle migration from `src/db/schema.ts`        |
-| `npm run db:migrate:local`  | Apply migrations to the local D1 database (`wrangler d1`)   |
-| `npm run db:migrate:remote` | Apply migrations to the remote D1 database                  |
+| Script                      | What it does                                                 |
+| --------------------------- | ------------------------------------------------------------ |
+| `npm run dev`               | Next.js dev server (Turbopack)                               |
+| `npm run build`             | Production Next.js build                                     |
+| `npm run start`             | Serve a production `next build` locally                      |
+| `npm run lint`              | ESLint                                                       |
+| `npm run typecheck`         | `tsc --noEmit`                                               |
+| `npm run test`              | Vitest unit tests (`src/domain/`, `src/lib/`)                |
+| `npm run test:watch`        | Vitest in watch mode                                         |
+| `npm run test:e2e`          | Playwright e2e tests (`e2e/`) — see [Testing](#testing)      |
+| `npm run seed`              | Reset the local D1 database and load the demo event          |
+| `npm run db:reset:local`    | Delete the local D1 state (`.wrangler/state/v3/d1`)          |
+| `npm run db:generate`       | Generate a Drizzle migration from `src/db/schema.ts`         |
+| `npm run db:migrate:local`  | Apply migrations to the local D1 database (`wrangler d1`)    |
+| `npm run db:migrate:remote` | Apply migrations to the remote D1 database                   |
 | `npm run cf-typegen`        | Regenerate `worker-configuration.d.ts` from `wrangler.jsonc` |
-| `npm run preview`           | OpenNext build + local Workers preview                      |
+| `npm run preview`           | OpenNext build + local Workers preview                       |
 | `npm run deploy`            | OpenNext build + deploy to Cloudflare Workers                |
 
 ## Deploying
@@ -188,14 +226,16 @@ short version:
    into `wrangler.jsonc`; `npx wrangler r2 bucket create greenroom-files`.
 2. `npm run db:migrate:remote`.
 3. Set secrets (`npx wrangler secret put <NAME>`): `BETTER_AUTH_SECRET` and
-   `BETTER_AUTH_URL` always; `SENDGRID_API_KEY` + `EMAIL_FROM_ADDRESS` for
-   real email (nobody can sign in without it); `AIRTABLE_API_KEY` +
-   `AIRTABLE_BASE_ID` for the optional Airtable sync. Full table in
+   `BETTER_AUTH_URL` always; `ADMIN_EMAILS` for hands-off first-admin
+   bootstrap; `SENDGRID_API_KEY` + `EMAIL_FROM_ADDRESS` for real email
+   (nobody can sign in without it); `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID`
+   to connect the implemented Airtable sync. Full table in
    [docs/deploying.md](docs/deploying.md).
 4. Point `wrangler.jsonc`'s `routes` at your own domain (or switch to
    `workers_dev`).
-5. `npm run deploy`, sign in, and promote your first admin (one
-   `wrangler d1 execute` command — see the guide).
+5. `npm run deploy`, then sign in with an address in `ADMIN_EMAILS`. If you
+   intentionally left it empty, use the documented `wrangler d1 execute`
+   fallback once; subsequent access is managed from the Team UI.
 
 The cron trigger in `wrangler.jsonc` (every 15 minutes) runs the weekly task
 digest, CFP draft reminders, and the Airtable sync (`src/domain/comms.ts`,
@@ -225,14 +265,12 @@ harness (destructive to local dev data, like the e2e suite), and
 `node scripts/assemble-walkthrough.mjs` stitches the per-act clips into
 `walkthrough/walkthrough.mp4` with the narration as `walkthrough/walkthrough.srt` subtitles.
 
-## Design notes
+## Integration notes
 
-- [docs/airtable-sync.md](docs/airtable-sync.md) — architecture of the
-  Airtable sync (competition bonus). It's implemented and running: the cron
-  pushes events, speakers, submissions, sessions, and tasks one-way into an
-  owner-provided base, creating the tables via Airtable's API
-  (`src/domain/airtable-sync.ts`; enable it with the two `AIRTABLE_*`
-  secrets).
+- [docs/airtable-sync.md](docs/airtable-sync.md) — architecture and operating
+  boundaries of the implemented one-way Airtable sync. Enable it with the two
+  `AIRTABLE_*` secrets; Greenroom creates the tables and supplies both periodic
+  and on-demand sync.
 
 ## License
 

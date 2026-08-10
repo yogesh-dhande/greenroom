@@ -62,6 +62,15 @@
       "bucket_name": "greenroom-files"
     }
   ],
+  // Shared authenticated external-surface throttle (D-081). Both REST and
+  // MCP pass the stable credential id, never the raw secret, as the key.
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 120, "period": 60 }
+    }
+  ],
   // The Airtable sync (docs/airtable-sync.md, decisions.md D-036) reads
   // AIRTABLE_API_KEY and AIRTABLE_BASE_ID as Worker secrets
   // (`wrangler secret put <NAME>`) — nothing account-specific is committed.

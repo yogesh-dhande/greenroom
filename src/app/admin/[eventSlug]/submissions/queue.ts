@@ -11,10 +11,10 @@ import type { Repos } from "@/db/repos";
 import { tallyReviewsBySubmission, visibleSubmissions, type ReviewTally } from "@/domain/review";
 import {
   activeAssignmentSubmissionIds,
-  blindSubmissionIds,
   isRoundOpen,
   rollupRoundsBySubmission,
   scorecardAnswers,
+  viewerParticipatesInBlindRound,
   type ScorecardAnswer,
   type SubmissionReviewRollup,
   type SubmissionRoundRollup,
@@ -221,8 +221,10 @@ export async function loadViewerScorecards(
 /** What this viewer's own round work does to the queue: which rows are theirs
  * to score, and which of them they score blind. */
 interface ViewerRoundScoping {
-  /** Scored blind by this viewer (decisions.md D-049) — speakers come off. */
-  blind: Set<string>;
+  /** Any blind-round participation keeps the reviewer's whole track-visible
+   * workspace anonymous; otherwise an unassigned row is a side door around
+   * the round's identity withholding (D-084). */
+  blindAll: boolean;
   /** Held under an active assignment (decisions.md D-066) — the default view. */
   assigned: Set<string>;
 }
@@ -241,15 +243,31 @@ async function viewerRoundScoping(
   eventId: string,
   viewer: SessionUser,
 ): Promise<ViewerRoundScoping> {
-  if (viewer.role === "admin") return { blind: new Set(), assigned: new Set() };
+  if (viewer.role === "admin") return { blindAll: false, assigned: new Set() };
   const [rounds, mine] = await Promise.all([
     repos.reviewRounds.listByEvent(eventId),
     repos.reviewRounds.listAssignmentsByReviewer(viewer.id),
   ]);
   return {
-    blind: blindSubmissionIds(rounds, mine),
+    blindAll: viewerParticipatesInBlindRound(rounds, mine),
     assigned: activeAssignmentSubmissionIds(rounds, mine),
   };
+}
+
+/** Whether author identity must be withheld on a reviewer-facing submission
+ * record for this event. Kept beside the queue loader because it asks the same
+ * repo question and must never drift from the list's answer. */
+export async function viewerIsInBlindReview(
+  repos: Repos,
+  viewer: SessionUser,
+  eventId: string,
+): Promise<boolean> {
+  if (viewer.role === "admin") return false;
+  const [rounds, mine] = await Promise.all([
+    repos.reviewRounds.listByEvent(eventId),
+    repos.reviewRounds.listAssignmentsByReviewer(viewer.id),
+  ]);
+  return viewerParticipatesInBlindRound(rounds, mine);
 }
 
 /** The tracks a reviewer owns *on this event*; admins get an empty list and
@@ -366,7 +384,7 @@ export async function loadSubmissionQueue(
     // Dropped in the loader, like a blind round's own queue (D-049): the names
     // aren't in the rendered output either, so blind holds for anyone reading
     // the HTML as well as anyone reading the screen.
-    const blind = scoping.blind.has(submission.id);
+    const blind = scoping.blindAll;
     return {
       submission,
       trackIds,

@@ -4,16 +4,21 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
   dayStringSchema,
-  newSessionSchema,
-  newUserSchema,
   sessionContentStatusSchema,
   timeStringSchema,
 } from "@/db/entities";
+import {
+  AdminWorkflowError,
+  createSession as createAdminSession,
+  placeSession as placeAdminSession,
+  setSessionSpeakers as setAdminSessionSpeakers,
+  unscheduleSession as unscheduleAdminSession,
+  updateSession as updateAdminSession,
+} from "@/domain/admin-api";
 import { durationMinutes, isValidSessionDuration, minutesOfDay } from "@/domain/scheduling";
-import { planAbstractRestore, planAbstractRevision } from "@/domain/session-content";
+import { planAbstractRestore } from "@/domain/session-content";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
-import { loadSpeakerRoster } from "../speakers/roster";
 
 /**
  * Agenda-builder writes (spec.md §9, §5). Every drag, resize, and inline edit
@@ -26,6 +31,10 @@ import { loadSpeakerRoster } from "../speakers/roster";
 
 function fail(error: string) {
   return { ok: false as const, error };
+}
+
+function workflowFailure(error: unknown, fallback: string) {
+  return fail(error instanceof AdminWorkflowError ? error.message : fallback);
 }
 
 function agendaPath(eventSlug: string) {
@@ -71,23 +80,15 @@ export async function placeSession(
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid placement");
 
   const repos = await getRepos();
-  const [event, session] = await Promise.all([
-    repos.events.getBySlug(eventSlug),
-    repos.sessions.getById(sessionId),
-  ]);
-  if (!event || !session || session.eventId !== event.id) return fail("Session not found");
-
-  if (parsed.data.roomId) {
-    const room = await repos.rooms.getById(parsed.data.roomId);
-    if (!room || room.eventId !== event.id) return fail("That room isn't part of this event");
-  }
+  const event = await repos.events.getBySlug(eventSlug);
+  if (!event) return fail("Session not found");
 
   try {
-    await repos.sessions.update(sessionId, parsed.data);
+    await placeAdminSession({ repos }, event.id, sessionId, parsed.data);
     revalidatePath(agendaPath(eventSlug));
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't save the placement — try again");
+  } catch (error) {
+    return workflowFailure(error, "Couldn't save the placement — try again");
   }
 }
 
@@ -102,21 +103,15 @@ export async function unscheduleSession(eventSlug: string, sessionId: string) {
   await requireAdmin(agendaPath(eventSlug));
 
   const repos = await getRepos();
-  const [event, session] = await Promise.all([
-    repos.events.getBySlug(eventSlug),
-    repos.sessions.getById(sessionId),
-  ]);
-  if (!event || !session || session.eventId !== event.id) return fail("Session not found");
+  const event = await repos.events.getBySlug(eventSlug);
+  if (!event) return fail("Session not found");
 
   try {
-    await repos.sessions.update(sessionId, {
-      day: null,
-      roomId: null,
-    });
+    await unscheduleAdminSession({ repos }, event.id, sessionId);
     revalidatePath(agendaPath(eventSlug));
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't unschedule the session — try again");
+  } catch (error) {
+    return workflowFailure(error, "Couldn't unschedule the session — try again");
   }
 }
 
@@ -163,34 +158,15 @@ export async function updateSessionContent(
   ]);
   if (!event || !session || session.eventId !== event.id) return fail("Session not found");
 
-  if (parsed.data.trackId) {
-    const track = await repos.tracks.getById(parsed.data.trackId);
-    if (!track || track.eventId !== event.id) return fail("That track isn't part of this event");
-  }
-
   const nextDescription = parsed.data.description || null;
-  // Planned before the write, while `session` still holds the prior abstract.
-  const revision = planAbstractRevision(session.description, nextDescription);
 
   try {
-    await repos.sessions.update(sessionId, {
+    await updateAdminSession({ repos }, event.id, sessionId, admin.id, {
       title: parsed.data.title,
       description: nextDescription,
       trackId: parsed.data.trackId ?? null,
       ...(parsed.data.contentStatus ? { contentStatus: parsed.data.contentStatus } : {}),
     });
-    if (revision) {
-      // Appended after the session write, never instead of it: a history row
-      // that failed to save must not cost the organizer their edit, so this
-      // is deliberately not wrapped in its own failure path.
-      await repos.sessionRevisions.create({
-        sessionId,
-        field: "abstract",
-        priorValue: revision.priorValue,
-        newValue: revision.newValue,
-        authorUserId: admin.id,
-      });
-    }
     revalidatePath(agendaPath(eventSlug));
     // Every public program surface reads this same session row. Content
     // status can add/remove it entirely, while title, abstract, track and
@@ -208,8 +184,8 @@ export async function updateSessionContent(
       revalidatePath(`/admin/${eventSlug}/submissions/${session.submissionId}`);
     }
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't save those details — try again");
+  } catch (error) {
+    return workflowFailure(error, "Couldn't save those details — try again");
   }
 }
 
@@ -266,9 +242,9 @@ export type SessionSpeakersInput = z.infer<typeof sessionSpeakersSchema>;
 /**
  * Replaces a session's speaker list wholesale — the client always sends the
  * full set it wants, not a single add/remove, so there's nothing to diff.
- * Every id must be on the event's roster (loadSpeakerRoster, same source the
- * Speakers page reads): the dialog only ever offers roster members, this is
- * defense against a stale or tampered request.
+ * The shared workflow verifies every id against the same three membership
+ * sources as the Speakers page; the dialog only offers roster members, and
+ * this is defense against a stale or tampered request.
  */
 export async function updateSessionSpeakers(
   eventSlug: string,
@@ -287,17 +263,8 @@ export async function updateSessionSpeakers(
   ]);
   if (!event || !session || session.eventId !== event.id) return fail("Session not found");
 
-  const speakerIds = [...new Set(parsed.data.speakerIds)];
-  if (speakerIds.length > 0) {
-    const roster = await loadSpeakerRoster(repos, event.id);
-    const rosterIds = new Set(roster.rollups.map((rollup) => rollup.speaker.id));
-    if (speakerIds.some((id) => !rosterIds.has(id))) {
-      return fail("One of those speakers isn't on this event's roster");
-    }
-  }
-
   try {
-    await repos.sessions.setSpeakers(sessionId, speakerIds);
+    await setAdminSessionSpeakers({ repos }, event.id, sessionId, parsed.data.speakerIds);
     revalidatePath(agendaPath(eventSlug));
     revalidatePath(`/p/${eventSlug}/schedule`);
     revalidatePath(`/embed/${eventSlug}/schedule`);
@@ -307,8 +274,15 @@ export async function updateSessionSpeakers(
       revalidatePath(`/admin/${eventSlug}/submissions/${session.submissionId}`);
     }
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't update the speaker list — try again");
+  } catch (error) {
+    if (error instanceof AdminWorkflowError && error.code === "not_found") {
+      return fail(
+        error.message === "Session not found"
+          ? error.message
+          : "One of those speakers isn't on this event's roster",
+      );
+    }
+    return workflowFailure(error, "Couldn't update the speaker list — try again");
   }
 }
 
@@ -344,71 +318,20 @@ export async function createDirectSession(eventSlug: string, input: DirectSessio
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) return fail("Event not found");
 
-  if (v.trackId) {
-    const track = await repos.tracks.getById(v.trackId);
-    if (!track || track.eventId !== event.id) return fail("That track isn't part of this event");
-  }
-
-  const candidate = newSessionSchema.safeParse({
-    eventId: event.id,
-    title: v.title,
-    description: v.description || null,
-    // No submission: this is the "guaranteed speaker" path (spec.md §5).
-    submissionId: null,
-    trackId: v.trackId ?? null,
-    roomId: null,
-    day: null,
-    startTime: null,
-    endTime: null,
-    status: "confirmed",
-    // An organizer typing a session in is writing approved copy (D-072); the
-    // dialog can move it back to draft afterwards. No revision row: the
-    // abstract a session is born with is not an edit (D-071).
-    contentStatus: "approved",
-  });
-  if (!candidate.success) return fail(candidate.error.issues[0]?.message ?? "Invalid session");
-
   try {
-    // Resolve people first: a typed-in speaker who already exists (same email)
-    // is reused rather than duplicated.
-    const speakerIds = new Set(v.existingSpeakerIds);
-    for (const person of v.newSpeakers) {
-      const existing = await repos.users.getByEmail(person.email);
-      if (existing) {
-        speakerIds.add(existing.id);
-        continue;
-      }
-      const newUser = newUserSchema.safeParse({
-        email: person.email,
-        emailVerified: false,
-        name: person.name,
-        role: "speaker",
-        title: null,
-        company: null,
-        bio: null,
-        headshotUrl: null,
-        // Filled in by the speaker themselves at /portal/profile (spec.md §6).
-        websiteUrl: null,
-        linkedinUrl: null,
-        twitterUrl: null,
-        socials: null,
-        image: null,
-      });
-      if (!newUser.success) return fail(`Couldn't add ${person.email} — check the address`);
-      const created = await repos.users.create(newUser.data);
-      speakerIds.add(created.id);
-    }
-
-    const session = await repos.sessions.create(candidate.data);
-    if (speakerIds.size > 0) {
-      await repos.sessions.setSpeakers(session.id, [...speakerIds]);
-    }
+    const { session } = await createAdminSession({ repos }, event.id, {
+      title: v.title,
+      description: v.description,
+      trackId: v.trackId,
+      speakerIds: v.existingSpeakerIds,
+      newSpeakers: v.newSpeakers,
+    });
 
     revalidatePath(agendaPath(eventSlug));
     revalidatePath(`/admin/${eventSlug}/speakers`);
     return { ok: true as const, data: { sessionId: session.id } };
-  } catch {
-    return fail("Couldn't create the session — try again");
+  } catch (error) {
+    return workflowFailure(error, "Couldn't create the session — try again");
   }
 }
 

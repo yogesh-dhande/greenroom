@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.yogesh-dhande/greenroom",
+  "title": "Greenroom",
+  "description": "Administer Greenroom events, sessions, speakers, submissions, and agenda placement.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/yogesh-dhande/greenroom",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://greenroom.usespaces.dev/mcp"
+    }
+  ]
+}

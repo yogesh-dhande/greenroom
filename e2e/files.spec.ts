@@ -80,7 +80,9 @@ test("file replacements, cross-role comments, and the ZIP library share one isol
   await page.goto(`/admin/${isolatedEvent.slug}/files`);
   const row = page.getByRole("row").filter({ hasText: secondName }).first();
   await expect(row).toContainText(speakerName);
+  await expect(row).toContainText(session.title);
   await expect(row).toContainText(taskTitle);
+  await expect(row).toContainText(`by ${speakerName}`);
   await expect(row.getByText(/[A-Z][a-z]{2} \d{1,2}, \d{4}/)).toBeVisible();
   await expect(row).toContainText("2");
   const downloadHref = await row.getByRole("link", { name: "Download" }).getAttribute("href");
@@ -95,6 +97,9 @@ test("file replacements, cross-role comments, and the ZIP library share one isol
     .fill(adminComment);
   await page.getByRole("button", { name: "Post comment" }).click();
   await expect(page.getByText("Comment posted.")).toBeVisible();
+
+  const headshotRow = page.getByRole("row").filter({ hasText: headshotName }).first();
+  await expect(headshotRow).toContainText("Speaker profile");
 
   await expect(page.getByText("2 of 2 selected")).toBeVisible();
   await page.getByLabel(`Select ${headshotName}`).uncheck();

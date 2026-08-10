@@ -848,6 +848,23 @@ export function viewerHasBlindAssignment(
 }
 
 /**
+ * Whether this reviewer participates in any blind round on the event.
+ *
+ * The general track queue is intentionally broader than round assignments
+ * (D-061). Once a reviewer is scoring one blind round, that broader queue and
+ * every submission record it opens must still withhold author identity — an
+ * unassigned row cannot become the side door around the round's anonymity.
+ * Only assignments whose round is in the supplied event-local list count.
+ */
+export function viewerParticipatesInBlindRound(
+  rounds: Array<Pick<ReviewRound, "id" | "blindReview">>,
+  assignments: Array<Pick<RoundAssignment, "roundId">>,
+): boolean {
+  const blindRoundIds = new Set(rounds.filter(hidesSpeakerIdentity).map((round) => round.id));
+  return assignments.some((assignment) => blindRoundIds.has(assignment.roundId));
+}
+
+/**
  * The same question asked across a whole event: which submissions this viewer
  * is scoring blind, keyed for a list to look up per row (D-049).
  *

@@ -129,6 +129,177 @@ export const authVerifications = sqliteTable("auth_verifications", {
   ...timestamps,
 });
 
+// Better Auth API-key plugin. The exported object name (`apiCredentials`) is
+// the plugin's configured modelName; the physical table keeps the same
+// `auth_` prefix as the other Better Auth-owned tables above. App code sees
+// only the redacted ApiCredential entity through its repository.
+export const apiCredentials = sqliteTable(
+  "auth_api_keys",
+  {
+    id: id(),
+    configId: text("config_id").notNull().default("default"),
+    name: text("name"),
+    /** First characters of the full key, safe to show after creation. */
+    start: text("start"),
+    /** Better Auth's name for the owning user id. */
+    referenceId: text("reference_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    prefix: text("prefix"),
+    /** SHA-256/base64url digest. The raw `gr_…` secret is never stored. */
+    key: text("key").notNull().unique(),
+    refillInterval: integer("refill_interval"),
+    refillAmount: integer("refill_amount"),
+    lastRefillAt: integer("last_refill_at", { mode: "timestamp" }),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    /** Canonical API/MCP throttling is the shared Cloudflare binding. */
+    rateLimitEnabled: integer("rate_limit_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    rateLimitTimeWindow: integer("rate_limit_time_window"),
+    rateLimitMax: integer("rate_limit_max"),
+    requestCount: integer("request_count").notNull().default(0),
+    remaining: integer("remaining"),
+    /** Better Auth updates this during verification; surfaced as last-used. */
+    lastRequest: integer("last_request", { mode: "timestamp" }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }),
+    permissions: text("permissions"),
+    /** JSON string: event access mode and selected event ids. */
+    metadata: text("metadata"),
+    ...timestamps,
+  },
+  (t) => [
+    index("auth_api_keys_config_idx").on(t.configId),
+    index("auth_api_keys_reference_idx").on(t.referenceId),
+    index("auth_api_keys_key_idx").on(t.key),
+  ],
+);
+
+// Better Auth OAuth 2.1 provider tables. Arrays use JSON text because SQLite
+// has no array type; Drizzle performs the adapter-boundary serialization.
+export const oauthClient = sqliteTable(
+  "auth_oauth_clients",
+  {
+    id: id(),
+    clientId: text("client_id").notNull().unique(),
+    clientSecret: text("client_secret"),
+    disabled: integer("disabled", { mode: "boolean" }).default(false),
+    skipConsent: integer("skip_consent", { mode: "boolean" }),
+    enableEndSession: integer("enable_end_session", { mode: "boolean" }),
+    subjectType: text("subject_type"),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+    name: text("name"),
+    uri: text("uri"),
+    icon: text("icon"),
+    contacts: text("contacts", { mode: "json" }).$type<string[]>(),
+    tos: text("tos"),
+    policy: text("policy"),
+    softwareId: text("software_id"),
+    softwareVersion: text("software_version"),
+    softwareStatement: text("software_statement"),
+    redirectUris: text("redirect_uris", { mode: "json" }).$type<string[]>().notNull(),
+    postLogoutRedirectUris: text("post_logout_redirect_uris", { mode: "json" }).$type<
+      string[]
+    >(),
+    tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+    grantTypes: text("grant_types", { mode: "json" }).$type<string[]>(),
+    responseTypes: text("response_types", { mode: "json" }).$type<string[]>(),
+    public: integer("public", { mode: "boolean" }),
+    type: text("type"),
+    requirePKCE: integer("require_pkce", { mode: "boolean" }),
+    referenceId: text("reference_id"),
+    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+  },
+  (t) => [index("auth_oauth_clients_user_idx").on(t.userId)],
+);
+
+export const oauthRefreshToken = sqliteTable(
+  "auth_oauth_refresh_tokens",
+  {
+    id: id(),
+    token: text("token").notNull().unique(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: "cascade" }),
+    sessionId: text("session_id").references(() => authSessions.id, {
+      onDelete: "set null",
+    }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    referenceId: text("reference_id"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    revoked: integer("revoked", { mode: "timestamp" }),
+    authTime: integer("auth_time", { mode: "timestamp" }),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+  },
+  (t) => [
+    index("auth_oauth_refresh_client_idx").on(t.clientId),
+    index("auth_oauth_refresh_session_idx").on(t.sessionId),
+    index("auth_oauth_refresh_user_idx").on(t.userId),
+  ],
+);
+
+export const oauthAccessToken = sqliteTable(
+  "auth_oauth_access_tokens",
+  {
+    id: id(),
+    token: text("token").notNull().unique(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: "cascade" }),
+    sessionId: text("session_id").references(() => authSessions.id, {
+      onDelete: "set null",
+    }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    referenceId: text("reference_id"),
+    refreshId: text("refresh_id").references(() => oauthRefreshToken.id, {
+      onDelete: "cascade",
+    }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+  },
+  (t) => [
+    index("auth_oauth_access_client_idx").on(t.clientId),
+    index("auth_oauth_access_session_idx").on(t.sessionId),
+    index("auth_oauth_access_user_idx").on(t.userId),
+    index("auth_oauth_access_refresh_idx").on(t.refreshId),
+  ],
+);
+
+export const oauthConsent = sqliteTable(
+  "auth_oauth_consents",
+  {
+    id: id(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    referenceId: text("reference_id"),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    index("auth_oauth_consents_client_idx").on(t.clientId),
+    index("auth_oauth_consents_user_idx").on(t.userId),
+  ],
+);
+
+/** Signing keys used by Better Auth's JWT plugin for OAuth access tokens. */
+export const authJwks = sqliteTable("auth_jwks", {
+  id: id(),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+});
+
 // ---------------------------------------------------------------------------
 // Tracks / Rooms (spec.md §1) and reviewer routing (spec.md §4)
 // ---------------------------------------------------------------------------

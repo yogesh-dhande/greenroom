@@ -5,12 +5,35 @@ import {
   buildCommentThread,
   buildFileHistory,
   collectDeliverables,
+  deliverableSessionScope,
   groupByAssignment,
   groupProfileVersionsBySpeaker,
   inferUploadKind,
   PROFILE_FILE_LABEL,
   sortVersionsNewestFirst,
 } from "@/domain/files";
+
+describe("deliverableSessionScope", () => {
+  it("never attributes a profile upload to a session", () => {
+    expect(deliverableSessionScope("profile", ["Opening keynote"]).label).toBe(
+      "Speaker profile",
+    );
+  });
+
+  it("names one unambiguous session and summarizes a speaker-wide multi-session upload", () => {
+    expect(deliverableSessionScope("assignment", []).label).toBe("No session yet");
+    expect(deliverableSessionScope("assignment", ["Opening keynote"]).label).toBe(
+      "Opening keynote",
+    );
+    expect(
+      deliverableSessionScope("assignment", ["Opening keynote", "Deep dive"]),
+    ).toEqual({
+      label: "2 speaker sessions",
+      description:
+        "This task upload is speaker-wide and is not assigned to one session. Sessions: Opening keynote, Deep dive.",
+    });
+  });
+});
 
 const EPOCH = new Date(0);
 

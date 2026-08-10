@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 import type { FileVersion, Form } from "@/db/entities";
 import { isScheduled } from "@/db/entities";
-import { PROFILE_FILE_LABEL, sortVersionsNewestFirst } from "@/domain/files";
+import {
+  buildFileHistory,
+  groupByAssignment,
+  PROFILE_FILE_LABEL,
+  sortVersionsNewestFirst,
+} from "@/domain/files";
 import {
   otherSpeakersWithSameName,
   TASK_STATE_LABEL,
@@ -62,6 +67,7 @@ function collectUploads(
   views: AssignmentView[],
   formsById: Map<string, Form>,
   profileVersions: FileVersion[],
+  versionsByAssignment: Map<string, FileVersion[]>,
 ): SpeakerUpload[] {
   const uploads: SpeakerUpload[] = [];
 
@@ -80,14 +86,18 @@ function collectUploads(
     const uploadedAt = assignment.completedAt ?? assignment.updatedAt;
 
     if (assignment.fileUrl) {
-      const key = keyFromFileUrl(assignment.fileUrl);
+      const current = buildFileHistory(
+        assignment,
+        versionsByAssignment.get(assignment.id) ?? [],
+      ).current;
+      if (!current) continue;
       uploads.push({
-        key,
-        url: assignment.fileUrl,
-        filename: key ? filenameFromKey(key) : assignment.fileUrl.split("/").pop() || "File",
-        uploadedAt,
+        key: current.key,
+        url: current.url,
+        filename: current.filename,
+        uploadedAt: current.uploadedAt,
         label: task.title,
-        uploadedBy: null,
+        uploadedBy: current.uploadedBy,
       });
     }
 
@@ -103,7 +113,7 @@ function collectUploads(
         filename: filenameFromKey(value),
         uploadedAt,
         label: `${task.title} — ${field.label}`,
-        uploadedBy: null,
+        uploadedBy: assignment.speakerId,
       });
     }
   }
@@ -150,19 +160,27 @@ export default async function SpeakerRecordPage({
   const sessions = sessionsBySpeaker.get(speaker.id) ?? [];
   // Files attached to the person rather than to a task — their headshot,
   // whether they uploaded it from the portal or an organizer supplied it here.
-  const profileVersions = await repos.fileVersions.listProfileVersionsByOwners([speaker.id]);
+  const [profileVersions, assignmentVersions] = await Promise.all([
+    repos.fileVersions.listProfileVersionsByOwners([speaker.id]),
+    repos.fileVersions.listByAssignments(rollup.views.map((view) => view.assignment.id)),
+  ]);
   // One lookup for both readers of a task's linked form — the uploads inside
   // its file fields, and the answers panel below (the event's forms are
   // already loaded in a single batch above, so neither is a per-row query).
   const formsById = new Map(forms.map((form) => [form.id, form]));
-  const uploads = collectUploads(rollup.views, formsById, profileVersions);
-  // Uploaders that aren't the speaker themself — an organizer who supplied a
-  // headshot on their behalf is the one name the panel can't assume.
+  const uploads = collectUploads(
+    rollup.views,
+    formsById,
+    profileVersions,
+    groupByAssignment(assignmentVersions),
+  );
+  // Resolve every recorded uploader, including the speaker: provenance should
+  // be explicit rather than inferred from which record is open.
   const uploaderIds = [
     ...new Set(
       uploads
         .map((upload) => upload.uploadedBy)
-        .filter((id): id is string => id !== null && id !== speaker.id),
+        .filter((id): id is string => id !== null),
     ),
   ];
   const uploaders = new Map(
@@ -453,7 +471,7 @@ export default async function SpeakerRecordPage({
                                 uploaders.get(upload.uploadedBy)!.name ??
                                 uploaders.get(upload.uploadedBy)!.email
                               }`
-                            : ""}
+                            : " · uploader not recorded (legacy upload)"}
                         </span>
                       </div>
                     </li>

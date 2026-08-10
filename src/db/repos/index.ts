@@ -1,3 +1,4 @@
+import type { ApiCredentialsRepo } from "./api-credentials";
 import type { ContactsRepo } from "./contacts";
 import type { EmailLogRepo } from "./email-log";
 import type { EmailTemplatesRepo } from "./email-templates";
@@ -19,6 +20,7 @@ import type { TasksRepo } from "./tasks";
 import type { TracksRepo } from "./tracks";
 import type { UsersRepo } from "./users";
 
+export type { ApiCredentialsRepo } from "./api-credentials";
 export type { EventsRepo } from "./events";
 export type { EventSpeakersRepo } from "./event-speakers";
 export type { UsersRepo } from "./users";
@@ -58,6 +60,8 @@ export type { SegmentsRepo } from "./segments";
  * src/db/repos/d1/index.ts for the D1-backed implementation.
  */
 export interface Repos {
+  /** Org-admin-owned API keys for both REST and MCP. */
+  apiCredentials: ApiCredentialsRepo;
   events: EventsRepo;
   users: UsersRepo;
   /** Per-event speaker records: organizer notes + roster membership (D-051). */

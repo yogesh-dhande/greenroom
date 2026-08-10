@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { reviewRecommendationSchema, submissionDecisionSchema } from "@/db/entities";
+import { decideSubmission as decideAdminSubmission } from "@/domain/admin-api";
 import { sendChangeRequest } from "@/domain/comms";
 import {
   canRecordDecision,
   canViewSubmission,
-  recordDecision,
   saveReview,
 } from "@/domain/review";
 import { updateSubmissionTracks } from "@/domain/submissions";
@@ -136,8 +136,9 @@ export type DecisionInput = z.infer<typeof decisionInputSchema>;
 
 /**
  * Records accept / waitlist / decline. Accepting runs the conversion spec.md
- * §5 promises — session + onboarding tasks — and every outcome emails the
- * speakers through the real transport (spec.md §7).
+ * §5 promises — session + onboarding tasks. The shared workflow owns D-028's
+ * email defaults (accept/decline on, waitlist off), while the explicit UI
+ * checkbox remains an override.
  */
 export async function decideSubmission(
   eventSlug: string,
@@ -157,14 +158,15 @@ export async function decideSubmission(
 
   let result;
   try {
-    result = await recordDecision(
+    result = await decideAdminSubmission(
       { repos: auth.repos, comms },
+      auth.event.id,
+      submissionId,
+      auth.viewer.id,
       {
-        submissionId,
         decision: parsed.data.decision,
-        decidedBy: auth.viewer.id,
         note: parsed.data.note ?? null,
-        notify: parsed.data.notify ?? true,
+        notify: parsed.data.notify,
       },
     );
   } catch (error) {

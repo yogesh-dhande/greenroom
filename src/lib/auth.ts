@@ -1,7 +1,10 @@
 import { cache } from "react";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { apiKey } from "@better-auth/api-key";
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { magicLink } from "better-auth/plugins/magic-link";
+import { jwt } from "better-auth/plugins";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import * as schema from "@/db/schema";
 import { createDb } from "@/db/repos/d1/client";
@@ -42,12 +45,13 @@ export const getAuth = cache(async function getAuth() {
   const sender = createLoggingEmailSender(getEmailSender(env), repos.emailLog);
   const isDev = process.env.NODE_ENV !== "production";
   const adminEmails = parseAdminEmails(env.ADMIN_EMAILS);
+  const baseURL = env.BETTER_AUTH_URL ?? "http://localhost:3000";
 
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
     // Explicit rather than inferred: the magic-link callback URL is built
     // from this, and a wrong host produces links that silently fail.
-    baseURL: env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    baseURL,
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema,
@@ -117,6 +121,54 @@ export const getAuth = cache(async function getAuth() {
       },
     },
     plugins: [
+      apiKey({
+        // External keys are visibly Greenroom credentials and are never
+        // accepted as browser sessions. Scope/event authorization is still
+        // re-checked by the API application layer on every request.
+        defaultPrefix: "gr_",
+        requireName: true,
+        enableMetadata: true,
+        schema: { apikey: { modelName: "apiCredentials" } },
+        rateLimit: { enabled: false },
+        keyExpiration: {
+          defaultExpiresIn: 90 * 24 * 60 * 60,
+          minExpiresIn: 30 * 24 * 60 * 60,
+          maxExpiresIn: 365 * 24 * 60 * 60,
+        },
+        customAPIKeyGetter(ctx) {
+          const direct = ctx.headers?.get("x-api-key")?.trim();
+          if (direct?.startsWith("gr_")) return direct;
+          const authorization = ctx.headers?.get("authorization")?.trim();
+          const bearer = authorization?.match(/^Bearer\s+(gr_[^\s]+)$/i);
+          return bearer?.[1] ?? null;
+        },
+      }),
+      jwt({
+        disableSettingJwtHeader: true,
+        schema: { jwks: { modelName: "authJwks" } },
+      }),
+      oauthProvider({
+        loginPage: "/login",
+        consentPage: "/oauth/consent",
+        scopes: ["greenroom:read", "greenroom:write", "offline_access"],
+        validAudiences: [`${baseURL}/api/v1`, `${baseURL}/mcp`],
+        accessTokenExpiresIn: 60 * 60,
+        refreshTokenExpiresIn: 30 * 24 * 60 * 60,
+        allowDynamicClientRegistration: true,
+        // MCP clients are public clients and use authorization-code + S256
+        // PKCE, so they cannot carry a registration secret.
+        allowUnauthenticatedClientRegistration: true,
+        clientRegistrationDefaultScopes: ["greenroom:read"],
+        clientRegistrationAllowedScopes: [
+          "greenroom:write",
+          "offline_access",
+        ],
+        async clientPrivileges({ user }) {
+          if (!user?.id) return false;
+          const owner = await repos.users.getById(user.id);
+          return owner?.role === "admin";
+        },
+      }),
       magicLink({
         // Pinned rather than left to better-auth's default: the email copy
         // below hard-codes "5 minutes", so a library upgrade changing the

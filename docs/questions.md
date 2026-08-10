@@ -6,9 +6,7 @@ Workflow: when a question is answered, record the answer as a first-class entry 
 
 ---
 
-**Q10 — Is blind/anonymous review in scope?** The evaluator rubric (ABS-07) grades an anonymization option for review rounds — Sessionboard offers blind review — but neither spec.md nor any decision has ever mentioned it; the omission is inherited, not chosen. Why it matters: reviewers currently see full author identity (name, email, bio, company) on every review surface, and a rubric item will keep scoring it as a gap. **Working assumption (revised 2026-08-09, late):** the minimal version is now **built and deployed** — a per-round "hide speaker identity" toggle that withholds author identity across reviewer-reachable surfaces (D-049, D-061). Basis: the baseline eval failed ABS-07 outright, and the owner's standing directive for rubric-graded Sessionboard capabilities has been "match Sessionboard's documented behavior" (D-039–D-041). **The open question that remains for the owner:** is the current scope the intended one — i.e., does full anonymization across *every* admin surface (not just reviewer-reachable ones) stay out of scope? Confirm or veto.
-
-*(Q4, Q6 and Q8 were closed 2026-08-09 by the owner's directive to match Sessionboard's documented behavior — see decisions.md D-039, D-040, D-041; Q9 was answered by the owner 2026-08-09 — see D-043.)*
+*(Q4, Q6 and Q8 were closed 2026-08-09 by the owner's directive to match Sessionboard's documented behavior — see decisions.md D-039, D-040, D-041; Q9 was answered by the owner 2026-08-09 — see D-043; Q10 was closed by the owner's evaluator-fix directive 2026-08-10 — see D-084.)*
 
 ## Product defaults we chose without explicit guidance
 

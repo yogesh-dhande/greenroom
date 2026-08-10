@@ -2,7 +2,11 @@ import Link from "next/link";
 import { DownloadIcon, PaperclipIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
-import { buildCommentThread, formatFileMoment } from "@/domain/files";
+import {
+  buildCommentThread,
+  deliverableSessionScope,
+  formatFileMoment,
+} from "@/domain/files";
 import { NO_FILES_MESSAGE } from "@/domain/file-export";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -78,7 +82,7 @@ export default async function FilesPage({
               <TableHead className="w-10">Export</TableHead>
               <TableHead>File</TableHead>
               <TableHead>Speaker</TableHead>
-              <TableHead>Session</TableHead>
+              <TableHead>Session scope</TableHead>
               <TableHead>Task</TableHead>
               <TableHead>Uploaded</TableHead>
               <TableHead className="text-right">Versions</TableHead>
@@ -96,10 +100,13 @@ export default async function FilesPage({
                     peopleById,
                   )
                 : [];
-              const uploader =
-                deliverable.current.uploadedBy && deliverable.current.uploadedBy !== deliverable.speakerId
-                  ? peopleById.get(deliverable.current.uploadedBy)
-                  : undefined;
+              const uploader = deliverable.current.uploadedBy
+                ? peopleById.get(deliverable.current.uploadedBy)
+                : undefined;
+              const sessionScope = deliverableSessionScope(
+                deliverable.source,
+                sessionTitlesBySpeaker.get(deliverable.speakerId) ?? [],
+              );
               // Keyed on the speaker as well as the assignment: profile rows
               // carry no assignment id, so two speakers' headshots would
               // otherwise collide on one key.
@@ -143,8 +150,11 @@ export default async function FilesPage({
                       <span className="text-sm text-muted-foreground">Unknown speaker</span>
                     )}
                   </TableCell>
-                  <TableCell className="max-w-56 truncate text-sm text-muted-foreground">
-                    {sessionTitlesBySpeaker.get(deliverable.speakerId)?.join(", ") || "—"}
+                  <TableCell
+                    className="max-w-56 truncate text-sm text-muted-foreground"
+                    title={sessionScope.description}
+                  >
+                    {sessionScope.label}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {deliverable.label}
@@ -155,7 +165,9 @@ export default async function FilesPage({
                       <span className="block text-xs">
                         by {uploader.name ?? uploader.email}
                       </span>
-                    ) : null}
+                    ) : (
+                      <span className="block text-xs">Uploader not recorded (legacy upload)</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {deliverable.versionCount > 1 ? (

@@ -110,14 +110,26 @@ export function CommsHub({
           <TabsTrigger value="invites">Calendar invites</TabsTrigger>
         </TabsList>
 
-        <Button
-          variant="outline"
-          onClick={() => setConfirmingDigest(true)}
-          disabled={running || digestPreviewCount === 0}
-        >
-          <BellRingIcon />
-          {running ? "Sending…" : "Send task digest now"}
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            variant="outline"
+            onClick={() => setConfirmingDigest(true)}
+            disabled={running || digestPreviewCount === 0}
+            aria-describedby={digestPreviewCount === 0 ? "digest-unavailable-reason" : undefined}
+          >
+            <BellRingIcon />
+            {running ? "Sending…" : "Send task digest now"}
+          </Button>
+          {digestPreviewCount === 0 ? (
+            <span
+              id="digest-unavailable-reason"
+              className="max-w-72 text-right text-xs text-muted-foreground"
+            >
+              Nobody is eligible right now: checklists are clear or a digest was sent in the last
+              24 hours.
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <AlertDialog open={confirmingDigest} onOpenChange={(open) => !open && setConfirmingDigest(false)}>

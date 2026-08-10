@@ -97,6 +97,58 @@ export const newUserSchema = userSchema.omit(omitManaged);
 export type NewUser = z.infer<typeof newUserSchema>;
 
 // ---------------------------------------------------------------------------
+// API credentials (authenticated REST API and remote MCP server)
+// ---------------------------------------------------------------------------
+
+/**
+ * External credentials deliberately have only two permission levels. A
+ * `write` key always includes read access; there is no write-only state.
+ */
+export const apiCredentialPermissionSchema = z.enum(["read", "write"]);
+export type ApiCredentialPermission = z.infer<typeof apiCredentialPermissionSchema>;
+
+/** `all` includes events created after the key; `selected` is a fixed allowlist. */
+export const apiCredentialEventAccessSchema = z.enum(["all", "selected"]);
+export type ApiCredentialEventAccess = z.infer<typeof apiCredentialEventAccessSchema>;
+
+/**
+ * Storage-agnostic view of an API key. The stored SHA-256 digest is omitted on
+ * purpose: callers can look a key up through ApiCredentialsRepo, but can never
+ * accidentally serialize even its verifier. The full secret is returned only
+ * by the creation workflow and is never part of this entity.
+ */
+export const apiCredentialSchema = z.object({
+  id: z.string(),
+  ownerUserId: z.string(),
+  label: z.string().trim().min(1).max(80),
+  /** Safe identifying fragment, including the `gr_` prefix. */
+  keyPrefix: z.string().startsWith("gr_"),
+  permission: apiCredentialPermissionSchema,
+  eventAccess: apiCredentialEventAccessSchema,
+  /** Empty for `all`; non-empty and de-duplicated for `selected`. */
+  eventIds: z.array(z.string()),
+  expiresAt: z.coerce.date(),
+  revoked: z.boolean(),
+  lastUsedAt: z.coerce.date().nullable(),
+  ...timestamps,
+});
+export type ApiCredential = z.infer<typeof apiCredentialSchema>;
+
+/** Persistence payload. `secretHash` is write-only and never comes back. */
+export const newApiCredentialSchema = apiCredentialSchema
+  .omit({
+    id: true,
+    revoked: true,
+    lastUsedAt: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    secretHash: z.string().min(1),
+  });
+export type NewApiCredential = z.infer<typeof newApiCredentialSchema>;
+
+// ---------------------------------------------------------------------------
 // Track / Room (spec.md §1)
 // ---------------------------------------------------------------------------
 

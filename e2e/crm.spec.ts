@@ -83,6 +83,9 @@ test("bulk outreach personalizes and logs a separate message for every selected 
   await dialog.getByLabel("Message").fill("Hi {{speakerFirstName}}, please join us.");
   await dialog.getByRole("button", { name: "Send to 2 people" }).click();
   await expect(dialog.getByText("Sent to 2 contacts")).toBeVisible();
+  await expect(dialog.getByText("Nobody picked yet.")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Send to 0 people" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Done" })).toBeVisible();
 
   await expect(async () => {
     const messages = (await devEmailsSince(startedAt)).filter((body) => body.includes(subject));
@@ -242,11 +245,14 @@ test("an isolated contact runs through profile, segment, pipeline, roster, outre
   await outreachDialog.getByRole("button", { name: "Send to 1 person" }).click();
   await expect(page.getByText("Sent to 1 person")).toBeVisible();
   await expect(outreachDialog.getByText("Sent to 1 contact")).toBeVisible();
-  await page.keyboard.press("Escape");
+  await outreachDialog.getByRole("button", { name: "Done" }).click();
 
   // Sends are logged per recipient, so the profile's feed picks it up.
   await openNovaProfile(page);
   await expect(page.getByText(EMAIL_SUBJECT)).toBeVisible();
+  await expect(
+    page.getByRole("listitem").filter({ hasText: EMAIL_SUBJECT }),
+  ).toContainText("UTC");
   await signIn(page, "admin@greenroom.dev");
   await page.goto("/admin/crm");
 

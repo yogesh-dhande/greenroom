@@ -1,5 +1,6 @@
 import type { Repos } from "@/db/repos";
 import { createDb } from "./client";
+import { createApiCredentialsRepo } from "./api-credentials";
 import { createContactsRepo } from "./contacts";
 import { createEmailLogRepo } from "./email-log";
 import { createEmailTemplatesRepo } from "./email-templates";
@@ -30,6 +31,7 @@ import { createUsersRepo } from "./users";
 export function createD1Repos(d1: D1Database): Repos {
   const db = createDb(d1);
   return {
+    apiCredentials: createApiCredentialsRepo(db),
     events: createEventsRepo(db),
     users: createUsersRepo(db),
     eventSpeakers: createEventSpeakersRepo(db),

@@ -351,7 +351,10 @@ function SessionEditForm({
             <SelectTrigger id="session-content-status" className="w-full">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            {/* Keep the menu below the trigger instead of item-aligning the
+                selected value over it. The latter lets the dialog's trigger
+                overlay pointer clicks on the option row in real browsers. */}
+            <SelectContent position="popper" align="start" sideOffset={4}>
               {SESSION_CONTENT_STATUSES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {CONTENT_STATUS_LABEL[value]}

@@ -217,6 +217,9 @@ test("a saved digest template drives one cooldown-protected send", async ({ page
   const secondRunAt = Date.now();
   await page.reload();
   await expect(page.getByRole("button", { name: "Send task digest now" })).toBeDisabled();
+  await expect(
+    page.getByText(/Nobody is eligible right now.*24 hours/),
+  ).toBeVisible();
 
   const afterSecond = (await devEmailsSince(secondRunAt)).filter((body) =>
     body.includes("X-Greenroom-Log: task_digest"),

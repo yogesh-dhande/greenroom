@@ -10,7 +10,6 @@ import {
   hidesSpeakerIdentity,
   reviewerVisibleFields,
   rollupProgressLabel,
-  viewerHasBlindAssignment,
 } from "@/domain/rounds";
 import { getRepos } from "@/lib/db";
 import { requireAdminOrReviewer } from "@/lib/session";
@@ -36,6 +35,7 @@ import {
   personName,
   reviewerTrackIdsFor,
   rollupFor,
+  viewerIsInBlindReview,
   type SubmissionRollup,
 } from "../queue";
 import { DecisionBar } from "./decision-panel";
@@ -96,7 +96,7 @@ export default async function SubmissionDetailPage({
 
   // What acceptance already produced, so the outcome is visible on the page
   // that caused it rather than only on the agenda and task screens.
-  const [eventTasks, assignments, rollups, myScorecards] = await Promise.all([
+  const [eventTasks, assignments, rollups, myScorecards, blind] = await Promise.all([
     repos.tasks.listByEvent(event.id),
     Promise.all(detail.speakerIds.map((speakerId) => repos.taskAssignments.listBySpeaker(speakerId))),
     // Round scorecards are review activity too, and this record has to say so
@@ -108,8 +108,15 @@ export default async function SubmissionDetailPage({
     // The viewer's own round work on this proposal, so the scorecard is where
     // the proposal is rather than only behind the rounds pages (D-048).
     loadViewerScorecards(repos, event.id, viewer.id, id),
+    // A reviewer participating in a blind round sees no author identity on
+    // the broader track workspace either (D-084).
+    viewerIsInBlindReview(repos, viewer, event.id),
   ]);
   const rollup = rollupFor(rollups, id);
+  const filedScorecards =
+    viewer.role === "admin"
+      ? rollup.scorecards
+      : myScorecards.filter((scorecard) => scorecard.submitted).length;
 
   // The track queue reaches this record (D-035(1)/D-047), so a reviewer scoring
   // this proposal in a blind round would otherwise read the author here that
@@ -117,7 +124,6 @@ export default async function SubmissionDetailPage({
   // the identity questions are filtered out *before* the values are built, so a
   // withheld answer never reaches the browser. Admins are never anonymized —
   // blind review keeps the scorer unbiased, not the organizer (D-049).
-  const blind = viewer.role !== "admin" && viewerHasBlindAssignment(myScorecards);
   const fields = reviewerVisibleFields(
     publicFields(
       form.fields,
@@ -220,10 +226,14 @@ export default async function SubmissionDetailPage({
                 <EmptyState
                   variant="inline"
                   title={
-                    rollup.scorecards > 0
-                      ? `No written recommendation yet — ${rollup.scorecards} round scorecard${
-                          rollup.scorecards === 1 ? "" : "s"
-                        } filed — see Round results below.`
+                    filedScorecards > 0
+                      ? `No written recommendation yet — ${filedScorecards} round scorecard${
+                          filedScorecards === 1 ? "" : "s"
+                        } filed${
+                          viewer.role === "admin"
+                            ? " — see Round results below."
+                            : " in your assigned round."
+                        }`
                       : "No reviewer has weighed in yet."
                   }
                 />
@@ -412,7 +422,9 @@ export default async function SubmissionDetailPage({
           <DecisionOutcome
             eventSlug={eventSlug}
             status={submission.status}
-            note={submission.decisionNote}
+            // A decision email is written to the speaker and may address them
+            // by name; it is identity-bearing content in a blind workspace.
+            note={blind ? null : submission.decisionNote}
             session={
               session
                 ? {

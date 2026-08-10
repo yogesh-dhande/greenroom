@@ -163,6 +163,27 @@ test("an isolated scored round runs from design through assignments, scoring, ex
   const roundBase = roundHref.replace("/assignments", "");
 
   await signIn(page, "dana@greenroom.dev");
+  // Dana participates in a blind round on this event. The wider track queue
+  // must not become a side door around it: even rows not assigned in this
+  // round keep every author hidden (D-083).
+  await page.goto(`/admin/${EVENT_SLUG}/submissions?view=all`);
+  const trackQueueRows = page.locator("tbody tr");
+  expect(await trackQueueRows.count()).toBeGreaterThan(3);
+  for (const row of await trackQueueRows.all()) {
+    await expect(row).toContainText("Speaker identity hidden for blind review");
+  }
+  await expect(page.getByText("Priya Raman")).toHaveCount(0);
+
+  // The seeded accepted proposal has a speaker-facing decision note. It used
+  // to leak "Priya" on this reviewer-visible record even though the proposal
+  // answers themselves were blind.
+  await page.goto(`/admin/${EVENT_SLUG}/submissions/${forbiddenId}`);
+  await expect(page.getByText("Speaker identity hidden for blind review")).toBeVisible();
+  await expect(
+    page.getByText("Strong practitioner story, exactly the level our audience wants."),
+  ).toHaveCount(0);
+  await expect(page.getByText("Priya Raman")).toHaveCount(0);
+
   await page.goto(ROUNDS);
   await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();
 
@@ -202,6 +223,21 @@ test("an isolated scored round runs from design through assignments, scoring, ex
 
   // Back on the queue, marked done — and the answers really persisted.
   await expect(page.getByRole("row", { name: EVALS })).toContainText("Submitted");
+  const evalsSubmissionId = new URL(
+    (await page
+      .getByRole("row", { name: EVALS })
+      .getByRole("link", { name: "Review scorecard" })
+      .getAttribute("href"))!,
+    page.url(),
+  ).pathname
+    .split("/")
+    .pop()!;
+  await page.goto(`/admin/${EVENT_SLUG}/submissions/${evalsSubmissionId}`);
+  await expect(page.getByText("No reviewer has weighed in yet.")).toHaveCount(0);
+  await expect(page.getByText(/1 round scorecard filed in your assigned round/)).toBeVisible();
+
+  await page.goto(ROUNDS);
+  await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();
   await page.getByRole("row", { name: EVALS }).getByRole("link", { name: "Review scorecard" }).click();
   await expect(page.locator("#criterion-originality-5")).toBeChecked();
   await expect(page.locator("#criterion-relevance-3")).toBeChecked();

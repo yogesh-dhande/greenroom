@@ -92,14 +92,20 @@ export function BulkEmailDialog({
   const [sending, startSend] = useTransition();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
+  // Snapshot the table selection at open time. The parent clears its ticks
+  // after a successful send; following that prop live used to replace the
+  // completed dialog with "Nobody picked yet" while its success result was
+  // still on screen.
+  const [initialRecipients] = useState(recipients);
+
   const rows = useMemo(
     () =>
-      recipients.map((recipient) => ({
+      initialRecipients.map((recipient) => ({
         ...recipient,
         id: recipient.userId,
         name: recipient.displayName,
       })),
-    [recipients],
+    [initialRecipients],
   );
 
   /** One chip per tag in use among the ticked contacts, plus "everyone". */
@@ -198,51 +204,7 @@ export function BulkEmailDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          <PeoplePicker
-            heading={`Recipients (${chosen.length})`}
-            people={rows}
-            groups={groups}
-            selected={selected}
-            onSelectedChange={setSelected}
-            searchLabel="Search recipients"
-            searchPlaceholder="Name, email, or company"
-            groupsLabel="Recipient groups"
-            emptyMessage="Nobody is ticked in the directory — close this and pick some contacts."
-            listClassName="max-h-56"
-          />
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="directory-email-subject">Subject</Label>
-            <Input
-              id="directory-email-subject"
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-              placeholder="Speak at our next event?"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="directory-email-body">Message</Label>
-            <Textarea
-              id="directory-email-body"
-              ref={bodyRef}
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              rows={10}
-              placeholder={"Hi {{speakerFirstName}},\n\n…"}
-              className="font-mono text-sm"
-            />
-          </div>
-
-          <MergeFieldPalette fields={ORG_MERGE_FIELDS} onInsert={insert} />
-          <DraftProblems errors={check.errors} />
-          <BlankFieldNote blank={check.blank} />
-
-          {subject.trim() || body.trim() ? <MessagePreview preview={check.preview} /> : null}
-
-          {error && <p className="text-sm text-destructive">{error}</p>}
-
-          {result && (
+          {result ? (
             <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
               <p className="text-sm font-medium text-foreground">
                 Sent to {result.sent} {result.sent === 1 ? "contact" : "contacts"}
@@ -262,27 +224,79 @@ export function BulkEmailDialog({
                 activity feed.
               </p>
             </div>
-          )}
+          ) : (
+            <>
+              <PeoplePicker
+                heading={`Recipients (${chosen.length})`}
+                people={rows}
+                groups={groups}
+                selected={selected}
+                onSelectedChange={setSelected}
+                searchLabel="Search recipients"
+                searchPlaceholder="Name, email, or company"
+                groupsLabel="Recipient groups"
+                emptyMessage="Nobody is ticked in the directory — close this and pick some contacts."
+                listClassName="max-h-56"
+              />
 
-          {/* The last read before the button underneath it acts. */}
-          <SelectionSummary
-            names={chosen.map((row) => row.displayName)}
-            words={{ empty: "Nobody picked yet." }}
-          />
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="directory-email-subject">Subject</Label>
+                <Input
+                  id="directory-email-subject"
+                  value={subject}
+                  onChange={(event) => setSubject(event.target.value)}
+                  placeholder="Speak at our next event?"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="directory-email-body">Message</Label>
+                <Textarea
+                  id="directory-email-body"
+                  ref={bodyRef}
+                  value={body}
+                  onChange={(event) => setBody(event.target.value)}
+                  rows={10}
+                  placeholder={"Hi {{speakerFirstName}},\n\n…"}
+                  className="font-mono text-sm"
+                />
+              </div>
+
+              <MergeFieldPalette fields={ORG_MERGE_FIELDS} onInsert={insert} />
+              <DraftProblems errors={check.errors} />
+              <BlankFieldNote blank={check.blank} />
+
+              {subject.trim() || body.trim() ? <MessagePreview preview={check.preview} /> : null}
+
+              {error && <p className="text-sm text-destructive">{error}</p>}
+
+              {/* The last read before the button underneath it acts. */}
+              <SelectionSummary
+                names={chosen.map((row) => row.displayName)}
+                words={{ empty: "Nobody picked yet." }}
+              />
+            </>
+          )}
         </div>
 
         <DialogFooter>
           {result ? (
-            <Button type="button" variant="outline" onClick={reset}>
-              Write another
+            <>
+              <Button type="button" variant="outline" onClick={reset}>
+                Write another
+              </Button>
+              <Button type="button" onClick={() => onOpenChange(false)}>
+                Done
+              </Button>
+            </>
+          ) : (
+            <Button type="button" onClick={send} disabled={!ready || sending}>
+              <SendIcon />
+              {sending
+                ? "Sending…"
+                : `Send to ${chosen.length} ${chosen.length === 1 ? "person" : "people"}`}
             </Button>
-          ) : null}
-          <Button type="button" onClick={send} disabled={!ready || sending}>
-            <SendIcon />
-            {sending
-              ? "Sending…"
-              : `Send to ${chosen.length} ${chosen.length === 1 ? "person" : "people"}`}
-          </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
