@@ -3,10 +3,16 @@ import { RESERVED_FIELD_IDS } from "@/db/entities";
 import type {
   Event,
   Form,
+  NewSession,
+  NewSessionRevision,
   NewSubmission,
+  NewTaskAssignment,
   Session,
+  SessionRevision,
   Submission,
   SubmissionSpeaker,
+  Task,
+  TaskAssignment,
   Track,
   User,
 } from "@/db/entities";
@@ -87,6 +93,42 @@ function session(overrides: Partial<Session> = {}): Session {
   };
 }
 
+function speaker(overrides: Partial<User> = {}): User {
+  return {
+    id: "user-1",
+    email: "priya@example.test",
+    name: "Priya Raman",
+    role: "speaker",
+    emailVerified: true,
+    title: null,
+    company: null,
+    bio: "Builds retrieval systems.",
+    headshotUrl: null,
+    websiteUrl: null,
+    linkedinUrl: null,
+    twitterUrl: null,
+    socials: null,
+    image: null,
+    ...timestamps(),
+    ...overrides,
+  };
+}
+
+function task(overrides: Partial<Task> = {}): Task {
+  return {
+    id: "task-1",
+    eventId: "event-1",
+    title: "Upload your slides",
+    instructions: null,
+    type: "file_request",
+    formId: null,
+    dueAt: null,
+    autoAssignOnAccept: true,
+    ...timestamps(),
+    ...overrides,
+  };
+}
+
 /** A complete set of answers to the default CFP form. */
 function answers(overrides: Record<string, unknown> = {}) {
   const fields = publicFields(DEFAULT_CFP_FIELDS, ["AI Engineering"]);
@@ -116,12 +158,17 @@ function fakeRepos(
     users?: User[];
     sessions?: Session[];
     tracks?: Track[];
+    tasks?: Task[];
+    taskAssignments?: TaskAssignment[];
   } = {},
 ) {
   const submissions: Submission[] = [...(seed.submissions ?? [])];
   const users: User[] = [...(seed.users ?? [])];
   const sessions: Session[] = [...(seed.sessions ?? [])];
   const tracks: Track[] = [...(seed.tracks ?? [])];
+  const tasks: Task[] = [...(seed.tasks ?? [])];
+  const taskAssignments: TaskAssignment[] = [...(seed.taskAssignments ?? [])];
+  const sessionRevisions: SessionRevision[] = [];
   const speakerLinks: SubmissionSpeaker[] = [];
   const trackLinks: Record<string, string[]> = {};
   const sessionSpeakerLinks: Record<string, string[]> = {};
@@ -192,13 +239,58 @@ function fakeRepos(
       setSpeakers: async (sessionId: string, userIds: string[]) => {
         sessionSpeakerLinks[sessionId] = [...userIds];
       },
+      update: async (id: string, patch: Partial<NewSession>) => {
+        const index = sessions.findIndex((row) => row.id === id);
+        sessions[index] = { ...sessions[index], ...patch };
+        return sessions[index];
+      },
+    },
+    sessionRevisions: {
+      create: async (input: NewSessionRevision) => {
+        const created: SessionRevision = {
+          id: `revision-${sessionRevisions.length + 1}`,
+          ...input,
+          createdAt: NOW,
+        };
+        sessionRevisions.push(created);
+        return created;
+      },
+      listBySession: async (sessionId: string) =>
+        sessionRevisions.filter((row) => row.sessionId === sessionId),
+    },
+    tasks: {
+      listAutoAssignByEvent: async (eventId: string) =>
+        tasks.filter((row) => row.eventId === eventId && row.autoAssignOnAccept),
+    },
+    taskAssignments: {
+      listBySpeaker: async (speakerId: string) =>
+        taskAssignments.filter((row) => row.speakerId === speakerId),
+      create: async (input: NewTaskAssignment) => {
+        const created: TaskAssignment = {
+          id: `assignment-${taskAssignments.length + 1}`,
+          ...input,
+          ...timestamps(),
+        };
+        taskAssignments.push(created);
+        return created;
+      },
     },
     tracks: {
       listByEvent: async (eventId: string) => tracks.filter((row) => row.eventId === eventId),
     },
   };
 
-  return { repos: repos as unknown as Repos, submissions, users, trackLinks, sessionSpeakerLinks };
+  return {
+    repos: repos as unknown as Repos,
+    submissions,
+    users,
+    sessions,
+    tasks,
+    taskAssignments,
+    sessionRevisions,
+    trackLinks,
+    sessionSpeakerLinks,
+  };
 }
 
 function save(repos: Repos, values: Record<string, unknown>, extra: Record<string, unknown> = {}) {
@@ -379,44 +471,29 @@ describe("speakerLimitState", () => {
 // Keeping an accepted submission's session speakers in step (spec.md §5, §8)
 // ---------------------------------------------------------------------------
 
-describe("editing speakers on an already-accepted submission", () => {
-  /** An `approved` submission with a session already converted from it —
-   * the state a co-speaker edit lands in after acceptance. */
-  function approvedSubmission(): Submission {
-    return {
-      id: "submission-1",
-      eventId: "event-1",
-      formId: "form-1",
-      title: "Retrieval that survives production traffic",
-      description: "A practitioner story.",
-      answers: {},
-      status: "approved",
-      resumeToken: null,
-      decidedBy: "admin-1",
-      decidedAt: NOW,
-      decisionNote: null,
-      ...timestamps(),
-    };
-  }
+/** An `approved` submission with a session already converted from it — the
+ * state a speaker's edit lands in after acceptance. */
+function approvedSubmission(overrides: Partial<Submission> = {}): Submission {
+  return {
+    id: "submission-1",
+    eventId: "event-1",
+    formId: "form-1",
+    title: "Retrieval that survives production traffic",
+    description: "A practitioner story.",
+    answers: {},
+    status: "approved",
+    resumeToken: null,
+    decidedBy: "admin-1",
+    decidedAt: NOW,
+    decisionNote: null,
+    ...timestamps(),
+    ...overrides,
+  };
+}
 
+describe("editing speakers on an already-accepted submission", () => {
   it("adds a co-speaker saved after acceptance to the session, not just the submission", async () => {
-    const primary: User = {
-      id: "user-1",
-      email: "priya@example.test",
-      name: "Priya Raman",
-      role: "speaker",
-      emailVerified: true,
-      title: null,
-      company: null,
-      bio: "Builds retrieval systems.",
-      headshotUrl: null,
-      websiteUrl: null,
-      linkedinUrl: null,
-      twitterUrl: null,
-      socials: null,
-      image: null,
-      ...timestamps(),
-    };
+    const primary = speaker();
     const { repos, sessionSpeakerLinks } = fakeRepos({
       submissions: [approvedSubmission()],
       users: [primary],
@@ -445,23 +522,7 @@ describe("editing speakers on an already-accepted submission", () => {
   });
 
   it("drops a removed co-speaker from the session too", async () => {
-    const primary: User = {
-      id: "user-1",
-      email: "priya@example.test",
-      name: "Priya Raman",
-      role: "speaker",
-      emailVerified: true,
-      title: null,
-      company: null,
-      bio: "Builds retrieval systems.",
-      headshotUrl: null,
-      websiteUrl: null,
-      linkedinUrl: null,
-      twitterUrl: null,
-      socials: null,
-      image: null,
-      ...timestamps(),
-    };
+    const primary = speaker();
     const { repos, sessionSpeakerLinks } = fakeRepos({
       submissions: [approvedSubmission()],
       users: [primary],
@@ -495,6 +556,179 @@ describe("editing speakers on an already-accepted submission", () => {
 
     expect(result.ok).toBe(true);
     expect(Object.keys(sessionSpeakerLinks)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Onboarding for a speaker added after acceptance (spec.md §5, decisions.md
+// D-069) — acceptance hands out the auto-assign tasks, so a co-speaker who
+// arrives later must not end up with different onboarding for the same talk.
+// ---------------------------------------------------------------------------
+
+describe("auto-assigned tasks for a co-speaker added after acceptance", () => {
+  const CO_SPEAKER = [{ name: "Dan Cho", email: "dan@example.test", title: "", company: "" }];
+
+  function acceptedTalk(seed: Partial<Parameters<typeof fakeRepos>[0]> = {}) {
+    return fakeRepos({
+      submissions: [approvedSubmission()],
+      users: [speaker()],
+      sessions: [session({ submissionId: "submission-1" })],
+      tasks: [task(), task({ id: "task-2", title: "Confirm your slot", type: "confirm" })],
+      ...seed,
+    });
+  }
+
+  it("hands the new co-speaker every auto-assign task on the event", async () => {
+    const { repos, taskAssignments } = acceptedTalk();
+
+    await save(repos, answers({ co_speakers: CO_SPEAKER }), { submissionId: "submission-1" });
+
+    const dan = await repos.users.getByEmail("dan@example.test");
+    expect(taskAssignments.filter((row) => row.speakerId === dan?.id).map((row) => row.taskId).sort())
+      .toEqual(["task-1", "task-2"]);
+  });
+
+  it("never duplicates an assignment or resets a completed one", async () => {
+    const { repos, taskAssignments } = acceptedTalk();
+    await save(repos, answers({ co_speakers: CO_SPEAKER }), { submissionId: "submission-1" });
+
+    // The speaker finishes one of them, then edits the proposal again.
+    const done = taskAssignments.find((row) => row.taskId === "task-1")!;
+    done.status = "completed";
+    done.completedAt = NOW;
+
+    await save(repos, answers({ co_speakers: CO_SPEAKER, title: "Retitled" }), {
+      submissionId: "submission-1",
+    });
+
+    expect(taskAssignments).toHaveLength(4); // two speakers x two tasks, once each
+    expect(taskAssignments.find((row) => row.id === done.id)).toMatchObject({
+      status: "completed",
+      completedAt: NOW,
+    });
+  });
+
+  it("leaves a task that isn't auto-assign-on-accept alone", async () => {
+    const { repos, taskAssignments } = acceptedTalk({
+      tasks: [task({ autoAssignOnAccept: false })],
+    });
+
+    await save(repos, answers({ co_speakers: CO_SPEAKER }), { submissionId: "submission-1" });
+
+    expect(taskAssignments).toHaveLength(0);
+  });
+
+  it("assigns nothing on a talk whose acceptance was reversed", async () => {
+    // A cancelled session is a withdrawn acceptance (`cancelSession`,
+    // src/domain/review.ts) — nobody is owed onboarding for it.
+    const { repos, taskAssignments } = acceptedTalk({
+      submissions: [approvedSubmission({ status: "denied" })],
+      sessions: [session({ submissionId: "submission-1", status: "cancelled" })],
+    });
+
+    await save(repos, answers({ co_speakers: CO_SPEAKER }), { submissionId: "submission-1" });
+
+    expect(taskAssignments).toHaveLength(0);
+  });
+
+  it("assigns nothing while the proposal is still in front of the committee", async () => {
+    // Belt and braces against a half-finished decision: a submission that
+    // isn't approved owes nobody onboarding even if a session row survives
+    // beside it.
+    const { repos, taskAssignments } = acceptedTalk({
+      submissions: [approvedSubmission({ status: "maybe" })],
+    });
+
+    await save(repos, answers({ co_speakers: CO_SPEAKER }), { submissionId: "submission-1" });
+
+    expect(taskAssignments).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Speaker edits to an accepted abstract (decisions.md D-071 — revision history
+// covers organizer- *and* speaker-driven edits)
+// ---------------------------------------------------------------------------
+
+describe("editing the abstract of an already-accepted submission", () => {
+  function acceptedTalk(sessionOverrides: Partial<Session> = {}) {
+    return fakeRepos({
+      submissions: [approvedSubmission()],
+      users: [speaker()],
+      sessions: [
+        session({
+          submissionId: "submission-1",
+          description: "A practitioner story.",
+          ...sessionOverrides,
+        }),
+      ],
+    });
+  }
+
+  it("carries the new abstract onto the session and appends a revision", async () => {
+    const { repos, sessions, sessionRevisions } = acceptedTalk();
+
+    await save(repos, answers({ description: "A rewritten practitioner story." }), {
+      submissionId: "submission-1",
+    });
+
+    expect(sessions[0].description).toBe("A rewritten practitioner story.");
+    expect(sessionRevisions).toHaveLength(1);
+    expect(sessionRevisions[0]).toMatchObject({
+      sessionId: "session-1",
+      field: "abstract",
+      priorValue: "A practitioner story.",
+      newValue: "A rewritten practitioner story.",
+      // The speaker who saved it, not the admin who accepted it.
+      authorUserId: "user-1",
+    });
+  });
+
+  it("writes no revision when the save left the abstract as it was", async () => {
+    const { repos, sessionRevisions } = acceptedTalk();
+
+    await save(repos, answers({ description: "A practitioner story." }), {
+      submissionId: "submission-1",
+    });
+
+    expect(sessionRevisions).toHaveLength(0);
+  });
+
+  it("leaves an organizer's retitled session title alone", async () => {
+    // D-071 scopes history to abstracts, so a title synced from the proposal
+    // would silently overwrite the programme's own wording with nothing to
+    // notice it by.
+    const { repos, sessions } = acceptedTalk({ title: "Retrieval in production (main stage)" });
+
+    await save(repos, answers({ title: "Whatever the speaker types now" }), {
+      submissionId: "submission-1",
+    });
+
+    expect(sessions[0].title).toBe("Retrieval in production (main stage)");
+  });
+
+  it("doesn't touch a cancelled session", async () => {
+    const { repos, sessions, sessionRevisions } = acceptedTalk({ status: "cancelled" });
+
+    await save(repos, answers({ description: "A rewritten practitioner story." }), {
+      submissionId: "submission-1",
+    });
+
+    expect(sessions[0].description).toBe("A practitioner story.");
+    expect(sessionRevisions).toHaveLength(0);
+  });
+
+  it("records a first abstract with a null prior value", async () => {
+    const { repos, sessionRevisions } = acceptedTalk({ description: null });
+
+    await save(repos, answers({ description: "The abstract, at last." }), {
+      submissionId: "submission-1",
+    });
+
+    expect(sessionRevisions[0]).toMatchObject({
+      priorValue: null,
+      newValue: "The abstract, at last.",
+    });
   });
 });
 

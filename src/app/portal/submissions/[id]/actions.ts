@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createsSessionsDirectly } from "@/db/entities";
 import { sendSubmissionConfirmation } from "@/domain/comms";
 import { acceptsSubmissions, type FormValues } from "@/domain/forms";
+import { acceptOnArrival } from "@/domain/review";
 import { loadSubmissionDetail, saveSubmission } from "@/domain/submissions";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
@@ -58,7 +60,23 @@ export async function updateOwnSubmission(
   );
   if (!result.ok) return result;
 
+  // Finishing a draft here is the same product event as finishing it on the
+  // public page, so it takes the same two steps in the same order: a
+  // session-type form's proposal is accepted on arrival and becomes a confirmed
+  // (unscheduled) session (decisions.md D-041), and only then is the
+  // confirmation email sent — no decision email either way (D-042). Without
+  // this, a session-type proposal completed through the portal never got its
+  // session at all. A failure leaves an ordinary submitted proposal an
+  // organizer can accept by hand rather than losing the proposal.
   if (wasDraft) {
+    if (createsSessionsDirectly(detail.form)) {
+      try {
+        await acceptOnArrival({ repos }, { submissionId: result.submission.id });
+      } catch (error) {
+        console.error("direct-to-session conversion failed", error);
+      }
+    }
+
     try {
       await sendSubmissionConfirmation(await getCommsContext(), {
         submissionId: result.submission.id,
@@ -72,12 +90,15 @@ export async function updateOwnSubmission(
   revalidatePath(`/portal/submissions/${submissionId}`);
   revalidatePath(`/portal`);
   revalidatePath(`/admin/${detail.event.slug}/submissions`);
-  // A speaker edit here can add or drop a co-speaker on an already-accepted
-  // proposal, which (src/domain/submissions.ts syncSpeakers) keeps the
-  // converted session's speaker set in step. That session is what these
-  // surfaces render (decisions.md D-017, spec.md §8) — same paths
-  // src/app/portal/profile/actions.ts revalidates for the same reason.
+  // A save here reaches the session an accepted proposal became: its speaker
+  // set, its abstract and its speakers' onboarding tasks all move with the edit
+  // (src/domain/submissions.ts `saveSubmission`), and a session-type draft
+  // finished above creates that session outright. Those are what these surfaces
+  // render (decisions.md D-017, D-071, spec.md §8) — the speaker/program paths
+  // are the same ones src/app/portal/profile/actions.ts revalidates.
   revalidatePath(`/admin/${detail.event.slug}/speakers`);
+  revalidatePath(`/admin/${detail.event.slug}/agenda`);
+  revalidatePath(`/admin/${detail.event.slug}/tasks`);
   revalidatePath(`/p/${detail.event.slug}/speakers`);
   revalidatePath(`/p/${detail.event.slug}/schedule`);
   revalidatePath(`/embed/${detail.event.slug}/speakers`);

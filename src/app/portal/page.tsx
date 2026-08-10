@@ -28,11 +28,18 @@ export default async function PortalHomePage() {
   const user = await requireUser("/portal");
   const repos = await getRepos();
 
-  const [submissions, sessions, assignments] = await Promise.all([
+  const [submissions, speakerSessions, assignments, rosterRows] = await Promise.all([
     repos.submissions.listBySpeaker(user.id),
     repos.sessions.listBySpeaker(user.id),
     repos.taskAssignments.listBySpeaker(user.id),
+    repos.eventSpeakers.listByUser(user.id),
   ]);
+
+  // A cancelled session is an acceptance that was taken back (`cancelSession`
+  // in src/domain/review.ts). Listing it here beside live ones — with no state
+  // of its own, reading "Not yet scheduled" — would tell the speaker they are
+  // still on the programme, so it is left out entirely.
+  const sessions = speakerSessions.filter((session) => session.status !== "cancelled");
 
   const taskIds = Array.from(new Set(assignments.map((assignment) => assignment.taskId)));
   const tasks = await repos.tasks.listByIds(taskIds);
@@ -59,11 +66,16 @@ export default async function PortalHomePage() {
         .map((task) => task.formId as string),
     ),
   );
+  // Roster membership counts as a stake in the event on its own (decisions.md
+  // D-051): a speaker an organizer added by hand or imported from a CSV has an
+  // `event_speakers` row and nothing else yet, and deriving events from their
+  // work alone would show them "Nothing here yet" for an event they are on.
   const eventIds = Array.from(
     new Set([
       ...submissions.map((submission) => submission.eventId),
       ...sessions.map((session) => session.eventId),
       ...tasks.map((task) => task.eventId),
+      ...rosterRows.map((row) => row.eventId),
     ]),
   );
 

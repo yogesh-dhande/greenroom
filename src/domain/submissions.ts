@@ -15,6 +15,7 @@ import {
   type Event,
   type Form,
   type NewSubmission,
+  type Session,
   type Submission,
   type SubmissionStatus,
   type Track,
@@ -32,6 +33,8 @@ import {
   type FormValues,
   type SubmissionLimitState,
 } from "@/domain/forms";
+import { planAbstractRevision } from "@/domain/session-content";
+import { planAssignToSpeakers } from "@/domain/task-assign";
 import { fileUrl } from "@/lib/uploads";
 
 export interface SubmissionContext {
@@ -162,10 +165,12 @@ function resolveTrackIds(tracks: Track[], names: string[]): string[] {
 
 async function syncSpeakers(
   ctx: SubmissionContext,
-  submissionId: string,
+  submission: Submission,
+  session: Session | null,
   primary: User,
   coSpeakers: CoSpeakerValue[],
 ): Promise<void> {
+  const submissionId = submission.id;
   const resolved: User[] = [];
   for (const row of coSpeakers) {
     if (row.email === primary.email) continue; // never demote the submitter
@@ -188,10 +193,87 @@ async function syncSpeakers(
   // conversion in src/domain/review.ts makes), not the submission's, so the
   // edit would be invisible on both and the new speaker's onboarding would go
   // untracked. Nothing to do before acceptance — `getBySubmission` is null.
-  const session = await ctx.repos.sessions.getBySubmission(submissionId);
-  if (session) {
-    await ctx.repos.sessions.setSpeakers(session.id, [primary.id, ...resolved.map((user) => user.id)]);
+  if (!session) return;
+
+  const speakerIds = [primary.id, ...resolved.map((user) => user.id)];
+  await ctx.repos.sessions.setSpeakers(session.id, speakerIds);
+
+  // ...and the onboarding tasks acceptance would have handed them. Acceptance
+  // assigns every `autoAssignOnAccept` task to everyone on the talk at that
+  // moment (`planAcceptanceConversion`, src/domain/review.ts); a speaker added
+  // afterwards missed it, so without this their onboarding would depend on
+  // *when* they joined the talk rather than on being on it. A cancelled session
+  // is a reversed acceptance, so it hands out no work.
+  if (submission.status === "approved" && session.status !== "cancelled") {
+    await assignAcceptanceTasks(ctx, submission.eventId, speakerIds);
   }
+}
+
+/**
+ * Gives a set of speakers the event's auto-on-accept tasks, skipping the ones
+ * they already hold.
+ *
+ * Idempotent by construction: the dedupe (and the never-reset-an-existing-
+ * assignment rule behind the `unique(taskId, speakerId)` constraint) comes from
+ * `planAssignToSpeakers`, the single place assignment rows are shaped
+ * (decisions.md D-069) — not from a second copy of the rule here.
+ */
+async function assignAcceptanceTasks(
+  ctx: SubmissionContext,
+  eventId: string,
+  speakerIds: string[],
+): Promise<void> {
+  const tasks = await ctx.repos.tasks.listAutoAssignByEvent(eventId);
+  if (tasks.length === 0) return;
+
+  const existingAssignments = (
+    await Promise.all(speakerIds.map((id) => ctx.repos.taskAssignments.listBySpeaker(id)))
+  ).flat();
+
+  for (const task of tasks) {
+    const { newAssignments } = planAssignToSpeakers({
+      taskId: task.id,
+      speakerIds,
+      existingAssignments,
+    });
+    for (const assignment of newAssignments) {
+      await ctx.repos.taskAssignments.create(assignment);
+    }
+  }
+}
+
+/**
+ * Carries a speaker's edit of an accepted talk's abstract onto the session it
+ * became, and into that session's history (decisions.md D-071 — revisions cover
+ * "organizer- or speaker-driven" edits alike, and the admin history panel was
+ * only ever written to by the organizer's own edit path).
+ *
+ * The abstract and nothing else. The title is deliberately *not* synced: once a
+ * session exists the organizer may have retitled it for the programme — the
+ * same reason `planAcceptanceConversion` refuses to overwrite it — and D-071
+ * scopes revisions to abstracts, so a clobbered title would leave no history to
+ * notice it by.
+ */
+async function syncSessionAbstract(
+  ctx: SubmissionContext,
+  session: Session,
+  description: string | null,
+  author: User,
+): Promise<void> {
+  const revision = planAbstractRevision(session.description, description);
+  if (!revision) return;
+
+  await ctx.repos.sessions.update(session.id, { description: revision.newValue });
+  // Appended after the session write, never instead of it — a history row that
+  // failed to save must not cost the speaker their edit (the admin agenda
+  // action treats its own revision write the same way).
+  await ctx.repos.sessionRevisions.create({
+    sessionId: session.id,
+    field: "abstract",
+    priorValue: revision.priorValue,
+    newValue: revision.newValue,
+    authorUserId: author.id,
+  });
 }
 
 /**
@@ -293,7 +375,21 @@ export async function saveSubmission(
     submission.id,
     resolveTrackIds(input.tracks, selectedTrackNames(fields, values)),
   );
-  await syncSpeakers(ctx, submission.id, primary, cleanCoSpeakers(input.values[RESERVED_FIELD_IDS.coSpeakers]));
+
+  // Read once and passed down: everything this save owes an already-converted
+  // talk (its speaker set, its onboarding, its abstract) hangs off the same
+  // session, and it is null for every submission that hasn't been accepted yet.
+  const session = created ? null : await ctx.repos.sessions.getBySubmission(submission.id);
+  await syncSpeakers(
+    ctx,
+    submission,
+    session,
+    primary,
+    cleanCoSpeakers(input.values[RESERVED_FIELD_IDS.coSpeakers]),
+  );
+  if (session && session.status !== "cancelled") {
+    await syncSessionAbstract(ctx, session, submission.description, primary);
+  }
   await enrichPrimaryProfile(ctx, primary, values);
 
   return { ok: true, submission, created, primarySpeaker: primary };
