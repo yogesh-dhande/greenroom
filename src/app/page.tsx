@@ -128,16 +128,12 @@ export default async function Home() {
       <main className="flex-1">
         <section className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-12 gap-y-12 px-6 pt-16 pb-14">
           <div className="min-w-[300px] flex-[1_1_360px]">
-            <span className="inline-block rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground">
-              Open-source Sessionboard alternative
-            </span>
-            <h1 className="mt-5 max-w-xl text-4xl leading-[1.07] font-bold tracking-tight text-balance text-foreground sm:text-5xl">
+            <h1 className="max-w-xl text-4xl leading-[1.07] font-bold tracking-tight text-balance text-foreground sm:text-5xl">
               Speaker management you actually own.
             </h1>
             <p className="mt-4 max-w-md text-lg leading-7 text-muted-foreground">
-              One fast workflow from call for papers to published program, with
-              real communications, Airtable sync, and APIs for the tools your
-              team already uses.
+              One fast workflow to collect proposals, review sessions, onboard
+              speakers, build the agenda, and publish the program.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild>
@@ -207,24 +203,14 @@ export default async function Home() {
         </section>
 
         <section id="features" className="mx-auto w-full max-w-6xl px-6 pb-20">
-          <h2 className="sr-only">Features</h2>
-          <div className="mb-8 grid overflow-hidden rounded-xl border border-border bg-card lg:grid-cols-3">
-            {INTEGRATION_HIGHLIGHTS.map((highlight, index) => (
-              <div
-                key={highlight.title}
-                className={`px-5 py-5 sm:px-6 ${index > 0 ? "border-t border-border lg:border-t-0 lg:border-l" : ""}`}
-              >
-                <p className="font-mono text-[0.68rem] font-semibold tracking-[0.14em] text-primary">
-                  {highlight.eyebrow}
-                </p>
-                <h3 className="mt-2 text-base font-semibold text-foreground">
-                  {highlight.title}
-                </h3>
-                <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-                  {highlight.body}
-                </p>
-              </div>
-            ))}
+          <div className="mb-7 max-w-2xl">
+            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              From open CFP to showtime.
+            </h2>
+            <p className="mt-2 text-muted-foreground">
+              Greenroom keeps the essential speaker workflow connected, so
+              producers never have to rebuild the same event in five tools.
+            </p>
           </div>
           <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
@@ -240,6 +226,25 @@ export default async function Home() {
                   {f.title}
                 </h3>
                 <p className="mt-1.5 text-sm text-muted-foreground">{f.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-8 grid overflow-hidden rounded-xl border border-border bg-card lg:grid-cols-3">
+            {INTEGRATION_HIGHLIGHTS.map((highlight, index) => (
+              <div
+                key={highlight.title}
+                className={`px-5 py-5 sm:px-6 ${index > 0 ? "border-t border-border lg:border-t-0 lg:border-l" : ""}`}
+              >
+                <p className="font-mono text-[0.68rem] font-semibold tracking-[0.14em] text-primary">
+                  {highlight.eyebrow}
+                </p>
+                <h3 className="mt-2 text-base font-semibold text-foreground">
+                  {highlight.title}
+                </h3>
+                <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                  {highlight.body}
+                </p>
               </div>
             ))}
           </div>
