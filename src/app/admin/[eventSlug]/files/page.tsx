@@ -12,6 +12,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { FileCommentThread, FileVersionList } from "@/components/file-thread";
 import { postDeliverableComment } from "./actions";
 import { loadFileLibrary } from "./data";
+import { VersionsDisclosure } from "./versions-disclosure";
 
 /**
  * Every file the event's speakers have sent in, in one place (spec.md §6,
@@ -167,34 +168,34 @@ export default async function FilesPage({
                 deliverable.assignmentId === null && deliverable.older.length === 0 ? null : (
                   <TableRow key={`${rowKey}-detail`} className="hover:bg-transparent">
                     <TableCell colSpan={7} className="pt-0">
-                      {/* Plain <details>: the history and the thread are
-                          secondary to the list, and this needs no client state
-                          to stay closed until an organizer asks for it. */}
-                      <details className="group">
-                        <summary className="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                          {deliverable.assignmentId === null
+                      {/* The history and thread are secondary to the list, so
+                          they stay collapsed behind a real button until an
+                          organizer asks for them (needs no server round trip
+                          to open, hence the tiny client component). */}
+                      <VersionsDisclosure
+                        label={
+                          deliverable.assignmentId === null
                             ? "Earlier versions"
-                            : `Versions and comments${thread.length > 0 ? ` (${thread.length})` : ""}`}
-                        </summary>
-                        <div className="mt-3 flex flex-col gap-4 rounded-md border border-border p-3">
-                          <FileVersionList
-                            versions={deliverable.older}
+                            : `Versions and comments${thread.length > 0 ? ` (${thread.length})` : ""}`
+                        }
+                      >
+                        <FileVersionList
+                          versions={deliverable.older}
+                          timeZone={event.timezone}
+                        />
+                        {deliverable.assignmentId === null ? null : (
+                          <FileCommentThread
+                            comments={thread}
                             timeZone={event.timezone}
+                            action={postDeliverableComment.bind(
+                              null,
+                              eventSlug,
+                              deliverable.assignmentId,
+                            )}
+                            placeholder="Ask for a change, or note what you did with this file…"
                           />
-                          {deliverable.assignmentId === null ? null : (
-                            <FileCommentThread
-                              comments={thread}
-                              timeZone={event.timezone}
-                              action={postDeliverableComment.bind(
-                                null,
-                                eventSlug,
-                                deliverable.assignmentId,
-                              )}
-                              placeholder="Ask for a change, or note what you did with this file…"
-                            />
-                          )}
-                        </div>
-                      </details>
+                        )}
+                      </VersionsDisclosure>
                     </TableCell>
                   </TableRow>
                 ),

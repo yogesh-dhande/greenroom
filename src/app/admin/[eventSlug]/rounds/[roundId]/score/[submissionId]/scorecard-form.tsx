@@ -210,7 +210,12 @@ export function ScorecardForm({
                     const value = String(point);
                     const selected = answers[criterion.id] === value;
                     return (
-                      <label key={point} className="cursor-pointer">
+                      <label key={point} className="relative inline-flex cursor-pointer">
+                        {/* Visually hidden but not pointer-inert: absolutely
+                            positioned over the label at zero opacity rather
+                            than sr-only, so it sits above the decorative span
+                            and receives real and programmatic clicks natively
+                            instead of the label intercepting them. */}
                         <input
                           type="radio"
                           id={`${inputId}-${point}`}
@@ -218,7 +223,7 @@ export function ScorecardForm({
                           value={value}
                           checked={selected}
                           onChange={() => set(criterion.id, value)}
-                          className="peer sr-only"
+                          className="peer absolute inset-0 z-10 cursor-pointer opacity-0"
                         />
                         <span
                           className={cn(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { ChevronRightIcon, LoaderCircleIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Form, Task, TaskAssignment } from "@/db/entities";
@@ -15,6 +15,7 @@ import {
   type UploadKind,
 } from "@/lib/uploads";
 import { formatDueDate } from "@/lib/event-time";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -167,11 +168,14 @@ function FileUploadControl({
  * and the way to complete it — reusing the same SchemaForm/upload machinery
  * as a CFP submission.
  *
- * Collapsed to a summary row (title, due date, status) by default via native
- * `<details>`/`<summary>` — no client JS needed for the expand/collapse
- * itself, since the page already computes which single task should start
- * open (W25 4A; `nextDueAssignmentId` in src/domain/onboarding.ts). A
- * completed file task keeps its upload control behind a "Replace file"
+ * Collapsed to a summary row (title, due date, status) by default, expanded
+ * with a real `<button type="button">` trigger (`aria-expanded`/
+ * `aria-controls` wired to the content) rather than a native `<summary>` —
+ * pointer and assistive-tech users both need a real operable control, not
+ * just a keyboard-reachable one — since the page already computes which
+ * single task should start open (W25 4A; `nextDueAssignmentId` in
+ * src/domain/onboarding.ts). A completed file task keeps its upload control
+ * behind a "Replace file"
  * button, lists what earlier uploads it replaced, and carries the comment
  * thread the organizer sees from Admin > Files (decisions.md D-054).
  */
@@ -201,6 +205,8 @@ export function TaskItem({
 }) {
   const [isPending, startTransition] = useTransition();
   const [replacing, setReplacing] = useState(false);
+  const [open, setOpen] = useState(startExpanded);
+  const contentId = useId();
   const done = assignment.status === "completed";
   const isFileTask = task.type === "file_request";
 
@@ -213,14 +219,21 @@ export function TaskItem({
   }
 
   return (
-    <details
-      aria-label={task.title}
-      open={startExpanded}
-      className="group rounded-lg border border-border p-4 [&_summary::-webkit-details-marker]:hidden"
-    >
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-3 marker:content-none">
+    <div role="group" aria-label={task.title} className="rounded-lg border border-border p-4">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={contentId}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full cursor-pointer items-start justify-between gap-3 text-left"
+      >
         <div className="flex items-start gap-2">
-          <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+          <ChevronRightIcon
+            className={cn(
+              "mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
+          />
           <div>
             <p className="text-sm font-medium text-foreground">{task.title}</p>
             {task.dueAt && (
@@ -233,89 +246,91 @@ export function TaskItem({
         <Badge variant="outline" className={STATE_BADGE_CLASS[state]}>
           {TASK_STATE_LABEL[state]}
         </Badge>
-      </summary>
+      </button>
 
-      <div className="mt-3 flex flex-col gap-3">
-        {task.instructions && (
-          <p className="text-sm text-muted-foreground">{task.instructions}</p>
-        )}
+      {open ? (
+        <div id={contentId} className="mt-3 flex flex-col gap-3">
+          {task.instructions && (
+            <p className="text-sm text-muted-foreground">{task.instructions}</p>
+          )}
 
-        {done && isFileTask && history.current ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <a
-              href={history.current.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-primary underline-offset-4 hover:underline"
-            >
-              View what you uploaded
-            </a>
-            <span className="truncate text-sm text-muted-foreground">
-              {history.current.filename}
-            </span>
-            {history.versionCount > 1 ? (
-              <Badge variant="outline" className="text-muted-foreground">
-                Version {history.versionCount}
-              </Badge>
-            ) : null}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="ml-auto"
-              onClick={() => setReplacing((open) => !open)}
-            >
-              {replacing ? "Cancel" : "Replace file"}
-            </Button>
-          </div>
-        ) : null}
+          {done && isFileTask && history.current ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <a
+                href={history.current.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-primary underline-offset-4 hover:underline"
+              >
+                View what you uploaded
+              </a>
+              <span className="truncate text-sm text-muted-foreground">
+                {history.current.filename}
+              </span>
+              {history.versionCount > 1 ? (
+                <Badge variant="outline" className="text-muted-foreground">
+                  Version {history.versionCount}
+                </Badge>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="ml-auto"
+                onClick={() => setReplacing((current) => !current)}
+              >
+                {replacing ? "Cancel" : "Replace file"}
+              </Button>
+            </div>
+          ) : null}
 
-        {isFileTask && (!done || replacing) ? (
-          <FileUploadControl
-            assignmentId={assignment.id}
-            taskId={task.id}
-            kind={inferUploadKind(task)}
-            submitLabel={done ? "Upload new version" : "Upload"}
-            onUploaded={() => setReplacing(false)}
-          />
-        ) : null}
+          {isFileTask && (!done || replacing) ? (
+            <FileUploadControl
+              assignmentId={assignment.id}
+              taskId={task.id}
+              kind={inferUploadKind(task)}
+              submitLabel={done ? "Upload new version" : "Upload"}
+              onUploaded={() => setReplacing(false)}
+            />
+          ) : null}
 
-        {isFileTask ? <FileVersionList versions={history.older} timeZone={timeZone} /> : null}
+          {isFileTask ? <FileVersionList versions={history.older} timeZone={timeZone} /> : null}
 
-        {done ? null : task.type === "confirm" ? (
-          <div>
-            <Button size="sm" disabled={isPending} onClick={markConfirmed}>
-              {isPending ? "Saving…" : "Mark as done"}
-            </Button>
-          </div>
-        ) : task.type === "form" && form ? (
-          <SchemaForm
-            fields={form.fields}
-            defaultValues={assignment.responseJson ?? {}}
-            submitLabel="Submit"
-            pendingLabel="Saving…"
-            action={completeFormTask.bind(null, assignment.id)}
-            uploadAction={uploadFormFile}
-            uploadScope={`task-${task.id}`}
-          />
-        ) : isFileTask ? null : (
-          <p className="text-sm text-destructive">
-            This task needs a form linked to it — ask the organizers to check its setup.
-          </p>
-        )}
+          {done ? null : task.type === "confirm" ? (
+            <div>
+              <Button size="sm" disabled={isPending} onClick={markConfirmed}>
+                {isPending ? "Saving…" : "Mark as done"}
+              </Button>
+            </div>
+          ) : task.type === "form" && form ? (
+            <SchemaForm
+              fields={form.fields}
+              defaultValues={assignment.responseJson ?? {}}
+              submitLabel="Submit"
+              pendingLabel="Saving…"
+              action={completeFormTask.bind(null, assignment.id)}
+              uploadAction={uploadFormFile}
+              uploadScope={`task-${task.id}`}
+            />
+          ) : isFileTask ? null : (
+            <p className="text-sm text-destructive">
+              This task needs a form linked to it — ask the organizers to check its setup.
+            </p>
+          )}
 
-        {/* The thread belongs to the deliverable, so it stays out of the way on
-            tasks that never carry one — unless the organizer has already
-            started it. */}
-        {isFileTask || comments.length > 0 ? (
-          <FileCommentThread
-            comments={comments}
-            timeZone={timeZone}
-            action={postTaskComment.bind(null, assignment.id)}
-            placeholder="Ask a question or leave a note for the organizers…"
-          />
-        ) : null}
-      </div>
-    </details>
+          {/* The thread belongs to the deliverable, so it stays out of the way on
+              tasks that never carry one — unless the organizer has already
+              started it. */}
+          {isFileTask || comments.length > 0 ? (
+            <FileCommentThread
+              comments={comments}
+              timeZone={timeZone}
+              action={postTaskComment.bind(null, assignment.id)}
+              placeholder="Ask a question or leave a note for the organizers…"
+            />
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -36,11 +36,11 @@ function localInput(days: number): string {
   )}:${pad(when.getMinutes())}`;
 }
 
-/** Picks a point on a segmented 1–5 criterion (W25): the radio input is
- * sr-only, so its clipped box can't take a pointer hit — the visible label
- * segment does, and checking the input afterwards proves it registered. */
+/** Picks a point on a segmented 1–5 criterion: since the W29 a11y fix the
+ * radio input is an invisible overlay covering its segment, so it takes the
+ * pointer hit directly; checking it afterwards proves it registered. */
 async function pickPoint(page: Page, criterion: string, point: number): Promise<void> {
-  await page.locator(`label:has(#criterion-${criterion}-${point})`).click();
+  await page.locator(`#criterion-${criterion}-${point}`).click();
   await expect(page.locator(`#criterion-${criterion}-${point}`)).toBeChecked();
 }
 

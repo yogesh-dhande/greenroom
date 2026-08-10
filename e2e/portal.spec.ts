@@ -42,22 +42,24 @@ const HEADSHOT = Buffer.from(
   "base64",
 );
 
-/** Each task renders as a `<details>` row labelled by its title (role
- * "group" since the W25 collapse) — scopes a locator so two "form" tasks'
- * identical "Submit" buttons (or two speakers' identically-titled tasks)
- * don't collide. */
+/** Each task renders as a disclosure row labelled by its title (role
+ * "group", with a real button trigger since the W29 a11y fix) — scopes a
+ * locator so two "form" tasks' identical "Submit" buttons (or two speakers'
+ * identically-titled tasks) don't collide. */
 function taskRegion(page: import("@playwright/test").Page, title: string) {
   return page.getByRole("group", { name: title });
 }
 
-/** Tasks start collapsed (only the next-due one opens itself), and a closed
- * `<details>` hides its controls — expand before interacting. */
+/** Tasks start collapsed (only the next-due one opens itself), and a
+ * collapsed task hides its controls — expand before interacting. The
+ * trigger is the group's first button, carrying aria-expanded. */
 async function openTask(page: import("@playwright/test").Page, title: string) {
-  const details = taskRegion(page, title);
-  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) {
-    await details.locator("summary").click();
+  const region = taskRegion(page, title);
+  const trigger = region.locator('button[aria-expanded]').first();
+  if ((await trigger.getAttribute("aria-expanded")) === "false") {
+    await trigger.click();
   }
-  return details;
+  return region;
 }
 
 test("a speaker signs in and sees their onboarding tasks", async ({ page }) => {
