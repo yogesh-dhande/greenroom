@@ -45,8 +45,8 @@ const OUTCOME_LABEL: Record<SpeakerImportOutcome, string> = {
  * land: the org registry, not an event roster.
  *
  * The dialog stays open on success to show the per-row result. An import that
- * merged half its rows into existing accounts is the normal outcome for an
- * org that already runs events, not a failure, and the organizer has to be
+ * skipped half its rows as contacts you already have is the normal outcome for
+ * an org that already runs events, not a failure, and the organizer has to be
  * able to see which half.
  */
 export function ImportContactsDialog() {
@@ -120,8 +120,8 @@ export function ImportContactsDialog() {
           <DialogTitle>Import contacts</DialogTitle>
           <DialogDescription>
             One row per contact, with the header <code>{SPEAKER_CSV_HEADER}</code>. Name and email
-            are required; column order doesn&apos;t matter. Addresses that already have an account
-            are merged, never duplicated — so re-importing the same file is safe.
+            are required; column order doesn&apos;t matter. Addresses already in the directory are
+            skipped as duplicates rather than merged — so re-importing the same file is safe.
           </DialogDescription>
         </DialogHeader>
 

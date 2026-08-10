@@ -6,10 +6,15 @@ import { contactDisplayName } from "@/domain/crm";
 import { formatPipelineScore, PIPELINE_STAGE_LABELS } from "@/domain/pipeline";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
+import { formatDateRange } from "@/components/date-format";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+// The profile's picker and its server action, reused rather than reimplemented:
+// "add to event" is one behaviour with two entry points (spec.md, D-077).
+import { AddToEventDialog } from "@/app/admin/(org)/directory/[userId]/add-to-event-dialog";
+import type { EventOption } from "@/app/admin/(org)/directory/types";
 import { AddNoteForm } from "./add-note-form";
 import { MoveStageMenu } from "../move-stage-menu";
 
@@ -73,6 +78,19 @@ export default async function PipelineCardPage({
   const displayName = contactDisplayName(contact);
   const notes = detail.notes;
 
+  // Sourcing ends in "put them on an event", so the picker belongs here as well
+  // as on the profile (spec.md: "from a profile or pipeline card"). Nothing is
+  // copied when it fires — identity is email-global (decisions.md D-051).
+  const allEvents = await repos.events.listAll();
+  const connectedEventIds = new Set(detail.events.map((link) => link.eventId));
+  const eventOptions: EventOption[] = allEvents.map((event) => ({
+    id: event.id,
+    slug: event.slug,
+    name: event.name,
+    dates: formatDateRange(event.startDate, event.endDate),
+    connected: connectedEventIds.has(event.id),
+  }));
+
   const peopleIds = [
     ...new Set(
       [
@@ -102,7 +120,10 @@ export default async function PipelineCardPage({
         title={displayName}
         description={[contact.title, contact.company].filter(Boolean).join(" · ") || undefined}
         action={
-          <MoveStageMenu cardId={card.id} stage={card.stage} contactName={displayName} />
+          <div className="flex flex-wrap items-center gap-2">
+            <MoveStageMenu cardId={card.id} stage={card.stage} contactName={displayName} />
+            <AddToEventDialog userId={contact.id} events={eventOptions} />
+          </div>
         }
       />
 
@@ -119,6 +140,27 @@ export default async function PipelineCardPage({
             <div className="flex items-center gap-2 pt-1">
               <span className="text-muted-foreground">Stage</span>
               <Badge variant="outline">{PIPELINE_STAGE_LABELS[card.stage]}</Badge>
+            </div>
+            <div className="flex flex-col gap-1 pt-1">
+              <span className="text-muted-foreground">Events</span>
+              {detail.events.length === 0 ? (
+                <span className="text-muted-foreground">
+                  Not on any event yet — use Add to event.
+                </span>
+              ) : (
+                <ul className="flex flex-col gap-0.5">
+                  {detail.events.map((link) => (
+                    <li key={link.eventId}>
+                      <Link
+                        href={`/admin/${link.eventSlug}/speakers/${contact.id}`}
+                        className="text-foreground underline-offset-4 hover:underline"
+                      >
+                        {link.eventName}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <Link
               href={`/admin/directory/${contact.id}`}

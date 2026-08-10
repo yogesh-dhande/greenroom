@@ -109,7 +109,6 @@ export interface ContactsRepo {
   /** Idempotent by user: re-adding leaves the original row (and its source)
    * alone, the same contract as `EventSpeakersRepo.add`. */
   addToRegistry(userId: string, source?: ContactSource): Promise<Contact>;
-  getRegistryEntry(userId: string): Promise<Contact | null>;
 
   // --- tags ---
   listTags(userId: string): Promise<ContactTag[]>;

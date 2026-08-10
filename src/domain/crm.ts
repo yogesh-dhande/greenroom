@@ -20,6 +20,7 @@ import type {
 } from "@/db/entities";
 import type { DirectoryContact, DirectoryFilter } from "@/db/repos/contacts";
 import { countCardsByStage } from "@/domain/pipeline";
+import { normalizeEmail } from "@/domain/team";
 
 // ---------------------------------------------------------------------------
 // Tags
@@ -158,6 +159,40 @@ export function findDisplayNameCollision(
   if (!key) return null;
   const match = contacts.find((contact) => contactDisplayName(contact).toLowerCase() === key);
   return match ? match.email : null;
+}
+
+/**
+ * What a "new contact" request (typed in by hand or read off a CSV row) should
+ * do, decided *before* anything is written (spec.md: "Duplicates are checked
+ * before creation, not just flagged after").
+ *
+ * The two duplicate cases are deliberately different in kind:
+ *
+ * - Same **address** — the same person, because email is this app's identity
+ *   key (decisions.md D-051). Rejected outright, with the existing contact
+ *   returned so the caller can point at it; merging it in silently would hide
+ *   a record the organizer can already open.
+ * - Same **display name**, different address — only a *possible* duplicate
+ *   (decisions.md D-059): two people can share a name. Created anyway, with
+ *   the collision reported so the organizer sees it while it is still cheap to
+ *   act on. Merge is out of scope either way (decisions.md D-065).
+ *
+ * `contacts` is the directory as `ContactsRepo.listDirectory` defines it —
+ * registry rows *and* everyone who speaks at an event — which is what makes
+ * "already in the directory" mean the same thing here as on the page.
+ */
+export type ContactCreationPlan =
+  | { action: "reject"; existing: DirectoryContact }
+  | { action: "create"; nameCollisionEmail: string | null };
+
+export function planContactCreation(
+  contacts: readonly DirectoryContact[],
+  input: { name: string; email: string },
+): ContactCreationPlan {
+  const email = normalizeEmail(input.email);
+  const existing = contacts.find((contact) => normalizeEmail(contact.email) === email);
+  if (existing) return { action: "reject", existing };
+  return { action: "create", nameCollisionEmail: findDisplayNameCollision(contacts, input.name) };
 }
 
 // ---------------------------------------------------------------------------

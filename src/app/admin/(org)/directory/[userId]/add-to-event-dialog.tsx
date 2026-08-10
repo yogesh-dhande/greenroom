@@ -27,9 +27,11 @@ import { addContactToEvent } from "../actions";
 import type { EventOption } from "../types";
 
 /**
- * "Add to event" from a contact profile (spec.md "Org-level speaker CRM": an
- * event picker attaches the contact to that event's roster with profile data
- * carried over without re-entry).
+ * "Add to event" from a contact profile *or* a pipeline card (spec.md
+ * "Org-level speaker CRM": an event picker attaches the contact to that
+ * event's roster with profile data carried over without re-entry). One
+ * component and one server action for both entry points — the pipeline card
+ * page imports this rather than growing a second picker.
  *
  * Events they're already connected to stay in the list but can't be picked —
  * hiding them would leave an organizer wondering whether the picker was

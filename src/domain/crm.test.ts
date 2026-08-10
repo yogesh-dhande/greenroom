@@ -13,6 +13,7 @@ import {
   normalizeDirectoryFilter,
   normalizeTagLabel,
   normalizeTagLabels,
+  planContactCreation,
   sortDirectoryContacts,
   topCompanies,
 } from "@/domain/crm";
@@ -183,6 +184,58 @@ describe("findDisplayNameCollision", () => {
 
   it("returns null for a blank name rather than matching a nameless contact", () => {
     expect(findDisplayNameCollision(existing, "  ")).toBeNull();
+  });
+});
+
+describe("planContactCreation", () => {
+  const directory = [
+    contact({ userId: "u1", name: "Priya Raman", email: "priya@example.com" }),
+    // In the directory by speaking at an event, not by a registry row — the
+    // union `listDirectory` returns, and still a duplicate.
+    contact({
+      userId: "u2",
+      name: "Tom Beckett",
+      email: "tom@example.com",
+      inRegistry: false,
+      eventCount: 2,
+    }),
+  ];
+
+  it("rejects an address already in the directory, returning that contact", () => {
+    const plan = planContactCreation(directory, { name: "P. Raman", email: "priya@example.com" });
+    expect(plan.action).toBe("reject");
+    expect(plan).toMatchObject({ existing: { userId: "u1" } });
+  });
+
+  it("rejects regardless of case or padding on the submitted address", () => {
+    expect(
+      planContactCreation(directory, { name: "Priya", email: "  PRIYA@Example.com " }).action,
+    ).toBe("reject");
+  });
+
+  it("rejects a contact who is only in the directory by speaking at an event", () => {
+    const plan = planContactCreation(directory, { name: "Tom Beckett", email: "tom@example.com" });
+    expect(plan).toMatchObject({ action: "reject", existing: { userId: "u2" } });
+  });
+
+  it("creates a new address, reporting a shared name as a possible duplicate", () => {
+    expect(
+      planContactCreation(directory, { name: "priya raman", email: "priya@work.example.com" }),
+    ).toEqual({ action: "create", nameCollisionEmail: "priya@example.com" });
+  });
+
+  it("creates with no collision when neither the address nor the name is known", () => {
+    expect(planContactCreation(directory, { name: "Ada Wong", email: "ada@example.com" })).toEqual({
+      action: "create",
+      nameCollisionEmail: null,
+    });
+  });
+
+  it("creates against an empty directory", () => {
+    expect(planContactCreation([], { name: "Ada Wong", email: "ada@example.com" })).toEqual({
+      action: "create",
+      nameCollisionEmail: null,
+    });
   });
 });
 

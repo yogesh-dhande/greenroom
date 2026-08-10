@@ -264,11 +264,6 @@ export function createContactsRepo(db: DrizzleD1): ContactsRepo {
       return contactSchema.parse(existing);
     },
 
-    async getRegistryEntry(userId) {
-      const row = await db.query.contacts.findFirst({ where: eq(contacts.userId, userId) });
-      return row ? contactSchema.parse(row) : null;
-    },
-
     async listTags(userId) {
       const rows = await db.query.contactTags.findMany({
         where: eq(contactTags.userId, userId),

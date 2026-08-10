@@ -3,14 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { User } from "@/db/entities";
-import type { DirectoryFilter } from "@/db/repos/contacts";
+import type { DirectoryContact, DirectoryFilter } from "@/db/repos/contacts";
 import type { Repos } from "@/db/repos";
 import { checkTemplateDraft, type MergeData } from "@/domain/comms-templates";
 import { sendManualEmail } from "@/domain/comms";
 import {
-  findDisplayNameCollision,
+  contactDisplayName,
   normalizeDirectoryFilter,
   normalizeTagLabel,
+  planContactCreation,
   TAG_MAX_LENGTH,
 } from "@/domain/crm";
 import { normalizeSegmentName, serializeSegmentQuery } from "@/domain/segments";
@@ -72,9 +73,11 @@ export type AddContactInput = z.infer<typeof addContactInputSchema>;
  * Creates or reuses the person behind an address and registers them as an org
  * contact.
  *
- * Identity is global by email (decisions.md D-051), so this is deliberately
- * the *same* create-or-reuse rule the event roster applies: an address that
- * already has an account joins the directory rather than forking a second
+ * Callers reject addresses that are *already in the directory* before they get
+ * here (`planContactCreation`), so the reuse branch below only ever covers an
+ * account that exists without being a contact yet — an admin, a reviewer, a
+ * submitter nobody has accepted. Identity is global by email (decisions.md
+ * D-051), so that account joins the directory rather than forking a second
  * record, and an import never overwrites what someone has saved on their own
  * profile — it only fills blanks (`importProfilePatch`).
  *
@@ -123,20 +126,48 @@ async function createOrReuseContact(
 }
 
 /**
+ * The row a just-written contact would occupy in the directory, so an import
+ * can keep its snapshot current without re-reading. Only identity fields are
+ * real — `planContactCreation` reads address and name and nothing else, and a
+ * brand-new contact genuinely has no tags and no events.
+ */
+function directorySnapshotRow(user: User): DirectoryContact {
+  return {
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    title: user.title,
+    company: user.company,
+    headshotUrl: user.headshotUrl,
+    tags: [],
+    eventCount: 0,
+    inRegistry: true,
+  };
+}
+
+/**
+ * The result of "Add contact". The failure carries the duplicate's id when
+ * there is one, so the dialog can offer to *open* the contact that blocked the
+ * add rather than leaving the organizer to search for it.
+ */
+export type AddContactResult =
+  | { ok: true; data: { userId: string; message: string } }
+  | { ok: false; error: string; existingUserId?: string };
+
+/**
  * The directory's manual "Add contact" (spec.md: manual contact creation) —
  * a prospect nobody has invited to an event yet, typed in by hand.
  *
- * Two duplicate checks run before anything is written (rather than leaving
- * the organizer to notice the "Possible duplicate" badge after the fact):
- * (1) email is this app's identity key (decisions.md D-051) — a contact
- * already registered under the submitted address is rejected outright,
- * clearly, instead of silently re-linking a record the organizer can already
- * find; (2) a shared *name* under a different email is only a possible
- * duplicate (decisions.md D-059) — two different people can share a name —
- * so that case still creates the contact, with a flash note pointing at the
- * existing one.
+ * Both duplicate checks run before anything is written, in `planContactCreation`
+ * (rather than leaving the organizer to notice the "Possible duplicate" badge
+ * after the fact): an address already in the directory is rejected outright
+ * with a pointer to the record that already holds it, and a shared *name*
+ * under a different address still creates the contact with a flash note about
+ * the possible duplicate. "In the directory" is the union the directory page
+ * itself lists — a registry row *or* speaking at any event — so someone an
+ * organizer can already open from `/admin/directory` can never be re-added.
  */
-export async function addContact(input: AddContactInput) {
+export async function addContact(input: AddContactInput): Promise<AddContactResult> {
   await requireAdmin(DIRECTORY_PATH);
 
   const parsed = addContactInputSchema.safeParse(input);
@@ -145,16 +176,21 @@ export async function addContact(input: AddContactInput) {
   const repos = await getRepos();
   const email = normalizeEmail(parsed.data.email);
 
-  const existingUser = await repos.users.getByEmail(email);
-  if (existingUser) {
-    const registryEntry = await repos.contacts.getRegistryEntry(existingUser.id);
-    if (registryEntry) {
-      return fail(`${email} is already in the directory — a contact can't be added twice.`);
-    }
-  }
-
   const allContacts = await repos.contacts.listDirectory();
-  const collisionEmail = findDisplayNameCollision(allContacts, parsed.data.name);
+  const plan = planContactCreation(allContacts, { name: parsed.data.name, email });
+  if (plan.action === "reject") {
+    const existingName = contactDisplayName(plan.existing);
+    const who =
+      existingName === plan.existing.email
+        ? plan.existing.email
+        : `${plan.existing.email} (${existingName})`;
+    return {
+      ok: false as const,
+      error: `${who} is already in the directory — a contact can't be added twice. Open that contact instead.`,
+      existingUserId: plan.existing.userId,
+    };
+  }
+  const collisionEmail = plan.nameCollisionEmail;
 
   let result: { user: User; created: boolean };
   try {
@@ -200,9 +236,14 @@ export interface ImportContactsResult {
  *
  * Same pure parser as the roster's import (src/domain/speaker-import.ts) and
  * the same create-or-reuse write, minus the event: nobody lands on a roster
- * here, they land in the registry. Re-importing a file that has already been
- * imported therefore merges rather than duplicating, both within one file
- * (the parser folds repeated addresses) and across runs (the address lookup).
+ * here, they land in the registry.
+ *
+ * Rows go through the same `planContactCreation` the manual add uses, so a row
+ * whose address is already in the directory is *reported as a skipped
+ * duplicate* rather than quietly merged into that contact — the organizer sees
+ * which half of their file was already known. Re-importing a file is therefore
+ * still safe, both within one file (the parser folds repeated addresses) and
+ * across runs; it just does nothing the second time.
  *
  * Rows are written one at a time on purpose: one failing row must not cost
  * the organizer the other forty-nine.
@@ -217,18 +258,40 @@ export async function importContacts(csv: string) {
   const repos = await getRepos();
   const results: SpeakerImportResultRow[] = [];
 
+  // One read of the directory for the whole file, kept current as rows land:
+  // a contact created on line 3 has to be visible to the duplicate and
+  // name-collision checks on line 40, and re-reading per row would be a
+  // full directory scan per line.
+  const directory = await repos.contacts.listDirectory();
+
   for (const row of rows) {
+    const plan = planContactCreation(directory, row);
+    if (plan.action === "reject") {
+      results.push({
+        email: plan.existing.email,
+        name: contactDisplayName(plan.existing),
+        outcome: "skipped",
+        detail: "Already in the directory — skipped as a duplicate",
+      });
+      continue;
+    }
+
     try {
       const { user, created, filled } = await createOrReuseContact(repos, row, "import");
+      directory.push(directorySnapshotRow(user));
       results.push({
         email: user.email,
         name: user.name ?? row.name,
         outcome: created ? "created" : "merged",
-        detail: created
-          ? undefined
-          : filled.length > 0
-            ? `Already had an account — filled in ${filled.join(", ")}`
-            : "Already had an account — nothing to change",
+        detail: plan.nameCollisionEmail
+          ? // A shared name under a different address is a possible duplicate,
+            // never a merge (decisions.md D-059, D-065).
+            `Possible duplicate — ${plan.nameCollisionEmail} uses the same name`
+          : created
+            ? undefined
+            : filled.length > 0
+              ? `Already had an account — filled in ${filled.join(", ")}`
+              : "Already had an account — nothing to change",
       });
     } catch {
       results.push({
@@ -453,6 +516,9 @@ export async function addContactToEvent(input: AddContactToEventInput) {
   revalidatePath(profilePath(detail.user.id));
   revalidatePath(DIRECTORY_PATH);
   revalidatePath(`/admin/${event.slug}/speakers`);
+  // The same picker is on their pipeline card, which lists the events they are
+  // connected to — that page has to stop offering the event it just attached.
+  if (detail.card) revalidatePath(`/admin/pipeline/${detail.card.id}`);
   return {
     ok: true as const,
     data: {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -53,6 +54,8 @@ const EMPTY: FormValues = { name: "", email: "", title: "", company: "", bio: ""
 export function AddContactDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  /** Set when the add was refused because the address is already a contact. */
+  const [duplicateUserId, setDuplicateUserId] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -62,6 +65,7 @@ export function AddContactDialog() {
   } = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: EMPTY });
 
   async function onSubmit(values: FormValues) {
+    setDuplicateUserId(null);
     let result;
     try {
       result = await withActionTimeout(addContact(values));
@@ -77,7 +81,18 @@ export function AddContactDialog() {
     }
     if (!result.ok) {
       setError("root", { message: result.error });
-      toast.error(result.error);
+      const existingUserId = result.existingUserId ?? null;
+      setDuplicateUserId(existingUserId);
+      toast.error(result.error, {
+        // A duplicate address is the one failure with somewhere to go: the
+        // contact that already holds it (decisions.md D-051).
+        action: existingUserId
+          ? {
+              label: "Open contact",
+              onClick: () => router.push(`/admin/directory/${existingUserId}`),
+            }
+          : undefined,
+      });
       return;
     }
     toast.success(result.data.message);
@@ -91,7 +106,10 @@ export function AddContactDialog() {
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) reset(EMPTY);
+        if (!next) {
+          reset(EMPTY);
+          setDuplicateUserId(null);
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -151,7 +169,19 @@ export function AddContactDialog() {
             />
           </div>
 
-          {errors.root && <p className="text-sm text-destructive">{errors.root.message}</p>}
+          {errors.root && (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm text-destructive">{errors.root.message}</p>
+              {duplicateUserId ? (
+                <Link
+                  href={`/admin/directory/${duplicateUserId}`}
+                  className="text-sm text-foreground underline underline-offset-4"
+                >
+                  Open the existing contact
+                </Link>
+              ) : null}
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>
