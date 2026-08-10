@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { CheckIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import {
@@ -9,27 +8,18 @@ import {
   TASK_STATE_LABEL,
   type AssignmentView,
   type SpeakerRollup,
-  type TaskState,
 } from "@/domain/onboarding";
 import { formatDueDate } from "@/lib/event-time";
-import { cn } from "@/lib/utils";
+import { CompletionMeter } from "@/components/completion-meter";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { TaskStateStrip } from "@/components/task-state";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AddSpeakerDialog } from "./add-speaker-dialog";
 import { ImportSpeakersDialog } from "./import-speakers-dialog";
 import { loadSpeakerRoster } from "./roster";
 import { SpeakerFilters } from "./speaker-filters";
-
-/** Per-task-state badge styling. `warning` is the shared semantic token for
- * anything due soon (decisions.md D-018) — never a raw amber class. */
-const STATE_BADGE_CLASS: Record<TaskState, string> = {
-  complete: "border-border text-muted-foreground",
-  open: "border-border text-foreground",
-  due_soon: "border-warning bg-warning/10 text-warning",
-  overdue: "border-destructive bg-destructive/10 text-destructive",
-};
 
 /**
  * The profile pieces the program can't be published without (spec.md §6 — a
@@ -45,12 +35,12 @@ function missingProfileParts(speaker: { bio: string | null; headshotUrl: string 
 }
 
 /**
- * "Upload your headshot — Overdue (due Aug 8, 2026)": a pill's tooltip names
- * the task, its state, and its due date in one line, so an admin doesn't have
- * to open the speaker record to read what a colored pill means. Due dates
- * render in the event's own zone (decisions.md D-055) — never the viewer's.
+ * "Upload your headshot — Overdue (due Aug 8, 2026)": a square's tooltip and
+ * accessible name in one line, so an admin doesn't have to open the speaker
+ * record to read what a colored square means. Due dates render in the event's
+ * own zone (decisions.md D-055) — never the viewer's.
  */
-function taskPillTitle(view: AssignmentView, timeZone: string): string {
+function taskSquareTitle(view: AssignmentView, timeZone: string): string {
   const due = view.task.dueAt ? `due ${formatDueDate(view.task.dueAt, timeZone)}` : "no due date";
   return `${view.task.title} — ${TASK_STATE_LABEL[view.state]} (${due})`;
 }
@@ -229,10 +219,12 @@ export default async function SpeakersPage({
                         );
                       })()}
                     </TableCell>
-                    <TableCell className="tabular-nums text-muted-foreground">
-                      {rollup.totalTasks === 0
-                        ? "No tasks"
-                        : `${rollup.completedTasks}/${rollup.totalTasks} (${rollup.completionPercent}%)`}
+                    <TableCell>
+                      <CompletionMeter
+                        done={rollup.completedTasks}
+                        total={rollup.totalTasks}
+                        emptyLabel="No tasks"
+                      />
                     </TableCell>
                     <TableCell>
                       {rollup.overdueTasks > 0 ? (
@@ -258,23 +250,23 @@ export default async function SpeakersPage({
                       )}
                     </TableCell>
                     <TableCell>
-                      {rollup.views.length === 0 ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {rollup.views.map((view) => (
-                            <Badge
-                              key={view.assignment.id}
-                              variant="outline"
-                              className={cn(STATE_BADGE_CLASS[view.state])}
-                              title={taskPillTitle(view, event.timezone)}
-                            >
-                              {view.state === "complete" && <CheckIcon aria-hidden />}
-                              {view.task.title}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
+                      {/* Squares rather than title pills: the titles are
+                          repeated on every row of the table, and spelling
+                          them out wrapped each row to two or three lines.
+                          The title survives as the square's tooltip — which
+                          is why the strip is lifted above the name link's
+                          whole-row overlay, unlike the rest of the row: the
+                          tooltip is now the only way to read a task's title
+                          from here, so the overlay must not swallow the
+                          hover. */}
+                      <TaskStateStrip
+                        className="relative z-10"
+                        items={rollup.views.map((view) => ({
+                          key: view.assignment.id,
+                          state: view.state,
+                          title: taskSquareTitle(view, event.timezone),
+                        }))}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

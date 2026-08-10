@@ -67,7 +67,16 @@ export default async function RoundResultsPage({
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Submissions in round" value={rows.length} />
         <StatCard label="Scorecards filed" value={scorecards} />
-        <StatCard label="Still outstanding" value={Math.max(outstanding, 0)} />
+        <StatCard
+          label="Still outstanding"
+          value={Math.max(outstanding, 0)}
+          sublabel="Scorecards nobody has filed"
+          // Chasing them is the assignments page's job — it lists the same
+          // work per reviewer and can send the reminder.
+          href={`/admin/${eventSlug}/rounds/${roundId}/assignments`}
+          tone="attention"
+          clearLabel="Every scorecard is in"
+        />
       </div>
 
       {rows.length === 0 ? (

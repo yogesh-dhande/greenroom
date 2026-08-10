@@ -16,6 +16,7 @@ import {
 } from "@/lib/uploads";
 import { formatDueDate } from "@/lib/event-time";
 import { cn } from "@/lib/utils";
+import { TASK_STATE_BADGE_CLASS } from "@/components/task-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,15 +30,6 @@ import {
   completeFormTask,
   postTaskComment,
 } from "./actions";
-
-/** Overdue/due-soon use the shared `warning`/`destructive` semantic tokens
- * only — never a raw amber class (decisions.md D-018). */
-const STATE_BADGE_CLASS: Record<TaskState, string> = {
-  complete: "border-border text-muted-foreground",
-  open: "border-border text-foreground",
-  due_soon: "border-warning bg-warning/10 text-warning",
-  overdue: "border-destructive bg-destructive/10 text-destructive",
-};
 
 /**
  * The upload control for a `file_request` task — the first delivery and every
@@ -243,7 +235,7 @@ export function TaskItem({
             )}
           </div>
         </div>
-        <Badge variant="outline" className={STATE_BADGE_CLASS[state]}>
+        <Badge variant="outline" className={TASK_STATE_BADGE_CLASS[state]}>
           {TASK_STATE_LABEL[state]}
         </Badge>
       </button>

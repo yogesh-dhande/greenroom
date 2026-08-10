@@ -955,7 +955,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         page,
         page.getByRole("row").filter({ hasText: "Nadia Farouk" }),
         "And on the organizer's side, that submission is already visible —",
-        "Nadia's completion, her overdue count, and her outstanding tasks listed.",
+        "Nadia's completion meter, her overdue count, and a square per task at a glance.",
       );
       await point(
         page,

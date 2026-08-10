@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CompletionMeter } from "@/components/completion-meter";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -170,8 +171,16 @@ export default async function RoundsPage({
                       ? `${reviewers.size} assigned`
                       : `${mine.length} submission${mine.length === 1 ? "" : "s"}`}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {progressLabel({ done: done.length, required: required.length })}
+                  <TableCell>
+                    {/* Drawn, but still spoken as the round's own sentence —
+                        `progressLabel` stays the one wording for review
+                        progress across every rounds surface. */}
+                    <CompletionMeter
+                      done={done.length}
+                      total={required.length}
+                      label={progressLabel({ done: done.length, required: required.length })}
+                      emptyLabel="Nothing assigned"
+                    />
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex flex-wrap justify-end gap-2">

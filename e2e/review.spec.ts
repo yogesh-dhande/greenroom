@@ -337,7 +337,7 @@ test("a reviewer's overview stops at the submissions they can see", async ({ pag
   await page.goto(`/admin/${EVENT_SLUG}`);
   // Positive control: the admin gets the whole-event cards...
   await expect(
-    page.locator('[data-slot="card-title"]', { hasText: /^Scheduled sessions$/ }),
+    page.locator('[data-slot="card-title"]', { hasText: /^Unscheduled sessions$/ }),
   ).toBeVisible();
   const adminSubmissions = await statValue(page, "Submissions");
 
@@ -345,7 +345,7 @@ test("a reviewer's overview stops at the submissions they can see", async ({ pag
   await page.goto(`/admin/${EVENT_SLUG}`);
 
   // ...while the admin-only surfaces' numbers are gone for her, not zeroed.
-  for (const label of ["Sessions", "Scheduled sessions", "Speakers", "Tasks"]) {
+  for (const label of ["Sessions", "Unscheduled sessions", "Speakers", "Tasks"]) {
     await expect(
       page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${label}$`) }),
     ).toHaveCount(0);

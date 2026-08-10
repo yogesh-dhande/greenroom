@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CompletionMeter } from "@/components/completion-meter";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -82,7 +83,12 @@ export default async function ReviewerQueuePage({
       <div className="mb-6 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
         <Badge variant={state === "open" ? "default" : "outline"}>{ROUND_STATE_LABEL[state]}</Badge>
         <span>{roundWindowLabel(round, event.timezone)}</span>
-        <span>{progressLabel({ done: done.length, required: required.length })}</span>
+        <CompletionMeter
+          done={done.length}
+          total={required.length}
+          label={progressLabel({ done: done.length, required: required.length })}
+          emptyLabel="Nothing assigned"
+        />
         {blind ? <Badge variant="outline">Blind review</Badge> : null}
       </div>
 

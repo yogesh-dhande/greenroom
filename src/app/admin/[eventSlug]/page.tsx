@@ -1,16 +1,26 @@
 import Link from "next/link";
 import { getRepos } from "@/lib/db";
 import { requireEventAccess } from "@/lib/session";
+import { buildAssignmentViews } from "@/domain/onboarding";
 import { programVisible } from "@/domain/program-visibility";
+import { detectConflicts } from "@/domain/scheduling";
+import { QUEUE_VIEW_ALL } from "@/domain/review";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/stat-card";
 import { EmbedsCard } from "./embeds-card";
 import { ProgramPublishCard } from "./program-publish-card";
+import { VIEW_PARAM } from "./submissions/filters";
 import { loadVisibleSubmissions } from "./submissions/queue";
 
 /** Event overview: a handful of real numbers pulled from the repos, plus
- * links into the day-to-day surfaces. */
+ * links into the day-to-day surfaces.
+ *
+ * Every card is a link to the list its number was counted from, and the four
+ * that stand for work somebody owes — unreviewed submissions, unscheduled
+ * sessions, agenda conflicts, overdue tasks — carry the `attention` tone, so
+ * the page reads as a to-do list while there is anything to do and goes quiet
+ * once there isn't. */
 export default async function EventOverviewPage({
   params,
 }: {
@@ -41,9 +51,11 @@ export default async function EventOverviewPage({
   // above, same as the "Jump back in" links below.
   let sessionStats: {
     sessions: number;
-    scheduled: number;
+    unscheduled: number;
+    conflicts: number;
     speakerCount: number;
     taskCount: number;
+    overdueTasks: number;
   } | null = null;
   if (user.role === "admin") {
     const [sessions, tasks, taskAssignments] = await Promise.all([
@@ -51,7 +63,7 @@ export default async function EventOverviewPage({
       repos.tasks.listByEvent(event.id),
       repos.taskAssignments.listByEvent(event.id),
     ]);
-    const scheduled = sessions.filter((s) => s.day && s.startTime).length;
+    const unscheduled = sessions.filter((s) => !s.day || !s.startTime).length;
 
     // Same "speaker with a stake in this event" definition as the Speakers
     // roster (src/domain/onboarding.ts buildSpeakerRollups via
@@ -67,7 +79,53 @@ export default async function EventOverviewPage({
       ...taskAssignments.map((assignment) => assignment.speakerId),
     ]).size;
 
-    sessionStats = { sessions: sessions.length, scheduled, speakerCount, taskCount: tasks.length };
+    // The agenda's own conflict detector (src/domain/scheduling.ts), run on
+    // the same session-plus-speakers shape the board builds — the overview
+    // counts what the agenda would draw a warning on, rather than a second
+    // idea of what a clash is.
+    const speakerIdsBySession = new Map<string, string[]>();
+    for (const row of sessionSpeakerRows) {
+      speakerIdsBySession.set(row.sessionId, [
+        ...(speakerIdsBySession.get(row.sessionId) ?? []),
+        row.userId,
+      ]);
+    }
+    const conflicts = detectConflicts(
+      sessions.map((session) => ({
+        ...session,
+        speakerIds: speakerIdsBySession.get(session.id) ?? [],
+      })),
+    );
+
+    // "Overdue" is `deriveTaskState`'s answer, the one the roster and the
+    // speaker portal already show — not a second due-date comparison here.
+    const overdueTasks = buildAssignmentViews(
+      taskAssignments,
+      new Map(tasks.map((task) => [task.id, task])),
+    ).filter((view) => view.state === "overdue").length;
+
+    sessionStats = {
+      sessions: sessions.length,
+      unscheduled,
+      conflicts: conflicts.length,
+      speakerCount,
+      taskCount: tasks.length,
+      overdueTasks,
+    };
+  }
+
+  /**
+   * Where a submission stat card leads: the queue, narrowed to the status the
+   * card counted. `view=all` is pinned because these numbers are counted over
+   * everything the viewer may read (`loadVisibleSubmissions`), while the queue
+   * defaults a reviewer holding assignments to just their own (decisions.md
+   * D-066) — without it the card would hand them a shorter list than the
+   * number promised.
+   */
+  function queueHref(status?: string): string {
+    const query = new URLSearchParams({ [VIEW_PARAM]: QUEUE_VIEW_ALL });
+    if (status) query.set("status", status);
+    return `/admin/${eventSlug}/submissions?${query.toString()}`;
   }
 
   return (
@@ -75,22 +133,59 @@ export default async function EventOverviewPage({
       <PageHeader title="Overview" description="Where this event stands right now." />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        <StatCard label="Submissions" value={submissions.length} />
-        <StatCard label="Unreviewed" value={unreviewed} sublabel="Awaiting a decision" />
-        <StatCard label="Accepted" value={accepted} />
+        <StatCard label="Submissions" value={submissions.length} href={queueHref()} />
+        <StatCard
+          label="Unreviewed"
+          value={unreviewed}
+          sublabel="Awaiting a decision"
+          href={queueHref("submitted")}
+          tone="attention"
+          clearLabel="Every submission has a decision"
+        />
+        <StatCard label="Accepted" value={accepted} href={queueHref("approved")} />
         {sessionStats ? (
           <>
-            <StatCard label="Sessions" value={sessionStats.sessions} />
             <StatCard
-              label="Scheduled sessions"
-              value={sessionStats.scheduled}
-              sublabel="On the agenda"
+              label="Sessions"
+              value={sessionStats.sessions}
+              href={`/admin/${eventSlug}/agenda`}
             />
-            <StatCard label="Speakers" value={sessionStats.speakerCount} />
+            <StatCard
+              label="Unscheduled sessions"
+              value={sessionStats.unscheduled}
+              sublabel="Not on the agenda yet"
+              href={`/admin/${eventSlug}/agenda`}
+              tone="attention"
+              clearLabel="Every session has a slot"
+            />
+            <StatCard
+              label="Conflicts"
+              value={sessionStats.conflicts}
+              sublabel="Clashes on the agenda"
+              href={`/admin/${eventSlug}/agenda`}
+              tone="attention"
+              clearLabel="Nothing clashes"
+            />
+            <StatCard
+              label="Speakers"
+              value={sessionStats.speakerCount}
+              href={`/admin/${eventSlug}/speakers`}
+            />
+            <StatCard
+              label="Overdue tasks"
+              value={sessionStats.overdueTasks}
+              sublabel="Past their due date"
+              // The roster's own "Overdue" filter, so the list an organizer
+              // lands on is exactly the speakers behind this number.
+              href={`/admin/${eventSlug}/speakers?status=overdue`}
+              tone="attention"
+              clearLabel="Nobody is behind"
+            />
             <StatCard
               label="Tasks"
               value={sessionStats.taskCount}
               sublabel="Onboarding task types"
+              href={`/admin/${eventSlug}/tasks`}
             />
           </>
         ) : null}

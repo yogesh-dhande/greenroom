@@ -857,7 +857,8 @@ export const pipelineCards = sqliteTable(
     })
       .notNull()
       .default("identified"),
-    /** Optional 1-5 style fit score; null means nobody scored them. */
+    /** Optional 0-100 fit score (the enrol action validates the range);
+     * null means nobody scored them. */
     score: integer("score"),
     rationale: text("rationale"),
     ...timestamps,

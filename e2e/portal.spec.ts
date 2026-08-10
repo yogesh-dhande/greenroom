@@ -133,9 +133,10 @@ test("a speaker completes a form task and a file task, and it reflects on the ad
   await signIn(page, "admin@greenroom.dev");
   await page.goto(SPEAKERS_PAGE);
   const row = page.getByRole("row", { name: /Priya Raman/ });
-  await expect(row).toContainText("6/6 (100%)");
-  await expect(row.getByText(HOTEL_TASK)).toBeVisible();
-  await expect(row.getByText(FINALIZE_BIO_TASK)).toBeVisible();
+  await expect(row).toContainText("6 of 6 tasks complete");
+  // Task titles live on as each square's accessible name, alongside its state.
+  await expect(row.getByRole("img", { name: `${HOTEL_TASK} — Complete` })).toBeVisible();
+  await expect(row.getByRole("img", { name: `${FINALIZE_BIO_TASK} — Complete` })).toBeVisible();
   // No overdue tasks left for Priya (the "0" case renders as an em dash).
   await expect(row).toContainText("—");
 });
