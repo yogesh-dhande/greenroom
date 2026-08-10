@@ -1,8 +1,6 @@
 # Greenroom — Product Requirements
 
-Open-source speaker & event content management platform: an alternative to [Sessionboard](https://www.sessionboard.com/) (~$40k/yr), built for the AIE **"Kill My SaaS" competition**. The platform takes an event from an open call for speakers to an accepted, scheduled, and onboarded speaker lineup.
-
-**Deadline:** Wednesday, August 12, 2026, 10 PM PT. Submission = organizer's form + open-source repo + deployed, testable site + walkthrough.
+Open-source speaker & event content management platform: an alternative to [Sessionboard](https://www.sessionboard.com/). The platform takes an event from an open call for speakers to an accepted, scheduled, and onboarded speaker lineup.
 
 **Authoritative source:** [context/kill-my-saas-context.md](../context/kill-my-saas-context.md) — consolidated brief, walkthrough video, and Discord organizer clarifications (37 exported pages / 40 Sessionboard screenshots referenced there). Where sources conflict, newer organizer clarifications win. Original references: [competition brief](https://docs.google.com/document/d/1rBHJtiNKHv4i43tdf2Rm0sDEYuIcajhmAPoBKR_Az-A/edit) (see brief for annotated Sessionboard screenshots), [walkthrough video](https://youtu.be/vUuK4Knl7oc), [live CFP example](https://appv2.sessionboard.com/submit/ai-engineer-sandbox-event/b7d4d7cd-3012-45c2-9c08-a8ee9185182f), [schedule embed example](https://wf2025.ai.engineer/schedule), [Sessionboard API docs](https://sessionboard.mintlify.app/introduction).
 
