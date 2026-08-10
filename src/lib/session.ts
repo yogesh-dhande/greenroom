@@ -1,8 +1,8 @@
+import { cache } from "react";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { roleSchema, type Event, type Role } from "@/db/entities";
-import type { Repos } from "@/db/repos";
-import { accessibleEvents, canAccessEvent } from "@/domain/team";
+import { canAccessEvent } from "@/domain/team";
 import { getAuth } from "@/lib/auth";
 import { getRepos } from "@/lib/db";
 
@@ -21,8 +21,16 @@ export interface SessionUser {
 /** Roles allowed into /admin (spec.md: reviewers see only their tracks). */
 const ADMIN_AREA_ROLES: Role[] = ["admin", "reviewer"];
 
-/** Returns the signed-in user, or null when there is no valid session. */
-export async function getSessionUser(): Promise<SessionUser | null> {
+/**
+ * Returns the signed-in user, or null when there is no valid session.
+ *
+ * Memoized per request with React's `cache()` (the pattern established by
+ * src/app/p/[eventSlug]/data.ts): a single /admin/[eventSlug] render asks
+ * three times — the area layout, the event layout, and the page — and each ask
+ * used to rebuild the whole auth stack and re-read the session row. The cookie
+ * cannot change mid-render, so one answer per request is the same answer.
+ */
+export const getSessionUser = cache(async function getSessionUser(): Promise<SessionUser | null> {
   const auth = await getAuth();
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user) return null;
@@ -37,7 +45,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     name: user.name ?? null,
     role: role.success ? role.data : "speaker",
   };
-}
+});
 
 /** Signed-in or bounced to /login (with a `next` hint for post-login return). */
 export async function requireUser(next?: string): Promise<SessionUser> {
@@ -86,11 +94,10 @@ export async function requireEventAccess(
 ): Promise<EventAccess> {
   const user = await requireAdminOrReviewer(next ?? `/admin/${eventSlug}`);
 
-  const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
+  const event = await eventBySlug(eventSlug);
   if (!event) notFound();
 
-  const eventIds = await reviewerEventIds(repos, user);
+  const eventIds = await reviewerEventIds(user);
   if (!canAccessEvent(user.role, event.id, eventIds)) redirect("/admin");
   return { user, event };
 }
@@ -109,32 +116,61 @@ export async function requireEventAccess(
 export async function requireEventAdmin(eventSlug: string, next?: string): Promise<EventAccess> {
   const user = await requireAdmin(next ?? `/admin/${eventSlug}`);
 
-  const repos = await getRepos();
-  const event = await repos.events.getBySlug(eventSlug);
+  const event = await eventBySlug(eventSlug);
   if (!event) notFound();
 
   return { user, event };
 }
 
-/** Every event this viewer may open — the switcher and the /admin index. */
+/**
+ * Every event this viewer may open — the switcher and the /admin index.
+ *
+ * An admin's list *is* every event, so it stays a `listAll`. A reviewer's is
+ * exactly the events behind their tracks, so it asks for those by id rather
+ * than reading the whole table and throwing most of it away: same rows, but
+ * the cost stops scaling with an instance's total event count. (Speakers never
+ * get here — the guards bounce them first — but the empty answer is the same
+ * one the old filter produced.)
+ */
 export async function listAccessibleEvents(user: SessionUser): Promise<Event[]> {
   const repos = await getRepos();
-  const [events, eventIds] = await Promise.all([
-    repos.events.listAll(),
-    reviewerEventIds(repos, user),
-  ]);
-  return accessibleEvents(user.role, events, eventIds);
+  if (user.role === "admin") return repos.events.listAll();
+  if (user.role !== "reviewer") return [];
+  return repos.events.listByIds(await reviewerEventIds(user));
 }
+
+/**
+ * One event by slug, memoized per request: the event-scoped layout and the
+ * page beneath it both run `requireEventAccess`, and a third read arrives from
+ * any page that also calls `requireEventAdmin`. Same slug, same request, one
+ * query.
+ */
+const eventBySlug = cache(async function eventBySlug(slug: string): Promise<Event | null> {
+  const repos = await getRepos();
+  return repos.events.getBySlug(slug);
+});
 
 /**
  * The events a reviewer holds tracks on. Empty for everyone else: admins are
  * admitted by role, and no list would admit a speaker.
+ *
+ * The lookup behind it is memoized per request for the same reason as
+ * `eventBySlug` — layout and page each guard themselves, and the switcher asks
+ * a third time. Keyed on the user id so the memo is per person, not per
+ * `Repos` instance.
  */
-async function reviewerEventIds(repos: Repos, user: SessionUser): Promise<string[]> {
+async function reviewerEventIds(user: SessionUser): Promise<string[]> {
   if (user.role !== "reviewer") return [];
-  const tracks = await repos.tracks.listByReviewer(user.id);
-  return [...new Set(tracks.map((track) => track.eventId))];
+  return reviewerEventIdsFor(user.id);
 }
+
+const reviewerEventIdsFor = cache(async function reviewerEventIdsFor(
+  userId: string,
+): Promise<string[]> {
+  const repos = await getRepos();
+  const tracks = await repos.tracks.listByReviewer(userId);
+  return [...new Set(tracks.map((track) => track.eventId))];
+});
 
 /** Where a user belongs immediately after signing in. */
 export function homePathForRole(role: Role): string {

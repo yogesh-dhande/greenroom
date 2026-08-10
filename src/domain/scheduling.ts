@@ -194,3 +194,110 @@ export function worstSeverity(conflicts: ScheduleConflict[]): ConflictSeverity |
     ? "blocking"
     : "advisory";
 }
+
+// ---------------------------------------------------------------------------
+// Suggesting a slot (decisions.md D-067). One session at a time, composed out
+// of the pieces above. Not a solver, and never a placement of its own: the
+// caller prefills its dialog with the answer and the organizer still confirms.
+// ---------------------------------------------------------------------------
+
+/** The working day a suggestion searches when the caller names no window. */
+export const DEFAULT_DAY_START_MINUTE = 8 * 60;
+export const DEFAULT_DAY_END_MINUTE = 20 * 60;
+
+export interface SuggestionWindow {
+  startMinute: number;
+  endMinute: number;
+}
+
+export interface SlotSuggestionInput {
+  /** The session to place. Excluded from the board it is tested against, so
+   * an already-scheduled session can be asked for a better slot. */
+  session: SessionWithSpeakers;
+  /** The whole board: every session in the event, placed or not. */
+  sessions: SessionWithSpeakers[];
+  /** Event days in the order they should be tried (earliest first). */
+  days: string[];
+  /** Room ids in the order they should be tried. Empty means the event has no
+   * rooms yet, and the suggestion comes back without one. */
+  roomIds: string[];
+  /** How long the session needs, in minutes. */
+  durationMinutes: number;
+  /** Search bounds inside a day; defaults to the working day above. */
+  window?: SuggestionWindow;
+  /** Start times are tried on this grid, the same one drag-and-drop snaps to. */
+  snapMinutes?: number;
+}
+
+export interface SlotSuggestion {
+  day: string;
+  startTime: string;
+  endTime: string;
+  /** Null only when the event has no rooms to choose from. */
+  roomId: string | null;
+}
+
+/**
+ * The earliest placement where `session` fits with no blocking conflict: no
+ * room double-booking and no speaker double-booking (track overlap is a
+ * judgement call, so it never rules a slot out). Days are walked in order,
+ * then start times, then rooms, which makes the answer deterministic and the
+ * first one an organizer would have found by hand.
+ *
+ * Returns null when nothing fits: a fully booked event, or a session longer
+ * than the searchable day. Callers must say so rather than place blindly.
+ */
+export function firstConflictFreeSlot({
+  session,
+  sessions,
+  days,
+  roomIds,
+  durationMinutes: duration,
+  window = { startMinute: DEFAULT_DAY_START_MINUTE, endMinute: DEFAULT_DAY_END_MINUTE },
+  snapMinutes = SNAP_MINUTES,
+}: SlotSuggestionInput): SlotSuggestion | null {
+  if (duration <= 0 || snapMinutes <= 0 || days.length === 0) return null;
+
+  // With no rooms configured, a placement can still be suggested; it just
+  // carries no room, and no room double-booking is possible either way.
+  const columns: Array<string | null> = roomIds.length > 0 ? [...roomIds] : [null];
+
+  const lastStart = Math.min(window.endMinute, MINUTES_PER_DAY) - duration;
+  if (lastStart < window.startMinute) return null;
+
+  const otherSessionsByDay = new Map<string, SessionWithSpeakers[]>();
+  for (const other of sessions) {
+    if (other.id === session.id || !other.day) continue;
+    otherSessionsByDay.set(other.day, [...(otherSessionsByDay.get(other.day) ?? []), other]);
+  }
+
+  for (const day of days) {
+    const sameDay = otherSessionsByDay.get(day) ?? [];
+    for (let minute = window.startMinute; minute <= lastStart; minute += snapMinutes) {
+      const startTime = timeOfMinutes(minute);
+      const endTime = timeOfMinutes(minute + duration);
+      for (const roomId of columns) {
+        const candidate: SessionWithSpeakers = {
+          ...session,
+          day,
+          startTime,
+          endTime,
+          roomId,
+          // Probe as if it were live: a cancelled session is ignored by
+          // detectConflicts, which would make every slot look free.
+          status: "confirmed",
+        };
+        // One pair at a time, so the existing detector stays the only place
+        // that decides what a conflict is, and a big day stays cheap.
+        const blocked = sameDay.some((other) =>
+          detectConflicts([candidate, other]).some(
+            (conflict) => CONFLICT_SEVERITY[conflict.type] === "blocking",
+          ),
+        );
+        if (!blocked) return { day, startTime, endTime, roomId };
+      }
+    }
+  }
+
+  return null;
+}

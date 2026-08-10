@@ -66,12 +66,17 @@ export default async function SubmitFormPage({
     : [];
 
   const defaultValues = emptyValues(fields);
+  // Set only when a field was actually prefilled from the session below - a
+  // signed-in organizer opening this page otherwise saw their own name and
+  // email appear with no explanation of where they came from (eval finding).
+  let identityPrefillNote: string | null = null;
   if (person) {
     if (RESERVED_FIELD_IDS.speakerName in defaultValues) {
       defaultValues[RESERVED_FIELD_IDS.speakerName] = person.name ?? "";
     }
     if (RESERVED_FIELD_IDS.speakerEmail in defaultValues) {
       defaultValues[RESERVED_FIELD_IDS.speakerEmail] = person.email;
+      identityPrefillNote = `Submitting as ${person.name || person.email} (${person.email}). Not you? Sign out first.`;
     }
   }
 
@@ -116,6 +121,11 @@ export default async function SubmitFormPage({
               draftAction={saveDraft.bind(null, form.slug, null)}
               uploadAction={uploadFormFile}
               uploadScope={form.slug}
+              fieldNotes={
+                identityPrefillNote
+                  ? { [RESERVED_FIELD_IDS.speakerEmail]: identityPrefillNote }
+                  : undefined
+              }
               footnote={
                 <p className="text-sm text-muted-foreground">
                   Questions marked <span className="text-destructive">*</span> are required. Not

@@ -377,6 +377,8 @@ function SessionCard({
   showDay?: boolean;
   timezone?: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <article className="relative flex h-full flex-col gap-1.5 rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-shadow focus-within:ring-2 focus-within:ring-ring hover:ring-foreground/20">
       <div className="flex flex-wrap items-center gap-2 pr-8">
@@ -429,9 +431,27 @@ function SessionCard({
       </h3>
 
       {session.description && (
-        <p className="line-clamp-2 text-sm text-muted-foreground">
-          {session.description}
-        </p>
+        <div className="flex flex-col gap-1">
+          <p
+            className={
+              expanded
+                ? "text-sm text-muted-foreground"
+                : "line-clamp-2 text-sm text-muted-foreground"
+            }
+          >
+            {session.description}
+          </p>
+          <button
+            type="button"
+            onClick={(clickEvent) => {
+              clickEvent.stopPropagation();
+              setExpanded((current) => !current);
+            }}
+            className="relative z-10 w-fit text-xs font-medium text-foreground/70 outline-none hover:text-foreground hover:underline focus-visible:underline"
+          >
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        </div>
       )}
 
       {session.speakers.length > 0 && (

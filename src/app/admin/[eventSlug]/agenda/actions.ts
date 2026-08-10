@@ -6,9 +6,11 @@ import {
   dayStringSchema,
   newSessionSchema,
   newUserSchema,
+  sessionContentStatusSchema,
   timeStringSchema,
 } from "@/db/entities";
 import { minutesOfDay } from "@/domain/scheduling";
+import { planAbstractRestore, planAbstractRevision } from "@/domain/session-content";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { loadSpeakerRoster } from "../speakers/roster";
@@ -114,12 +116,18 @@ export async function unscheduleSession(eventSlug: string, sessionId: string) {
 // session. The session row is the single source of truth the public program
 // reads, so this writes it directly rather than forking content onto the
 // submission that produced it.
+//
+// This is also where editorial approval is set (D-072) and where an abstract
+// edit lands in the revision history (D-071) — it is the only path in the app
+// that changes an existing session's abstract.
 // ---------------------------------------------------------------------------
 
 const sessionContentSchema = z.object({
   title: z.string().trim().min(1, "Title is required"),
   description: z.string().trim().optional(),
   trackId: z.string().min(1).nullable().optional(),
+  /** Optional so a caller that predates D-072 leaves approval untouched. */
+  contentStatus: sessionContentStatusSchema.optional(),
 });
 export type SessionContentInput = z.infer<typeof sessionContentSchema>;
 
@@ -133,7 +141,7 @@ export async function updateSessionContent(
   sessionId: string,
   input: SessionContentInput,
 ) {
-  await requireAdmin(agendaPath(eventSlug));
+  const admin = await requireAdmin(agendaPath(eventSlug));
 
   const parsed = sessionContentSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid session details");
@@ -150,12 +158,29 @@ export async function updateSessionContent(
     if (!track || track.eventId !== event.id) return fail("That track isn't part of this event");
   }
 
+  const nextDescription = parsed.data.description || null;
+  // Planned before the write, while `session` still holds the prior abstract.
+  const revision = planAbstractRevision(session.description, nextDescription);
+
   try {
     await repos.sessions.update(sessionId, {
       title: parsed.data.title,
-      description: parsed.data.description || null,
+      description: nextDescription,
       trackId: parsed.data.trackId ?? null,
+      ...(parsed.data.contentStatus ? { contentStatus: parsed.data.contentStatus } : {}),
     });
+    if (revision) {
+      // Appended after the session write, never instead of it: a history row
+      // that failed to save must not cost the organizer their edit, so this
+      // is deliberately not wrapped in its own failure path.
+      await repos.sessionRevisions.create({
+        sessionId,
+        field: "abstract",
+        priorValue: revision.priorValue,
+        newValue: revision.newValue,
+        authorUserId: admin.id,
+      });
+    }
     revalidatePath(agendaPath(eventSlug));
     // The public program and its embed read this same session row.
     revalidatePath(`/p/${eventSlug}/schedule`);
@@ -168,6 +193,42 @@ export async function updateSessionContent(
   } catch {
     return fail("Couldn't save those details — try again");
   }
+}
+
+/**
+ * Puts an earlier abstract back (decisions.md D-071). The value comes from the
+ * chosen history entry's `priorValue` and is written through
+ * `updateSessionContent` above — the same path an organizer's own edit takes —
+ * so the restore appends its own revision row instead of rewinding anything.
+ * Nothing is ever deleted from the history: the abstract being replaced
+ * becomes the new entry's prior value, so the restore is itself undoable.
+ */
+export async function restoreAbstractRevision(eventSlug: string, revisionId: string) {
+  await requireAdmin(agendaPath(eventSlug));
+
+  const repos = await getRepos();
+  const revision = await repos.sessionRevisions.getById(revisionId);
+  if (!revision) return fail("That revision no longer exists");
+
+  const [event, session] = await Promise.all([
+    repos.events.getBySlug(eventSlug),
+    repos.sessions.getById(revision.sessionId),
+  ]);
+  // The revision id arrives from the client, so the event scope is checked
+  // here and not assumed: a revision from another event's session is a miss.
+  if (!event || !session || session.eventId !== event.id) return fail("Session not found");
+
+  const plan = planAbstractRestore(session.description, revision.priorValue);
+  if (!plan) return fail("That version is already the current abstract");
+
+  return updateSessionContent(eventSlug, session.id, {
+    title: session.title,
+    // The rest of the session's content rides along unchanged — this action
+    // only ever moves the abstract.
+    description: plan.value ?? undefined,
+    trackId: session.trackId,
+    contentStatus: session.contentStatus,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +343,10 @@ export async function createDirectSession(eventSlug: string, input: DirectSessio
     startTime: null,
     endTime: null,
     status: "confirmed",
+    // An organizer typing a session in is writing approved copy (D-072); the
+    // dialog can move it back to draft afterwards. No revision row: the
+    // abstract a session is born with is not an edit (D-071).
+    contentStatus: "approved",
   });
   if (!candidate.success) return fail(candidate.error.issues[0]?.message ?? "Invalid session");
 

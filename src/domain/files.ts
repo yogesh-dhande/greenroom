@@ -94,8 +94,13 @@ export function buildFileHistory(
 
 /** One file in the organizer's library, and the history behind it. */
 export interface Deliverable {
-  assignmentId: string;
-  taskId: string;
+  /**
+   * The assignment this file answered, or null for a `profile` file — a
+   * headshot belongs to the speaker, not to a task. Everything keyed off an
+   * assignment (comment threads, above all) is unavailable for those.
+   */
+  assignmentId: string | null;
+  taskId: string | null;
   taskTitle: string;
   speakerId: string;
   /** What to call this file in a list: the task, plus the question when the
@@ -110,13 +115,27 @@ export interface Deliverable {
    * carries no version list of its own.
    */
   fromFormAnswer: boolean;
+  /** Where the file came from — an onboarding task, or the speaker's own
+   * profile (spec.md §6: headshots are library files too). */
+  source: "assignment" | "profile";
 }
+
+/** How a tracked profile file is named in the library and on a speaker's
+ * record. Only headshots are stored this way today, and the suffix says
+ * which surface the file came from rather than which task. */
+export const PROFILE_FILE_LABEL = "Headshot — profile";
 
 export interface CollectDeliverablesInput {
   views: AssignmentView[];
   /** Forms behind `form` tasks, for the labels of their file questions. */
   formsById: Map<string, Form>;
   versionsByAssignment: Map<string, FileVersion[]>;
+  /**
+   * Profile-scoped versions by the speaker they belong to (`ownerUserId`),
+   * newest or not — this sorts them itself. Absent on surfaces that only
+   * report on tasks.
+   */
+  profileVersionsBySpeaker?: Map<string, FileVersion[]>;
 }
 
 /**
@@ -125,10 +144,31 @@ export interface CollectDeliverablesInput {
  * while a `form` task's answers hold raw object keys under the form's file
  * fields (spec.md §6).
  *
+ * Profile files come in alongside them when the caller supplies them: a
+ * headshot is a deliverable the organizer chased for just like a deck, so it
+ * belongs in the same list rather than only on the speaker's avatar.
+ *
  * Newest upload first, so the library opens on what just came in.
  */
 export function collectDeliverables(input: CollectDeliverablesInput): Deliverable[] {
   const deliverables: Deliverable[] = [];
+
+  for (const [speakerId, versions] of input.profileVersionsBySpeaker ?? []) {
+    if (versions.length === 0) continue;
+    const [newest, ...older] = sortVersionsNewestFirst(versions);
+    deliverables.push({
+      assignmentId: null,
+      taskId: null,
+      taskTitle: PROFILE_FILE_LABEL,
+      speakerId,
+      label: PROFILE_FILE_LABEL,
+      current: versionRef(newest),
+      older: older.map(versionRef),
+      versionCount: versions.length,
+      fromFormAnswer: false,
+      source: "profile",
+    });
+  }
 
   for (const { assignment, task } of input.views) {
     const history = buildFileHistory(
@@ -146,6 +186,7 @@ export function collectDeliverables(input: CollectDeliverablesInput): Deliverabl
         older: history.older,
         versionCount: history.versionCount,
         fromFormAnswer: false,
+        source: "assignment",
       });
     }
 
@@ -171,6 +212,7 @@ export function collectDeliverables(input: CollectDeliverablesInput): Deliverabl
         older: [],
         versionCount: 1,
         fromFormAnswer: true,
+        source: "assignment",
       });
     }
   }
@@ -236,15 +278,30 @@ export function buildCommentThread(
 }
 
 /** Groups rows by the assignment they belong to, for pages that load a whole
- * event's worth in one query. */
-export function groupByAssignment<T extends { assignmentId: string }>(
+ * event's worth in one query. Rows with no assignment (a profile-scoped file
+ * version) are skipped rather than bucketed under a placeholder key. */
+export function groupByAssignment<T extends { assignmentId: string | null }>(
   rows: T[],
 ): Map<string, T[]> {
   const grouped = new Map<string, T[]>();
   for (const row of rows) {
+    if (row.assignmentId === null) continue;
     const list = grouped.get(row.assignmentId);
     if (list) list.push(row);
     else grouped.set(row.assignmentId, [row]);
+  }
+  return grouped;
+}
+
+/** The mirror of `groupByAssignment` for profile-scoped versions: keyed by
+ * the speaker the file belongs to, skipping any row that carries no owner. */
+export function groupProfileVersionsBySpeaker(versions: FileVersion[]): Map<string, FileVersion[]> {
+  const grouped = new Map<string, FileVersion[]>();
+  for (const version of versions) {
+    if (version.scope !== "profile" || !version.ownerUserId) continue;
+    const list = grouped.get(version.ownerUserId);
+    if (list) list.push(version);
+    else grouped.set(version.ownerUserId, [version]);
   }
   return grouped;
 }

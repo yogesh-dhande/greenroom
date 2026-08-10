@@ -1,7 +1,8 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { formSchema, type NewForm } from "@/db/entities";
 import { forms } from "@/db/schema";
 import type { FormsRepo } from "@/db/repos/forms";
+import { inIdChunks } from "./chunk";
 import type { DrizzleD1 } from "./client";
 
 export function createFormsRepo(db: DrizzleD1): FormsRepo {
@@ -13,6 +14,12 @@ export function createFormsRepo(db: DrizzleD1): FormsRepo {
     async getBySlug(slug) {
       const row = await db.query.forms.findFirst({ where: eq(forms.slug, slug) });
       return row ? formSchema.parse(row) : null;
+    },
+    async listByIds(ids) {
+      const rows = await inIdChunks(ids, (chunk) =>
+        db.query.forms.findMany({ where: inArray(forms.id, chunk) }),
+      );
+      return rows.map((r) => formSchema.parse(r));
     },
     async listByEvent(eventId) {
       const rows = await db.query.forms.findMany({

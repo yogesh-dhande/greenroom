@@ -5,7 +5,10 @@ import {
   buildCommentThread,
   buildFileHistory,
   collectDeliverables,
+  groupByAssignment,
+  groupProfileVersionsBySpeaker,
   inferUploadKind,
+  PROFILE_FILE_LABEL,
   sortVersionsNewestFirst,
 } from "@/domain/files";
 
@@ -44,7 +47,9 @@ function task(overrides: Partial<Task> = {}): Task {
 
 function version(overrides: Partial<FileVersion> & { id: string }): FileVersion {
   return {
+    scope: "assignment",
     assignmentId: "asg-1",
+    ownerUserId: null,
     fileKey: "uploads/task-1/abcd1234-deck.pdf",
     url: "/files/uploads/task-1/abcd1234-deck.pdf",
     filename: "deck.pdf",
@@ -52,6 +57,19 @@ function version(overrides: Partial<FileVersion> & { id: string }): FileVersion 
     createdAt: EPOCH,
     ...overrides,
   };
+}
+
+/** A headshot tracked against the speaker rather than against a task. */
+function profileVersion(overrides: Partial<FileVersion> & { id: string }): FileVersion {
+  return version({
+    scope: "profile",
+    assignmentId: null,
+    ownerUserId: "spk-1",
+    fileKey: "uploads/profile/abcd1234-headshot.png",
+    url: "/files/uploads/profile/abcd1234-headshot.png",
+    filename: "headshot.png",
+    ...overrides,
+  });
 }
 
 function view(overrides: { assignment?: TaskAssignment; task?: Task } = {}): AssignmentView {
@@ -232,6 +250,139 @@ describe("collectDeliverables", () => {
       versionsByAssignment: new Map(),
     });
     expect(deliverables).toEqual([]);
+  });
+
+  it("includes a profile headshot with its filename, uploader and timestamp", () => {
+    const [headshot] = collectDeliverables({
+      views: [],
+      formsById: new Map(),
+      versionsByAssignment: new Map(),
+      profileVersionsBySpeaker: new Map([
+        [
+          "spk-1",
+          [profileVersion({ id: "hv1", createdAt: new Date("2026-05-05T09:00:00Z") })],
+        ],
+      ]),
+    });
+
+    expect(headshot).toMatchObject({
+      assignmentId: null,
+      taskId: null,
+      speakerId: "spk-1",
+      label: PROFILE_FILE_LABEL,
+      source: "profile",
+      fromFormAnswer: false,
+      versionCount: 1,
+    });
+    expect(headshot.current).toEqual({
+      key: "uploads/profile/abcd1234-headshot.png",
+      url: "/files/uploads/profile/abcd1234-headshot.png",
+      filename: "headshot.png",
+      uploadedAt: new Date("2026-05-05T09:00:00Z"),
+      uploadedBy: "spk-1",
+    });
+    expect(headshot.older).toEqual([]);
+  });
+
+  it("appends a replacement headshot as a version rather than a second row", () => {
+    const [headshot] = collectDeliverables({
+      views: [],
+      formsById: new Map(),
+      versionsByAssignment: new Map(),
+      profileVersionsBySpeaker: new Map([
+        [
+          "spk-1",
+          [
+            profileVersion({ id: "hv1", filename: "old.png", createdAt: new Date("2026-05-01T09:00:00Z") }),
+            // Supplied by an organizer on the speaker's behalf: the owner is
+            // still the speaker, the uploader is not.
+            profileVersion({
+              id: "hv2",
+              filename: "new.png",
+              uploadedBy: "admin-1",
+              createdAt: new Date("2026-05-06T09:00:00Z"),
+            }),
+          ],
+        ],
+      ]),
+    });
+
+    expect(headshot.versionCount).toBe(2);
+    expect(headshot.current.filename).toBe("new.png");
+    expect(headshot.current.uploadedBy).toBe("admin-1");
+    expect(headshot.older.map((v) => v.filename)).toEqual(["old.png"]);
+  });
+
+  it("sorts profile files into the same newest-first list as task uploads", () => {
+    const deliverables = collectDeliverables({
+      views: [
+        view({
+          assignment: assignment({
+            fileUrl: "/files/uploads/task-1/abcd1234-deck.pdf",
+            completedAt: new Date("2026-05-03T10:00:00Z"),
+          }),
+        }),
+      ],
+      formsById: new Map(),
+      versionsByAssignment: new Map(),
+      profileVersionsBySpeaker: new Map([
+        ["spk-1", [profileVersion({ id: "hv1", createdAt: new Date("2026-05-07T09:00:00Z") })]],
+        ["spk-2", [profileVersion({ id: "hv2", ownerUserId: "spk-2", createdAt: new Date("2026-05-01T09:00:00Z") })]],
+      ]),
+    });
+
+    expect(deliverables.map((d) => [d.speakerId, d.label])).toEqual([
+      ["spk-1", PROFILE_FILE_LABEL],
+      ["spk-1", "Slides"],
+      ["spk-2", PROFILE_FILE_LABEL],
+    ]);
+  });
+
+  it("leaves assignment rows alone when no profile files are supplied", () => {
+    const withoutProfiles = collectDeliverables({
+      views: [view({ assignment: assignment({ fileUrl: "/files/uploads/task-1/abcd1234-deck.pdf" }) })],
+      formsById: new Map(),
+      versionsByAssignment: new Map(),
+    });
+    const withEmptyProfiles = collectDeliverables({
+      views: [view({ assignment: assignment({ fileUrl: "/files/uploads/task-1/abcd1234-deck.pdf" }) })],
+      formsById: new Map(),
+      versionsByAssignment: new Map(),
+      profileVersionsBySpeaker: new Map([["spk-1", []]]),
+    });
+
+    expect(withoutProfiles).toEqual(withEmptyProfiles);
+    expect(withoutProfiles).toHaveLength(1);
+    expect(withoutProfiles[0]).toMatchObject({
+      assignmentId: "asg-1",
+      taskId: "task-1",
+      source: "assignment",
+    });
+  });
+});
+
+describe("groupProfileVersionsBySpeaker", () => {
+  it("keys profile rows by their owner and drops assignment rows", () => {
+    const grouped = groupProfileVersionsBySpeaker([
+      version({ id: "v1" }),
+      profileVersion({ id: "hv1" }),
+      profileVersion({ id: "hv2" }),
+      profileVersion({ id: "hv3", ownerUserId: "spk-2" }),
+      // A profile row with no owner can't be attributed to anyone.
+      profileVersion({ id: "hv4", ownerUserId: null }),
+    ]);
+
+    expect([...grouped.keys()]).toEqual(["spk-1", "spk-2"]);
+    expect(grouped.get("spk-1")?.map((v) => v.id)).toEqual(["hv1", "hv2"]);
+    expect(grouped.get("spk-2")?.map((v) => v.id)).toEqual(["hv3"]);
+  });
+});
+
+describe("groupByAssignment", () => {
+  it("skips rows that belong to no assignment", () => {
+    const grouped = groupByAssignment([version({ id: "v1" }), profileVersion({ id: "hv1" })]);
+    expect([...grouped.keys()]).toEqual(["asg-1"]);
+    expect(grouped.get("asg-1")?.map((v) => v.id)).toEqual(["v1"]);
   });
 });
 

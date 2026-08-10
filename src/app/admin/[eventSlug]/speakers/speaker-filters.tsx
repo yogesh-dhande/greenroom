@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { ROSTER_STATUS_FILTERS } from "@/domain/onboarding";
+import { CONFIRMATION_FILTERS, ROSTER_STATUS_FILTERS } from "@/domain/onboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,21 +16,27 @@ import {
 const ALL = "all";
 
 /**
- * Search + completion filters for the speaker roster (decisions.md D-051),
- * mirroring the submissions queue: the choice lives in the URL and the server
- * does the filtering, so a filtered roster is bookmarkable and shareable.
+ * Search + completion + confirmation filters for the speaker roster
+ * (decisions.md D-051), mirroring the submissions queue: the choice lives in
+ * the URL and the server does the filtering, so a filtered roster is
+ * bookmarkable and shareable.
  *
  * The search box keeps its own state and pushes to the URL on a short delay —
- * without that, every keystroke would be a server round-trip.
+ * without that, every keystroke would be a server round-trip. Task
+ * completion and confirmation are independent filters (a speaker can be
+ * confirmed with tasks outstanding, or unconfirmed with none), so each gets
+ * its own query param rather than one combined vocabulary.
  */
 export function SpeakerFilters({
   q,
   status,
+  confirmation,
   total,
   shown,
 }: {
   q: string;
   status: string;
+  confirmation: string;
   total: number;
   shown: number;
 }) {
@@ -61,7 +67,7 @@ export function SpeakerFilters({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, q, searchParams]);
 
-  const filtered = query !== "" || status !== ALL;
+  const filtered = query !== "" || status !== ALL || confirmation !== ALL;
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -81,6 +87,20 @@ export function SpeakerFilters({
         <SelectContent>
           <SelectItem value={ALL}>All speakers</SelectItem>
           {ROSTER_STATUS_FILTERS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={confirmation} onValueChange={(value) => apply("confirmation", value)}>
+        <SelectTrigger size="sm" className="w-48" aria-label="Filter by confirmation">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Confirmed or not</SelectItem>
+          {CONFIRMATION_FILTERS.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>

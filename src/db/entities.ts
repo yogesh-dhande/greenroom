@@ -449,6 +449,15 @@ export type NewRoundScore = z.infer<typeof newRoundScoreSchema>;
 export const sessionStatusSchema = z.enum(["draft", "confirmed", "cancelled"]);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
+/**
+ * Editorial approval of a session's content (decisions.md D-072) — separate
+ * from `sessionStatusSchema` above, which is the scheduling state conflict
+ * detection reads. Only `approved` content reaches a public surface
+ * (`isPubliclyVisible` in src/domain/program.ts).
+ */
+export const sessionContentStatusSchema = z.enum(["draft", "in_review", "approved"]);
+export type SessionContentStatus = z.infer<typeof sessionContentStatusSchema>;
+
 export const sessionSchema = z.object({
   id: z.string(),
   eventId: z.string(),
@@ -463,6 +472,9 @@ export const sessionSchema = z.object({
   startTime: timeStringSchema.nullable(),
   endTime: timeStringSchema.nullable(),
   status: sessionStatusSchema,
+  /** Defaulted so a payload written before D-072 still parses — and lands on
+   * the same value the column defaults to. */
+  contentStatus: sessionContentStatusSchema.default("approved"),
   ...timestamps,
 });
 export type Session = z.infer<typeof sessionSchema>;
@@ -482,16 +494,54 @@ export const sessionSpeakerSchema = z.object({
 export type SessionSpeaker = z.infer<typeof sessionSpeakerSchema>;
 
 // ---------------------------------------------------------------------------
+// SessionRevision (decisions.md D-071) — append-only history of a session's
+// abstract. Speaker profile fields deliberately get none.
+// ---------------------------------------------------------------------------
+
+export const sessionRevisionFieldSchema = z.enum(["abstract"]);
+export type SessionRevisionField = z.infer<typeof sessionRevisionFieldSchema>;
+
+export const sessionRevisionSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  field: sessionRevisionFieldSchema,
+  /** Null when the field was empty before this edit (a first set). */
+  priorValue: z.string().nullable(),
+  /** Null when the edit cleared the field. */
+  newValue: z.string().nullable(),
+  /** Null once the account that made the edit is gone; the history stays. */
+  authorUserId: z.string().nullable(),
+  createdAt: z.coerce.date(),
+});
+export type SessionRevision = z.infer<typeof sessionRevisionSchema>;
+export const newSessionRevisionSchema = sessionRevisionSchema.omit({
+  id: true,
+  createdAt: true,
+});
+export type NewSessionRevision = z.infer<typeof newSessionRevisionSchema>;
+
+// ---------------------------------------------------------------------------
 // EventSpeaker (spec.md §5, decisions.md D-051) — a speaker's record at one
 // event: the organizer's private notes about them, and the membership row
 // that puts a hand-added speaker on the roster.
 // ---------------------------------------------------------------------------
+
+/**
+ * An organizer's explicit confirmation answer for one speaker at one event
+ * (decisions.md D-068). Absence of a value — not a third member of this enum
+ * — is what "nobody has said, keep deriving it" looks like.
+ */
+export const speakerConfirmationSchema = z.enum(["confirmed", "declined"]);
+export type SpeakerConfirmation = z.infer<typeof speakerConfirmationSchema>;
 
 export const eventSpeakerSchema = z.object({
   eventId: z.string(),
   userId: z.string(),
   /** Organizer-only logistics prose; never rendered to the speaker. */
   notes: z.string().nullable(),
+  /** Stored confirmation, or null for "automatic" — the derived value from
+   * session attachment (decisions.md D-068). */
+  confirmationStatus: speakerConfirmationSchema.nullable(),
   ...timestamps,
 });
 export type EventSpeaker = z.infer<typeof eventSpeakerSchema>;
@@ -542,13 +592,25 @@ export type NewTaskAssignment = z.infer<typeof newTaskAssignmentSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * One upload against a `file_request` assignment. Immutable — a replacement
- * is a new row, never an edit — so there is no `updatedAt` and no
- * `NewFileVersion` update type.
+ * What a tracked upload belongs to: an onboarding assignment, or a speaker's
+ * profile (their headshot). The scope picks which owner id the row carries.
+ */
+export const fileVersionScopeSchema = z.enum(["assignment", "profile"]);
+export type FileVersionScope = z.infer<typeof fileVersionScopeSchema>;
+
+/**
+ * One tracked upload. Immutable — a replacement is a new row, never an edit —
+ * so there is no `updatedAt` and no `NewFileVersion` update type.
+ *
+ * `assignmentId` is set for `assignment` rows and `ownerUserId` for `profile`
+ * rows; the other is null. `uploadedBy` is who sent the file, which for a
+ * profile headshot may be an organizer rather than the owner.
  */
 export const fileVersionSchema = z.object({
   id: z.string(),
-  assignmentId: z.string(),
+  scope: fileVersionScopeSchema,
+  assignmentId: z.string().nullable(),
+  ownerUserId: z.string().nullable(),
   /** Stored object key; null for a file that only exists as an absolute URL. */
   fileKey: z.string().nullable(),
   url: z.string(),
@@ -557,11 +619,22 @@ export const fileVersionSchema = z.object({
   createdAt: z.coerce.date(),
 });
 export type FileVersion = z.infer<typeof fileVersionSchema>;
-/** `createdAt` is writable on create only: replacing a file that predates
- * the versions table records the existing upload under its own date. */
+/**
+ * `createdAt` is writable on create only: replacing a file that predates
+ * the versions table records the existing upload under its own date.
+ *
+ * `scope`, `assignmentId` and `ownerUserId` are optional so an assignment
+ * upload still reads as `{ assignmentId, ... }` — the default scope is
+ * `assignment`, and the ids default to null.
+ */
 export const newFileVersionSchema = fileVersionSchema
   .omit({ id: true, createdAt: true })
-  .extend({ createdAt: z.coerce.date().optional() });
+  .extend({
+    scope: fileVersionScopeSchema.optional(),
+    assignmentId: z.string().nullable().optional(),
+    ownerUserId: z.string().nullable().optional(),
+    createdAt: z.coerce.date().optional(),
+  });
 export type NewFileVersion = z.infer<typeof newFileVersionSchema>;
 
 /** A comment on a deliverable, from either side (append-only). */
@@ -629,6 +702,11 @@ export const emailKindSchema = z.enum([
   /** "You've been added to the team" — sent from the Team page's "Add a
    * teammate" form, pointing at the normal magic-link sign-in (D-062). */
   "team_invite",
+  /** "Your speaker portal is ready" — the per-speaker portal invitation sent
+   * from a speaker's record page, pointing at the normal magic-link portal
+   * sign-in (D-070). Its own kind so the log answers "who was invited, and
+   * when" instead of burying invitations in `manual`. */
+  "portal_invite",
   "manual",
 ]);
 export type EmailKind = z.infer<typeof emailKindSchema>;

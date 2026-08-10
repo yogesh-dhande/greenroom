@@ -23,13 +23,24 @@ import { SpeakerProfileLinks } from "./speaker-profile-links";
  * Shared by the chrome'd `/p/[eventSlug]/speakers` page and the chrome-less
  * `/embed/[eventSlug]/speakers` page — this component owns the layout, the
  * page around it owns the header/nav.
+ *
+ * `variant="embed"` (decisions.md D-074) swaps the card for a headshot-
+ * forward, compact treatment fit for a third-party iframe — a bigger photo,
+ * name/title/company, and nothing else on the card itself; bio, talks and
+ * profile links move behind the same click-through detail dialog the full
+ * gallery already uses (same-tab, matching the schedule embed's session
+ * click-through — decisions.md D-040). Search/count stay in both variants,
+ * mirroring `ScheduleView`'s embed (which keeps search/filters and only
+ * opts out the itinerary).
  */
 export function SpeakerGallery({
   speakers,
   timezone,
+  variant = "full",
 }: {
   speakers: GallerySpeaker[];
   timezone: string;
+  variant?: "full" | "embed";
 }) {
   const [query, setQuery] = useState("");
   const [openSpeakerId, setOpenSpeakerId] = useState<string | null>(null);
@@ -83,6 +94,16 @@ export function SpeakerGallery({
           title="No speakers match"
           description="Try a different name, or clear the search to see the whole lineup."
         />
+      ) : variant === "embed" ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          {shown.map((speaker) => (
+            <EmbedSpeakerCard
+              key={speaker.id}
+              speaker={speaker}
+              onOpen={() => setOpenSpeakerId(speaker.id)}
+            />
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((speaker) => (
@@ -183,6 +204,51 @@ function SpeakerCard({
           speaker={speaker}
           className="border-t border-border pt-3"
         />
+      </div>
+    </article>
+  );
+}
+
+/**
+ * The `variant="embed"` card (decisions.md D-074): a photo-wall tile rather
+ * than the full card — a large headshot carries the tile, name/title/company
+ * sit below it, and bio/talks/profile links are left for the click-through
+ * dialog. Compact on purpose (more tiles fit an iframe without scrolling);
+ * the name is still the click target, same overlay-link pattern as the full
+ * card's `SpeakerCard`.
+ */
+function EmbedSpeakerCard({
+  speaker,
+  onOpen,
+}: {
+  speaker: GallerySpeaker;
+  onOpen: () => void;
+}) {
+  return (
+    <article className="relative flex flex-col items-center gap-2 rounded-xl bg-card p-3 text-center text-card-foreground ring-1 ring-foreground/10 transition-shadow focus-within:ring-2 focus-within:ring-ring hover:ring-foreground/20">
+      <SpeakerHeadshot
+        name={speaker.name}
+        headshotUrl={speaker.headshotUrl}
+        className="size-20 text-lg"
+      />
+      <div className="min-w-0">
+        <h3 className="truncate font-heading text-sm font-semibold text-foreground">
+          <button
+            type="button"
+            onClick={onOpen}
+            className="max-w-full truncate text-left outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+          >
+            {speaker.name}
+          </button>
+        </h3>
+        {(speaker.title || speaker.company) && (
+          <p
+            className="line-clamp-2 text-xs text-muted-foreground"
+            title={[speaker.title, speaker.company].filter(Boolean).join(" · ")}
+          >
+            {[speaker.title, speaker.company].filter(Boolean).join(" · ")}
+          </p>
+        )}
       </div>
     </article>
   );

@@ -346,6 +346,45 @@ export function roundIdsForReviewer(assignments: RoundAssignment[]): string[] {
 }
 
 /**
+ * The submissions this reviewer is currently on the hook to score, deduped
+ * across rounds — what the admin submissions list defaults to when it isn't
+ * empty (decisions.md D-066).
+ *
+ * "Active" is read from the round window plus the reviewer's own standing:
+ *
+ * - the round is **open right now** (`roundState`, so a round with no dates is
+ *   always open and a closed round stops scoping the list once its work is
+ *   over);
+ * - the assignment is **not recused** — a recusal is work handed back, not work
+ *   owed (src/db/entities.ts), so it never becomes someone's default view.
+ *
+ * Only the rounds passed in are matched, so an assignment this reviewer holds
+ * on another event's round can never scope this event's list. A submission
+ * assigned in two open rounds appears once: this answers "what's mine to do",
+ * not "how many jobs do I hold".
+ *
+ * Access is untouched by all of this (D-061): the set narrows a *default view*,
+ * and every surface still decides for itself who may read what.
+ */
+export function activeAssignmentSubmissionIds(
+  rounds: Array<Pick<ReviewRound, "id" | "opensAt" | "closesAt">>,
+  assignments: Array<Pick<RoundAssignment, "roundId" | "submissionId" | "status">>,
+  now: Date = new Date(),
+): Set<string> {
+  const openRounds = new Set(
+    rounds.filter((round) => isRoundOpen(round, now)).map((round) => round.id),
+  );
+  return new Set(
+    assignments
+      .filter(
+        (assignment) =>
+          assignment.status !== "recused" && openRounds.has(assignment.roundId),
+      )
+      .map((assignment) => assignment.submissionId),
+  );
+}
+
+/**
  * Server-side gate for opening one submission's scorecard. Membership of the
  * round is not enough and neither is a track: only the assignment itself
  * authorises the reviewer.

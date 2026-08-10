@@ -32,6 +32,9 @@ export interface SchemaFormProps {
   draftLabel?: string;
   /** Rendered under the submit button (legal copy, edit hints…). */
   footnote?: React.ReactNode;
+  /** Muted text shown under a specific field, keyed by field id - e.g. telling
+   * a signed-in submitter their name/email were prefilled from their session. */
+  fieldNotes?: Record<string, string>;
 }
 
 /**
@@ -61,6 +64,7 @@ export function SchemaForm({
   draftAction,
   draftLabel = "Save draft",
   footnote,
+  fieldNotes,
 }: SchemaFormProps) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -127,7 +131,12 @@ export function SchemaForm({
           toast.error(result.error);
         })}
       >
-        <VisibleFields fields={fields} uploadAction={uploadAction} uploadScope={uploadScope} />
+        <VisibleFields
+          fields={fields}
+          uploadAction={uploadAction}
+          uploadScope={uploadScope}
+          fieldNotes={fieldNotes}
+        />
 
         {formError ? (
           <p role="alert" className="text-sm text-destructive">
@@ -168,10 +177,12 @@ function VisibleFields({
   fields,
   uploadAction,
   uploadScope,
+  fieldNotes,
 }: {
   fields: FormField[];
   uploadAction: UploadAction;
   uploadScope: string;
+  fieldNotes?: Record<string, string>;
 }) {
   const values = useWatch<FormValues>() as FormValues;
   const shown = visibleFields(fields, values ?? {});
@@ -184,6 +195,7 @@ function VisibleFields({
           field={field}
           uploadAction={uploadAction}
           uploadScope={uploadScope}
+          note={fieldNotes?.[field.id]}
         />
       ))}
     </div>

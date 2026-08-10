@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ALL, STATUS_FILTERS } from "./filters";
+import { ALL, STATUS_FILTERS, VIEW_PARAM } from "./filters";
 
 /**
  * Search + status-chip + track filters for the review queue (spec.md section
@@ -130,7 +130,12 @@ export function SubmissionFilters({
           size="sm"
           onClick={() => {
             setQuery("");
-            push(new URLSearchParams());
+            // Which list a reviewer is on is a scope, not a filter: clearing
+            // the bar must not move them off it (decisions.md D-066).
+            const kept = new URLSearchParams();
+            const view = searchParams.get(VIEW_PARAM);
+            if (view) kept.set(VIEW_PARAM, view);
+            push(kept);
           }}
         >
           Clear filters

@@ -46,5 +46,19 @@ export function createEventSpeakersRepo(db: DrizzleD1): EventSpeakersRepo {
         .returning();
       return eventSpeakerSchema.parse(row);
     },
+    async setConfirmation(eventId, userId, confirmation) {
+      const [row] = await db
+        .insert(eventSpeakers)
+        .values({ eventId, userId, confirmationStatus: confirmation })
+        .onConflictDoUpdate({
+          target: [eventSpeakers.eventId, eventSpeakers.userId],
+          // `confirmation` is written as-is, null included: clearing back to
+          // automatic is the whole point of the null case (D-068), so this
+          // must never be treated as "leave it alone".
+          set: { confirmationStatus: confirmation, updatedAt: new Date() },
+        })
+        .returning();
+      return eventSpeakerSchema.parse(row);
+    },
   };
 }

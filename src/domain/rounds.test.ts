@@ -9,6 +9,7 @@ import type {
 } from "@/db/entities";
 import {
   BLIND_REVIEW_NOTICE,
+  activeAssignmentSubmissionIds,
   assignmentsForReviewer,
   blindSubmissionIds,
   canScoreSubmission,
@@ -346,6 +347,70 @@ describe("reviewer scoping", () => {
       assignment({ id: "a5", reviewerId: "dana", submissionId: "sub-4", status: "recused" }),
     ];
     expect(assignmentsForReviewer(withRecusal, "round-1", "dana")).toHaveLength(3);
+  });
+});
+
+describe("activeAssignmentSubmissionIds (D-066)", () => {
+  const NOW = new Date("2026-09-01T00:00:00Z");
+  // Round 1 is open on NOW (see `round()`); round 2 hasn't opened; round 3 is
+  // over. Round 4 has no dates at all, so it is open by convention.
+  const rounds = [
+    round({ id: "round-1" }),
+    round({
+      id: "round-2",
+      opensAt: new Date("2026-10-16T00:00:00Z"),
+      closesAt: new Date("2026-11-30T00:00:00Z"),
+    }),
+    round({
+      id: "round-3",
+      opensAt: new Date("2026-01-01T00:00:00Z"),
+      closesAt: new Date("2026-02-01T00:00:00Z"),
+    }),
+    round({ id: "round-4", opensAt: null, closesAt: null }),
+  ];
+
+  it("takes the submissions the reviewer owes work on in a round that is open", () => {
+    const mine = [
+      assignment({ id: "a1", roundId: "round-1", submissionId: "sub-1" }),
+      assignment({ id: "a2", roundId: "round-4", submissionId: "sub-2" }),
+    ];
+    expect(activeAssignmentSubmissionIds(rounds, mine, NOW)).toEqual(new Set(["sub-1", "sub-2"]));
+  });
+
+  it("ignores work in a round that hasn't opened or has already closed", () => {
+    const mine = [
+      assignment({ id: "a1", roundId: "round-2", submissionId: "sub-1" }),
+      assignment({ id: "a2", roundId: "round-3", submissionId: "sub-2" }),
+    ];
+    expect(activeAssignmentSubmissionIds(rounds, mine, NOW)).toEqual(new Set());
+  });
+
+  it("drops recused work — a recusal is work handed back, not work owed", () => {
+    const mine = [
+      assignment({ id: "a1", roundId: "round-1", submissionId: "sub-1", status: "recused" }),
+      assignment({ id: "a2", roundId: "round-1", submissionId: "sub-2", status: "done" }),
+    ];
+    // A filed scorecard still counts: it is the reviewer's own work, and it
+    // stays on the list they read back.
+    expect(activeAssignmentSubmissionIds(rounds, mine, NOW)).toEqual(new Set(["sub-2"]));
+  });
+
+  it("counts a submission once however many open rounds hold it", () => {
+    const mine = [
+      assignment({ id: "a1", roundId: "round-1", submissionId: "sub-1" }),
+      assignment({ id: "a2", roundId: "round-4", submissionId: "sub-1" }),
+    ];
+    expect(activeAssignmentSubmissionIds(rounds, mine, NOW)).toEqual(new Set(["sub-1"]));
+  });
+
+  it("never scopes one event's list by another event's round", () => {
+    const mine = [assignment({ id: "a1", roundId: "round-9", submissionId: "sub-1" })];
+    expect(activeAssignmentSubmissionIds(rounds, mine, NOW)).toEqual(new Set());
+    expect(activeAssignmentSubmissionIds([], mine, NOW)).toEqual(new Set());
+  });
+
+  it("is empty for a reviewer with nothing assigned", () => {
+    expect(activeAssignmentSubmissionIds(rounds, [], NOW)).toEqual(new Set());
   });
 });
 

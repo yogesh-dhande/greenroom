@@ -29,14 +29,28 @@ import {
   timeOfMinutes,
   type ScheduleConflict,
 } from "@/domain/scheduling";
+import {
+  ANY_CONTENT_STATUS,
+  CONTENT_STATUS_LABEL,
+  SESSION_CONTENT_STATUSES,
+  filterByContentStatus,
+} from "@/domain/session-content";
 import { formatDay, formatTime } from "@/components/date-format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   deleteSession,
   placeSession,
+  restoreAbstractRevision,
   unscheduleSession,
   updateSessionContent,
   updateSessionSpeakers,
@@ -60,7 +74,7 @@ import {
 import { NewSessionDialog } from "./new-session-dialog";
 import { SessionCard } from "./session-card";
 import { SessionEditDialog } from "./session-edit-dialog";
-import type { BoardPerson, BoardSession } from "./types";
+import type { BoardPerson, BoardSession, SessionRevisionView } from "./types";
 
 interface SessionPatch {
   id: string;
@@ -81,6 +95,7 @@ export function AgendaBoard({
   people,
   directory,
   roster,
+  revisions,
   canEdit,
   focusSessionId,
 }: {
@@ -95,6 +110,8 @@ export function AgendaBoard({
   directory: BoardPerson[];
   /** This event's speaker roster — who the edit dialog can add (D-057). */
   roster: BoardPerson[];
+  /** Abstract history per session id, newest first (decisions.md D-071). */
+  revisions: Record<string, SessionRevisionView[]>;
   canEdit: boolean;
   /** Opens straight into this session's edit dialog on load — the submission
    * detail page's "Edit title, abstract & track" deep link (D-054(5)). */
@@ -116,6 +133,12 @@ export function AgendaBoard({
     return firstProgrammedDay && days.includes(firstProgrammedDay) ? firstProgrammedDay : days[0];
   });
   const [editing, setEditing] = useState<BoardSession | null>(focusSession);
+  /**
+   * Approval filter (decisions.md D-072). Presentation only: conflicts below
+   * are still computed from every session, because a talk held back for a
+   * rewrite still occupies its room and its speaker.
+   */
+  const [contentFilter, setContentFilter] = useState<string>(ANY_CONTENT_STATUS);
   const [dragging, setDragging] = useState<BoardSession | null>(null);
   /** How far below the card's top edge the pointer grabbed it, in minutes —
    * so a card dropped by its middle doesn't jump forward by half its length. */
@@ -132,24 +155,46 @@ export function AgendaBoard({
     [optimisticSessions],
   );
 
+  /** What the board draws: every session unless the organizer narrowed by
+   * approval status. */
+  const shownSessions = useMemo(
+    () => filterByContentStatus(optimisticSessions, contentFilter),
+    [optimisticSessions, contentFilter],
+  );
+  const contentStatusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const session of optimisticSessions) {
+      counts.set(session.contentStatus, (counts.get(session.contentStatus) ?? 0) + 1);
+    }
+    return counts;
+  }, [optimisticSessions]);
+
   const placedByDay = useMemo(() => {
     const byDay = new Map<string, BoardSession[]>();
-    for (const session of optimisticSessions) {
+    for (const session of shownSessions) {
       if (!isPlaced(session) || !session.day) continue;
       byDay.set(session.day, [...(byDay.get(session.day) ?? []), session]);
     }
     return byDay;
-  }, [optimisticSessions]);
+  }, [shownSessions]);
 
   const daySessions = useMemo(
     () => placedByDay.get(selectedDay) ?? [],
     [placedByDay, selectedDay],
   );
-  const unscheduled = optimisticSessions.filter((s) => !isPlaced(s));
+  const unscheduled = shownSessions.filter((s) => !isPlaced(s));
   const timeWindow = useMemo(() => timeWindowFor(daySessions), [daySessions]);
   const gridHeight = (timeWindow.endMinute - timeWindow.startMinute) * PX_PER_MINUTE;
   const slots = useMemo(() => slotMinutes(timeWindow), [timeWindow]);
   const hours = useMemo(() => hourMarks(timeWindow), [timeWindow]);
+
+  /** The hours "Suggest a slot" (decisions.md D-067) may propose: the working
+   * day, widened across every day so a suggestion can use a late or early hour
+   * the event already programs somewhere. */
+  const suggestionWindow = useMemo(
+    () => timeWindowFor(optimisticSessions.filter(isPlaced)),
+    [optimisticSessions],
+  );
 
   /** Room columns, plus a holding column when something is on the day without
    * a room (possible via the time dialog). */
@@ -193,6 +238,17 @@ export function AgendaBoard({
       const result = await updateSessionContent(eventSlug, session.id, content);
       if (!result.ok) toast.error(result.error);
       else toast.success("Session details saved");
+    });
+  }
+
+  // Restoring an earlier abstract (decisions.md D-071). No optimistic patch:
+  // the text being restored lives on the server side of the history entry, so
+  // the board waits for the write rather than guessing at it.
+  function restoreRevision(session: BoardSession, revisionId: string) {
+    startTransition(async () => {
+      const result = await restoreAbstractRevision(eventSlug, revisionId);
+      if (!result.ok) toast.error(result.error);
+      else toast.success(`Earlier abstract restored on "${session.title}"`);
     });
   }
 
@@ -318,62 +374,83 @@ export function AgendaBoard({
             })}
           </div>
 
-          {conflicts.length === 0 ? (
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <CircleCheckIcon className="size-4" aria-hidden />
-              No scheduling conflicts
-            </p>
-          ) : (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  size="sm"
-                  variant={blockingCount > 0 ? "destructive" : "outline"}
-                  className={blockingCount > 0 ? undefined : "border-warning text-warning"}
-                  data-testid="conflict-summary"
-                >
-                  <CircleAlertIcon />
-                  {blockingCount > 0
-                    ? `${blockingCount} conflict${blockingCount === 1 ? "" : "s"}`
-                    : `${conflicts.length} overlap${conflicts.length === 1 ? "" : "s"}`}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-96">
-                <p className="mb-2 text-sm font-medium text-foreground">Scheduling conflicts</p>
-                <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-                  {conflicts.map((conflict, index) => (
-                    <li
-                      key={`${conflict.type}-${conflict.sessionIds.join("-")}-${index}`}
-                      className="flex flex-col gap-1 rounded-md border border-border p-2"
-                    >
-                      <Badge
-                        variant={
-                          CONFLICT_SEVERITY[conflict.type] === "blocking"
-                            ? "destructive"
-                            : "outline"
-                        }
-                        className={
-                          CONFLICT_SEVERITY[conflict.type] === "blocking"
-                            ? undefined
-                            : "border-warning text-warning"
-                        }
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Approval filter (decisions.md D-072) — a dropdown rather than
+                chips so it sits in the toolbar without competing with the day
+                switcher for width. */}
+            <Select value={contentFilter} onValueChange={setContentFilter}>
+              <SelectTrigger size="sm" className="w-48" aria-label="Filter by content status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY_CONTENT_STATUS}>
+                  All content ({optimisticSessions.length})
+                </SelectItem>
+                {SESSION_CONTENT_STATUSES.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {CONTENT_STATUS_LABEL[value]} ({contentStatusCounts.get(value) ?? 0})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {conflicts.length === 0 ? (
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <CircleCheckIcon className="size-4" aria-hidden />
+                No scheduling conflicts
+              </p>
+            ) : (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant={blockingCount > 0 ? "destructive" : "outline"}
+                    className={blockingCount > 0 ? undefined : "border-warning text-warning"}
+                    data-testid="conflict-summary"
+                  >
+                    <CircleAlertIcon />
+                    {blockingCount > 0
+                      ? `${blockingCount} conflict${blockingCount === 1 ? "" : "s"}`
+                      : `${conflicts.length} overlap${conflicts.length === 1 ? "" : "s"}`}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-96">
+                  <p className="mb-2 text-sm font-medium text-foreground">Scheduling conflicts</p>
+                  <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                    {conflicts.map((conflict, index) => (
+                      <li
+                        key={`${conflict.type}-${conflict.sessionIds.join("-")}-${index}`}
+                        className="flex flex-col gap-1 rounded-md border border-border p-2"
                       >
-                        {CONFLICT_LABEL[conflict.type]}
-                      </Badge>
-                      <p className="text-xs text-muted-foreground">{conflict.message}</p>
-                      <button
-                        type="button"
-                        className="self-start text-xs font-medium text-foreground underline-offset-4 hover:underline"
-                        onClick={() => setSelectedDay(dayOfConflict(conflict))}
-                      >
-                        Show on {formatDay(dayOfConflict(conflict))}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </PopoverContent>
-            </Popover>
-          )}
+                        <Badge
+                          variant={
+                            CONFLICT_SEVERITY[conflict.type] === "blocking"
+                              ? "destructive"
+                              : "outline"
+                          }
+                          className={
+                            CONFLICT_SEVERITY[conflict.type] === "blocking"
+                              ? undefined
+                              : "border-warning text-warning"
+                          }
+                        >
+                          {CONFLICT_LABEL[conflict.type]}
+                        </Badge>
+                        <p className="text-xs text-muted-foreground">{conflict.message}</p>
+                        <button
+                          type="button"
+                          className="self-start text-xs font-medium text-foreground underline-offset-4 hover:underline"
+                          onClick={() => setSelectedDay(dayOfConflict(conflict))}
+                        >
+                          Show on {formatDay(dayOfConflict(conflict))}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
         </div>
 
         {/* Unscheduled tray — a full-width strip above the grid so every room
@@ -500,13 +577,17 @@ export function AgendaBoard({
         days={days}
         rooms={rooms}
         tracks={tracks}
+        sessions={optimisticSessions}
+        suggestionWindow={suggestionWindow}
         people={people}
         roster={roster}
+        revisions={revisions}
         defaultDay={selectedDay}
         canEdit={canEdit}
         onOpenChange={(open) => !open && setEditing(null)}
         onPlace={place}
         onSaveContent={saveContent}
+        onRestoreRevision={restoreRevision}
         onUpdateSpeakers={updateSpeakers}
         onUnschedule={unschedule}
         onDelete={remove}

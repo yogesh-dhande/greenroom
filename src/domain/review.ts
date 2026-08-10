@@ -169,6 +169,40 @@ export function visibleSubmissions<
 }
 
 // ---------------------------------------------------------------------------
+// Which list a reviewer lands on (decisions.md D-066)
+// ---------------------------------------------------------------------------
+
+/**
+ * The two lists the submissions queue can show a reviewer: the talks they hold
+ * an active round assignment on, or every talk their tracks route to them.
+ */
+export type QueueView = "assigned" | "all";
+
+export const QUEUE_VIEW_ASSIGNED: QueueView = "assigned";
+export const QUEUE_VIEW_ALL: QueueView = "all";
+
+/**
+ * Which list to render, from the URL's `view` and how much assigned work the
+ * viewer actually has (decisions.md D-066).
+ *
+ * A reviewer holding assignments lands on them — "what's mine to do" is the
+ * first question they have — and anything else falls through to the
+ * track-scoped list D-047 describes: an explicit `?view=all`, a viewer with no
+ * active assignment, and an admin (who never has an assigned view here).
+ *
+ * Presentation only. `visibleSubmissions` above still decides what may be
+ * listed at all, and `canViewSubmission` still decides what may be opened —
+ * neither reads this (D-061).
+ */
+export function resolveQueueView(
+  requested: string | undefined | null,
+  assignedCount: number,
+): QueueView {
+  if (assignedCount <= 0) return QUEUE_VIEW_ALL;
+  return requested === QUEUE_VIEW_ALL ? QUEUE_VIEW_ALL : QUEUE_VIEW_ASSIGNED;
+}
+
+// ---------------------------------------------------------------------------
 // Who may do what
 // ---------------------------------------------------------------------------
 
@@ -327,6 +361,10 @@ export function planAcceptanceConversion(input: ConversionInputs): ConversionPla
         startTime: null,
         endTime: null,
         status: "confirmed",
+        // The organizer accepted this abstract as written, so its content is
+        // approved on arrival (decisions.md D-072) — accepting a talk must
+        // not leave it invisible to the public program it was accepted for.
+        contentStatus: "approved",
       };
 
   // Only ever repair status. Title/description are left alone: once a session
@@ -338,12 +376,12 @@ export function planAcceptanceConversion(input: ConversionInputs): ConversionPla
       : null;
 
   const held = new Set(
-    input.existingAssignments.map((assignment) => `${assignment.taskId} ${assignment.speakerId}`),
+    input.existingAssignments.map((assignment) => `${assignment.taskId}:${assignment.speakerId}`),
   );
   const newAssignments: NewTaskAssignment[] = [];
   for (const task of input.autoAssignTasks) {
     for (const speakerId of input.speakerIds) {
-      if (held.has(`${task.id} ${speakerId}`)) continue;
+      if (held.has(`${task.id}:${speakerId}`)) continue;
       newAssignments.push({
         taskId: task.id,
         speakerId,

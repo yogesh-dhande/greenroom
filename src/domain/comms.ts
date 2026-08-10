@@ -77,6 +77,17 @@ export interface CommsContext {
   appUrl: string;
   /** Signature line on outgoing mail; the From identity stays separate. */
   organizerName?: string;
+  /**
+   * The `{{organizerEmail}}` merge token's reply-to-a-human address -
+   * the signed-in admin who triggered this send, when there is one. Distinct
+   * from `sender.from.email` (the transport's From/Reply-To, e.g.
+   * `EMAIL_FROM_ADDRESS`, typically a no-reply mailbox): a speaker reading
+   * "questions? email {{organizerEmail}}" should reach a person, not bounce
+   * off the transport address. Unset for automated sends (the reminder cron
+   * has no acting admin), where `eventFields` falls back to the transport
+   * address.
+   */
+  organizerEmail?: string;
   /** Domain used in calendar UIDs; only affects uniqueness, not delivery. */
   uidDomain?: string;
   /** Defaults to now; overridable for tests and fixtures. */
@@ -222,7 +233,10 @@ export function eventFields(ctx: CommsContext, event: Event): MergeData {
     eventTimezone: formatZoneAbbreviation(reference, event.timezone),
     eventUrl: eventUrl(ctx, event),
     organizerName: ctx.organizerName ?? DEFAULT_ORGANIZER_NAME,
-    organizerEmail: ctx.sender.from.email,
+    // Falls back to the transport's From address only when there's no acting
+    // admin to attribute the send to (an automated cron/digest send) - see
+    // `organizerEmail` on `CommsContext`.
+    organizerEmail: ctx.organizerEmail ?? ctx.sender.from.email,
     portalUrl: portalUrl(ctx),
   };
 }
@@ -770,6 +784,56 @@ See you there.`;
     { subject, text, html: textToHtml(text) },
     { kind: "team_invite", relatedType: "user", relatedId: input.userId },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Portal invitations (decisions.md D-070)
+// ---------------------------------------------------------------------------
+
+export interface PortalInviteInput {
+  eventId: string;
+  speakerId: string;
+}
+
+/**
+ * Invites one speaker into their portal, from their record page (D-070).
+ *
+ * There is no invite token and no invite table: the link is `/portal`, the
+ * ordinary magic-link sign-in every role already uses (D-007, D-016), so an
+ * invitation that's forwarded, re-sent, or opened a month later behaves like
+ * any other sign-in rather than like a secret that can expire or leak.
+ *
+ * Unlike `sendTeamInvite` this *is* a built-in template
+ * (src/domain/comms-templates.ts), because an organizer should be able to
+ * re-word how their event welcomes speakers — so it renders through
+ * `renderForEvent` and honours the event's override.
+ *
+ * Logged under its own `portal_invite` kind, which is the point of the
+ * decision: the communications log answers "who have we invited, and when"
+ * instead of burying invitations among one-off `manual` mail.
+ */
+export async function sendPortalInvite(
+  ctx: CommsContext,
+  input: PortalInviteInput,
+): Promise<CommsDelivery> {
+  const [event, speaker] = await Promise.all([
+    requireEvent(ctx, input.eventId),
+    ctx.repos.users.getById(input.speakerId),
+  ]);
+  if (!speaker) throw new Error(`Speaker ${input.speakerId} not found`);
+
+  const overrides = await eventTemplateOverrides(ctx, event.id);
+  const data: MergeData = {
+    ...eventFields(ctx, event),
+    ...speakerFields(speaker),
+    outstandingTasks: await outstandingTasksFor(ctx, event, speaker.id),
+  };
+
+  return deliver(ctx, speaker.email, renderForEvent("portal_invite", overrides, data), {
+    kind: "portal_invite",
+    relatedType: "user",
+    relatedId: speaker.id,
+  });
 }
 
 // ---------------------------------------------------------------------------

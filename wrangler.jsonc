@@ -10,11 +10,17 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
-  // The evaluators/users are in California (D-033). SSR makes many D1 round
-  // trips per request, so run the Worker near the database (created in WNAM)
-  // instead of at the request's ingress point — Smart Placement moves the
-  // invocation to where its backend calls are cheapest.
-  "placement": { "mode": "smart" },
+  // Workers Logs: without this, a stalled request leaves nothing behind to
+  // read after the fact — `wrangler tail` only shows what is happening while
+  // it is attached. Sample every request (rate 1) rather than a fraction: the
+  // failures we are chasing are intermittent, and the traffic is low enough
+  // that full sampling is affordable.
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // State the per-invocation CPU ceiling rather than inheriting it: a request
+  // that burns it is then terminated with a CPU-limit error that shows up in
+  // the logs above, instead of one more ambiguous failure. 30 s is the
+  // maximum, so this raises no request's budget — it only makes it legible.
+  "limits": { "cpu_ms": 30000 },
   // Owner-chosen production domain (zone must live on this Cloudflare
   // account); wrangler provisions the DNS record and certificate on deploy.
   "routes": [

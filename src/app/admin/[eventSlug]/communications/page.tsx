@@ -11,6 +11,7 @@ import {
   summarizeSessionInvites,
   TEMPLATE_MERGE_FIELDS,
 } from "@/domain/comms";
+import { resolveConfirmation } from "@/domain/onboarding";
 import { formatEventTimeRange } from "@/lib/event-time";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
@@ -43,13 +44,18 @@ export default async function CommunicationsPage({
   const { user, event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const [sessions, rooms, submissions, assignments, overrides, rounds] = await Promise.all([
+  const [sessions, rooms, submissions, assignments, overrides, rounds, eventSpeakers] = await Promise.all([
     repos.sessions.listByEvent(event.id),
     repos.rooms.listByEvent(event.id),
     repos.submissions.listByEvent(event.id),
     repos.taskAssignments.listByEvent(event.id),
     repos.emailTemplates.listByEvent(event.id),
     repos.reviewRounds.listByEvent(event.id),
+    // The organizer's stored confirmation overrides (decisions.md D-068) —
+    // needed alongside the session-attachment derivation below so the
+    // recipient picker's "confirmed" badge can't call a speaker confirmed
+    // after they've been explicitly marked Declined.
+    repos.eventSpeakers.listByEvent(event.id),
   ]);
 
   // --- who this event's mail concerns -------------------------------------
@@ -63,10 +69,18 @@ export default async function CommunicationsPage({
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((submission) => submission.id)),
     repos.reviewRounds.listAssignmentsByRounds(rounds.map((round) => round.id)),
   ]);
-  const confirmedIds = new Set(sessionLinks.map((link) => link.userId));
+  // *Derived* confirmation only (decisions.md D-017) — attached to one of
+  // this event's sessions. Used as-is for `personIds` (anyone with a session
+  // belongs in the contact list regardless of an override), but the
+  // recipient picker's "confirmed" badge below needs the *effective* value,
+  // so a stored override is layered on via `resolveConfirmation` there.
+  const derivedConfirmedIds = new Set(sessionLinks.map((link) => link.userId));
+  const confirmationBySpeaker = new Map(
+    eventSpeakers.map((member) => [member.userId, member.confirmationStatus]),
+  );
   const personIds = [
     ...new Set([
-      ...confirmedIds,
+      ...derivedConfirmedIds,
       ...submissionLinks.map((link) => link.userId),
       ...assignments.map((assignment) => assignment.speakerId),
       ...roundAssignments.map((assignment) => assignment.reviewerId),
@@ -103,7 +117,14 @@ export default async function CommunicationsPage({
       id: person.id,
       name: person.name?.trim() || person.email,
       email: person.email,
-      confirmed: confirmedIds.has(person.id),
+      // Effective confirmation (decisions.md D-068): the organizer's stored
+      // answer wins when there is one, so a speaker marked Declined doesn't
+      // carry the "On the program" badge just because their session is
+      // still on the books.
+      confirmed: resolveConfirmation(
+        confirmationBySpeaker.get(person.id) ?? null,
+        derivedConfirmedIds.has(person.id),
+      ),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -184,6 +205,7 @@ export default async function CommunicationsPage({
   const comms = await getCommsContext({
     repos,
     organizerName: user.name?.trim() || user.email,
+    organizerEmail: user.email,
   });
   const eventMergeData = eventFields(comms, event);
 

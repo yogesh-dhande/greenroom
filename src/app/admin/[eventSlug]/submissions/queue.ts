@@ -10,6 +10,7 @@ import {
 import type { Repos } from "@/db/repos";
 import { tallyReviewsBySubmission, visibleSubmissions, type ReviewTally } from "@/domain/review";
 import {
+  activeAssignmentSubmissionIds,
   blindSubmissionIds,
   isRoundOpen,
   rollupRoundsBySubmission,
@@ -38,6 +39,10 @@ export interface QueueRow {
   /** This viewer is scoring this row in a blind round (decisions.md D-049), so
    * `speakers` was emptied in the loader and the cell shows the marker. */
   blind: boolean;
+  /** This viewer holds an active round assignment on this row (decisions.md
+   * D-066) — what the assignment-scoped default view is built from. Always
+   * false for an admin, whose list D-066 leaves alone. */
+  assigned: boolean;
   tally: ReviewTally;
   /** Filed round scorecards for this submission (decisions.md D-048); empty
    * for a reviewer, who never sees another reviewer's round work (D-035). */
@@ -213,23 +218,38 @@ export async function loadViewerScorecards(
   return cards;
 }
 
+/** What this viewer's own round work does to the queue: which rows are theirs
+ * to score, and which of them they score blind. */
+interface ViewerRoundScoping {
+  /** Scored blind by this viewer (decisions.md D-049) — speakers come off. */
+  blind: Set<string>;
+  /** Held under an active assignment (decisions.md D-066) — the default view. */
+  assigned: Set<string>;
+}
+
 /**
- * The submissions this viewer is scoring blind on this event (decisions.md
- * D-049). The track-scoped queue lists proposals a reviewer may hold a blind
- * assignment on, so the list has to ask the same question the round's own
- * surfaces ask. Admins are never anonymized, and skip the reads.
+ * The two questions this viewer's own round assignments settle for the queue:
+ * which rows they are scoring blind (decisions.md D-049), and which rows are
+ * theirs to score at all (D-066).
+ *
+ * Both come off one pair of reads, because both ask the same thing — what has
+ * this person been handed on this event. Admins are never anonymized and their
+ * list is never narrowed, so they skip the reads entirely.
  */
-async function blindSubmissionIdsFor(
+async function viewerRoundScoping(
   repos: Repos,
   eventId: string,
   viewer: SessionUser,
-): Promise<Set<string>> {
-  if (viewer.role === "admin") return new Set();
+): Promise<ViewerRoundScoping> {
+  if (viewer.role === "admin") return { blind: new Set(), assigned: new Set() };
   const [rounds, mine] = await Promise.all([
     repos.reviewRounds.listByEvent(eventId),
     repos.reviewRounds.listAssignmentsByReviewer(viewer.id),
   ]);
-  return blindSubmissionIds(rounds, mine);
+  return {
+    blind: blindSubmissionIds(rounds, mine),
+    assigned: activeAssignmentSubmissionIds(rounds, mine),
+  };
 }
 
 /** The tracks a reviewer owns *on this event*; admins get an empty list and
@@ -309,14 +329,14 @@ export async function loadSubmissionQueue(
   const { submissions, trackIdsBySubmission, tracks, reviewerTrackIds, directFormIds } =
     await loadVisible(repos, event, viewer);
 
-  const [speakerLinks, reviews, rollups, blindIds] = await Promise.all([
+  const [speakerLinks, reviews, rollups, scoping] = await Promise.all([
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((s) => s.id)),
     repos.reviews.listBySubmissionIds(submissions.map((s) => s.id)),
     // Rounds roll up onto the record for the organizer only (D-048, D-035).
     viewer.role === "admin"
       ? loadRoundRollups(repos, event.id)
       : Promise.resolve<Record<string, SubmissionRollup>>({}),
-    blindSubmissionIdsFor(repos, event.id, viewer),
+    viewerRoundScoping(repos, event.id, viewer),
   ]);
   const people = await repos.users.listByIds([...new Set(speakerLinks.map((l) => l.userId))]);
   const peopleById = new Map(people.map((person) => [person.id, person]));
@@ -342,10 +362,11 @@ export async function loadSubmissionQueue(
     // Dropped in the loader, like a blind round's own queue (D-049): the names
     // aren't in the rendered output either, so blind holds for anyone reading
     // the HTML as well as anyone reading the screen.
-    const blind = blindIds.has(submission.id);
+    const blind = scoping.blind.has(submission.id);
     return {
       submission,
       trackIds,
+      assigned: scoping.assigned.has(submission.id),
       trackNames: trackIds
         .map((id) => trackNameById.get(id))
         .filter((name): name is string => Boolean(name)),

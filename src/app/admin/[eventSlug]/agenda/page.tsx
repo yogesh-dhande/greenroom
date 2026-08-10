@@ -4,7 +4,14 @@ import { requireEventAdmin } from "@/lib/session";
 import { PageHeader } from "@/components/page-header";
 import { loadSpeakerRoster } from "../speakers/roster";
 import { AgendaBoard } from "./agenda-board";
-import type { BoardPerson, BoardSession } from "./types";
+import type { BoardPerson, BoardSession, SessionRevisionView } from "./types";
+
+/** "2026-05-12 14:03" — sortable, unambiguous, and identical on the server
+ * and the client, which a locale-formatted date would not be. */
+function revisionTimestamp(at: Date): string {
+  const iso = at.toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
 
 /**
  * Agenda builder (spec.md §9): one day at a time, rooms across, time down,
@@ -74,6 +81,31 @@ export default async function AgendaPage({
     speakerIds: speakerIdsBySession.get(session.id) ?? [],
   }));
 
+  // Abstract history for the whole board in one read (decisions.md D-071), so
+  // opening a session dialog costs no round-trip. Authors are resolved here
+  // because the board is a client component with no user lookup of its own.
+  const allRevisions = await repos.sessionRevisions.listBySessions(sessions.map((s) => s.id));
+  const authorIds = [
+    ...new Set(allRevisions.flatMap((r) => (r.authorUserId ? [r.authorUserId] : []))),
+  ];
+  const authors = new Map(
+    (await repos.users.listByIds(authorIds)).map((person) => [
+      person.id,
+      person.name ?? person.email,
+    ]),
+  );
+  const revisions: Record<string, SessionRevisionView[]> = {};
+  for (const revision of allRevisions) {
+    const view: SessionRevisionView = {
+      id: revision.id,
+      authorName:
+        (revision.authorUserId ? authors.get(revision.authorUserId) : null) ?? "Unknown",
+      at: revisionTimestamp(revision.createdAt),
+      priorValue: revision.priorValue,
+    };
+    revisions[revision.sessionId] = [...(revisions[revision.sessionId] ?? []), view];
+  }
+
   // Day tabs come from the event's own date range; if it has none yet, fall
   // back to whatever days already carry sessions so the board still works.
   const programmedDays = [...new Set(sessions.flatMap((s) => (s.day ? [s.day] : [])))].sort();
@@ -98,6 +130,7 @@ export default async function AgendaPage({
         people={people}
         directory={directory.map(toPerson).sort((a, b) => a.name.localeCompare(b.name))}
         roster={rosterSpeakers.map(toPerson).sort((a, b) => a.name.localeCompare(b.name))}
+        revisions={revisions}
         canEdit={user.role === "admin"}
         focusSessionId={focusSessionId}
       />

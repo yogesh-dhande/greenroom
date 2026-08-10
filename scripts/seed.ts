@@ -1057,6 +1057,8 @@ async function seed(repos: Repos): Promise<void> {
       startTime: placement?.startTime ?? null,
       endTime: placement?.endTime ?? null,
       status: "confirmed",
+      // Seeded content is publishable copy (decisions.md D-072).
+      contentStatus: "approved",
     };
     const session = await repos.sessions.create(input);
     sessionIds.push(session.id);
@@ -1081,6 +1083,7 @@ async function seed(repos: Repos): Promise<void> {
     startTime: null,
     endTime: null,
     status: "confirmed",
+    contentStatus: "approved",
   });
   sessionIds.push(invitedSession.id);
   await repos.sessions.assignSpeaker(invitedSession.id, speakers[8].id);

@@ -4,7 +4,9 @@ import {
   buildSpeakerRollups,
   deriveTaskState,
   findDuplicateNameSpeakerIds,
+  matchesConfirmationFilter,
   nextDueAssignmentId,
+  resolveConfirmation,
   sortAssignmentViews,
   filterSpeakerRollups,
   matchesSpeakerSearch,
@@ -15,7 +17,7 @@ import {
   type AssignmentView,
   type SpeakerRollup,
 } from "@/domain/onboarding";
-import type { Task, TaskAssignment, User } from "@/db/entities";
+import type { SpeakerConfirmation, Task, TaskAssignment, User } from "@/db/entities";
 
 const NOW = new Date("2026-08-10T12:00:00Z");
 
@@ -351,30 +353,39 @@ describe("roster filtering", () => {
   /** A rollup with only the fields the filters read. */
   function rollup(
     speakerOverrides: Partial<User> & { id: string },
-    counts: { outstanding?: number; overdue?: number } = {},
+    counts: { completed?: number; outstanding?: number; overdue?: number; confirmed?: boolean } = {},
   ): SpeakerRollup {
+    const completedTasks = counts.completed ?? 0;
     const outstandingTasks = counts.outstanding ?? 0;
+    const totalTasks = completedTasks + outstandingTasks;
+    const confirmed = counts.confirmed ?? true;
     return {
       speaker: user(speakerOverrides),
-      confirmed: true,
-      totalTasks: outstandingTasks,
-      completedTasks: 0,
+      confirmed,
+      derivedConfirmed: confirmed,
+      confirmationStatus: null,
+      totalTasks,
+      completedTasks,
       outstandingTasks,
       overdueTasks: counts.overdue ?? 0,
-      completionPercent: outstandingTasks === 0 ? 100 : 0,
+      completionPercent: totalTasks === 0 ? 100 : Math.round((completedTasks / totalTasks) * 100),
       views: [],
     };
   }
 
+  // Zero tasks at all - never assigned anything. Distinct from `carol`, who
+  // has tasks and has finished every one of them.
   const ada = rollup({ id: "ada", name: "Ada Lovelace", company: "Analytical Engines" });
   const grace = rollup({ id: "grace", name: "Grace Hopper", company: "US Navy" }, { outstanding: 2 });
   const alan = rollup({ id: "alan", name: "Alan Turing", company: null }, { outstanding: 1, overdue: 1 });
-  const all = [ada, grace, alan];
+  const carol = rollup({ id: "carol", name: "Carol Shaw", company: "Atari" }, { completed: 2 });
+  const all = [ada, grace, alan, carol];
 
   it("derives one status per speaker, overdue taking precedence", () => {
-    expect(speakerRosterStatus(ada)).toBe("complete");
+    expect(speakerRosterStatus(ada)).toBe("no_tasks");
     expect(speakerRosterStatus(grace)).toBe("incomplete");
     expect(speakerRosterStatus(alan)).toBe("overdue");
+    expect(speakerRosterStatus(carol)).toBe("complete");
   });
 
   it("counts overdue speakers as outstanding too", () => {
@@ -386,8 +397,18 @@ describe("roster filtering", () => {
       "alan",
     ]);
     expect(filterSpeakerRollups(all, { q: "", status: "complete" }).map((r) => r.speaker.id)).toEqual([
-      "ada",
+      "carol",
     ]);
+  });
+
+  it("never matches a task-less speaker to 'complete' or 'incomplete' - only 'all'", () => {
+    expect(filterSpeakerRollups(all, { q: "", status: "complete" }).map((r) => r.speaker.id)).not.toContain(
+      "ada",
+    );
+    expect(
+      filterSpeakerRollups(all, { q: "", status: "incomplete" }).map((r) => r.speaker.id),
+    ).not.toContain("ada");
+    expect(filterSpeakerRollups(all, { q: "", status: "all" }).map((r) => r.speaker.id)).toContain("ada");
   });
 
   it("searches name, email and company, case-insensitively", () => {
@@ -400,7 +421,7 @@ describe("roster filtering", () => {
   });
 
   it("treats an empty or whitespace query as no filter", () => {
-    expect(filterSpeakerRollups(all, { q: "  ", status: "all" })).toHaveLength(3);
+    expect(filterSpeakerRollups(all, { q: "  ", status: "all" })).toHaveLength(4);
   });
 
   it("combines search and status", () => {
@@ -410,12 +431,160 @@ describe("roster filtering", () => {
   });
 });
 
+describe("confirmation filtering", () => {
+  /** A rollup with only the fields the confirmation filter reads. */
+  function rollup(
+    id: string,
+    confirmed: boolean,
+    confirmationStatus: SpeakerConfirmation | null = null,
+  ): SpeakerRollup {
+    return {
+      speaker: user({ id }),
+      confirmed,
+      derivedConfirmed: confirmed,
+      confirmationStatus,
+      totalTasks: 0,
+      completedTasks: 0,
+      outstandingTasks: 0,
+      overdueTasks: 0,
+      completionPercent: 100,
+      views: [],
+    };
+  }
+
+  const yes = rollup("yes", true);
+  const no = rollup("no", false);
+  const both = [yes, no];
+
+  it("matches on the rollup's effective `confirmed` value", () => {
+    expect(matchesConfirmationFilter(yes, "confirmed")).toBe(true);
+    expect(matchesConfirmationFilter(no, "confirmed")).toBe(false);
+    expect(matchesConfirmationFilter(yes, "unconfirmed")).toBe(false);
+    expect(matchesConfirmationFilter(no, "unconfirmed")).toBe(true);
+  });
+
+  it("treats any other value (including 'all') as unfiltered", () => {
+    expect(matchesConfirmationFilter(yes, "all")).toBe(true);
+    expect(matchesConfirmationFilter(no, "all")).toBe(true);
+  });
+
+  it("filterSpeakerRollups applies confirmation independently of task status", () => {
+    expect(
+      filterSpeakerRollups(both, { q: "", status: "all", confirmation: "confirmed" }).map(
+        (r) => r.speaker.id,
+      ),
+    ).toEqual(["yes"]);
+    expect(
+      filterSpeakerRollups(both, { q: "", status: "all", confirmation: "unconfirmed" }).map(
+        (r) => r.speaker.id,
+      ),
+    ).toEqual(["no"]);
+  });
+
+  it("defaults to unfiltered when confirmation is omitted, same as before this filter existed", () => {
+    expect(filterSpeakerRollups(both, { q: "", status: "all" })).toHaveLength(2);
+  });
+
+  it("filters on the stored status when there is one, not on session attachment", () => {
+    // On a session but explicitly declined, and on no session but explicitly
+    // confirmed - both the wrong way round from the derivation.
+    const declined = rollup("declined", false, "declined");
+    const confirmedByHand = rollup("by-hand", true, "confirmed");
+    const rows = [declined, confirmedByHand];
+    expect(
+      filterSpeakerRollups(rows, { q: "", status: "all", confirmation: "confirmed" }).map(
+        (r) => r.speaker.id,
+      ),
+    ).toEqual(["by-hand"]);
+    expect(
+      filterSpeakerRollups(rows, { q: "", status: "all", confirmation: "unconfirmed" }).map(
+        (r) => r.speaker.id,
+      ),
+    ).toEqual(["declined"]);
+  });
+});
+
+describe("stored confirmation status (decisions.md D-068)", () => {
+  it("falls back to the derived value when nothing is stored", () => {
+    expect(resolveConfirmation(null, true)).toBe(true);
+    expect(resolveConfirmation(null, false)).toBe(false);
+  });
+
+  it("lets a stored value win over the derivation, both ways", () => {
+    expect(resolveConfirmation("confirmed", false)).toBe(true);
+    expect(resolveConfirmation("declined", true)).toBe(false);
+    // And agrees with the derivation when they already agree.
+    expect(resolveConfirmation("confirmed", true)).toBe(true);
+    expect(resolveConfirmation("declined", false)).toBe(false);
+  });
+
+  it("reads 'confirmed' for a speaker with no session at all", () => {
+    const [rollup] = buildSpeakerRollups({
+      speakers: [user({ id: "s1" })],
+      confirmedSpeakerIds: new Set(),
+      assignmentsBySpeaker: new Map(),
+      tasksById: new Map(),
+      confirmationBySpeaker: new Map([["s1", "confirmed"]]),
+      now: NOW,
+    });
+    expect(rollup.confirmed).toBe(true);
+    expect(rollup.derivedConfirmed).toBe(false);
+    expect(rollup.confirmationStatus).toBe("confirmed");
+  });
+
+  it("reads 'declined' for a speaker who is still on a session", () => {
+    const [rollup] = buildSpeakerRollups({
+      speakers: [user({ id: "s1" })],
+      confirmedSpeakerIds: new Set(["s1"]),
+      assignmentsBySpeaker: new Map(),
+      tasksById: new Map(),
+      confirmationBySpeaker: new Map([["s1", "declined"]]),
+      now: NOW,
+    });
+    expect(rollup.confirmed).toBe(false);
+    expect(rollup.derivedConfirmed).toBe(true);
+    expect(rollup.confirmationStatus).toBe("declined");
+  });
+
+  it("keeps the pre-D-068 behavior exactly when the status is unset or absent", () => {
+    // Regression guard for the no-backfill promise: an existing row (null)
+    // and a speaker with no `event_speakers` row at all (absent from the map,
+    // or no map passed) must all read the derived value and nothing else.
+    const speakers = [user({ id: "on-session" }), user({ id: "off-session" })];
+    const confirmedSpeakerIds = new Set(["on-session"]);
+    const cases = [
+      new Map<string, SpeakerConfirmation | null>([
+        ["on-session", null],
+        ["off-session", null],
+      ]),
+      new Map<string, SpeakerConfirmation | null>(),
+      undefined,
+    ];
+
+    for (const confirmationBySpeaker of cases) {
+      const rollups = buildSpeakerRollups({
+        speakers,
+        confirmedSpeakerIds,
+        assignmentsBySpeaker: new Map(),
+        tasksById: new Map(),
+        confirmationBySpeaker,
+        now: NOW,
+      });
+      expect(rollups.map((r) => r.confirmed)).toEqual([true, false]);
+      expect(rollups.map((r) => r.confirmationStatus)).toEqual([null, null]);
+      expect(rollups.map((r) => r.derivedConfirmed)).toEqual([true, false]);
+    }
+  });
+});
+
 describe("possible-duplicate speakers (decisions.md D-059)", () => {
   /** A rollup with only the fields the duplicate detector reads. */
   function rollup(speakerOverrides: Partial<User> & { id: string }): SpeakerRollup {
     return {
       speaker: user(speakerOverrides),
       confirmed: true,
+      derivedConfirmed: true,
+      confirmationStatus: null,
       totalTasks: 0,
       completedTasks: 0,
       outstandingTasks: 0,

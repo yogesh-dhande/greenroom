@@ -277,6 +277,11 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
         created: false,
         email,
         message: `${labelFor(existing)} already had an account — they're now ${plan.role === "admin" ? "an admin" : "a reviewer"}`,
+        // An existing account keeps its own profile name - a name typed into
+        // this form for someone who already has an account is never written
+        // (eval finding: it used to vanish with no indication it was
+        // dropped).
+        nameIgnored: Boolean(parsed.data.name),
       },
     };
   }
@@ -316,6 +321,7 @@ export async function inviteTeammate(eventSlug: string, input: InviteInput) {
       created: true,
       email,
       message: `${email} can now sign in as ${plan.role === "admin" ? "an admin" : "a reviewer"}`,
+      nameIgnored: false,
     },
   };
 }

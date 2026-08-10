@@ -16,6 +16,7 @@ import {
   isRoutedToReviewer,
   planAcceptanceConversion,
   planDecision,
+  resolveQueueView,
   tallyReviews,
   tallyReviewsBySubmission,
   visibleSubmissions,
@@ -68,6 +69,7 @@ function session(overrides: Partial<Session> = {}): Session {
     startTime: null,
     endTime: null,
     status: "confirmed",
+    contentStatus: "approved",
     createdAt: EPOCH,
     updatedAt: EPOCH,
     ...overrides,
@@ -231,6 +233,27 @@ describe("routing", () => {
   });
 });
 
+describe("resolveQueueView (D-066)", () => {
+  it("lands a reviewer with assignments on them, and honours an explicit switch", () => {
+    expect(resolveQueueView(undefined, 5)).toBe("assigned");
+    expect(resolveQueueView("all", 5)).toBe("all");
+    expect(resolveQueueView("assigned", 5)).toBe("assigned");
+  });
+
+  it("falls back to the track-scoped list when there is no assigned work", () => {
+    // A reviewer with nothing assigned — and an admin, who never has an
+    // assigned count here — sees the list exactly as D-047 describes it.
+    expect(resolveQueueView(undefined, 0)).toBe("all");
+    expect(resolveQueueView("assigned", 0)).toBe("all");
+  });
+
+  it("ignores a value that isn't one of the two lists", () => {
+    expect(resolveQueueView("mine", 3)).toBe("assigned");
+    expect(resolveQueueView("", 3)).toBe("assigned");
+    expect(resolveQueueView(null, 0)).toBe("all");
+  });
+});
+
 describe("who may decide", () => {
   it("keeps the binding decision with admins", () => {
     expect(canRecordDecision("admin")).toBe(true);
@@ -316,6 +339,9 @@ describe("planAcceptanceConversion", () => {
       startTime: null,
       endTime: null,
       status: "confirmed",
+      // Accepted content is approved content (decisions.md D-072) — the talk
+      // must reach the public program it was just accepted for.
+      contentStatus: "approved",
     });
   });
 

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
-import type { Form } from "@/db/entities";
+import type { FileVersion, Form } from "@/db/entities";
 import { isScheduled } from "@/db/entities";
+import { PROFILE_FILE_LABEL, sortVersionsNewestFirst } from "@/domain/files";
 import {
   otherSpeakersWithSameName,
   TASK_STATE_LABEL,
@@ -20,6 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EMAIL_KIND_LABELS } from "../../communications/types";
 import { loadSpeakerRoster } from "../roster";
+import { AssignTaskForm } from "./assign-task-form";
+import { PortalInviteButton } from "./portal-invite-button";
+import { SpeakerConfirmationForm } from "./speaker-confirmation-form";
 import { SpeakerHeadshotForm } from "./speaker-headshot-form";
 import { SpeakerNotesForm } from "./speaker-notes-form";
 import { SpeakerProfileForm } from "./speaker-profile-form";
@@ -44,18 +48,38 @@ interface SpeakerUpload {
   url: string;
   filename: string;
   uploadedAt: Date;
-  /** Which task produced the file. */
+  /** Which task produced the file, or `PROFILE_FILE_LABEL` for a headshot,
+   * which belongs to the speaker rather than to a task. */
   label: string;
+  /** Who sent it, when that is known and isn't the speaker themself — an
+   * organizer can supply a headshot on their behalf. */
+  uploadedBy: string | null;
 }
 
 /**
- * Everything this speaker has sent in, from both places a task can hold a
- * file: a `file_request` assignment stores the served URL on the assignment,
+ * Everything this speaker has sent in, from the two places a task can hold a
+ * file — a `file_request` assignment stores the served URL on the assignment,
  * while a `form` task's answers hold the raw object key under the form's file
- * fields (spec.md §6). Both end up as a filename, a date, and a link.
+ * fields (spec.md §6) — plus the profile files tracked against the speaker
+ * themself. All of them end up as a filename, a date, and a link.
  */
-function collectUploads(views: AssignmentView[], formsById: Map<string, Form>): SpeakerUpload[] {
+function collectUploads(
+  views: AssignmentView[],
+  formsById: Map<string, Form>,
+  profileVersions: FileVersion[],
+): SpeakerUpload[] {
   const uploads: SpeakerUpload[] = [];
+
+  for (const version of sortVersionsNewestFirst(profileVersions)) {
+    uploads.push({
+      key: version.fileKey,
+      url: version.url,
+      filename: version.filename,
+      uploadedAt: version.createdAt,
+      label: PROFILE_FILE_LABEL,
+      uploadedBy: version.uploadedBy,
+    });
+  }
 
   for (const { assignment, task } of views) {
     const uploadedAt = assignment.completedAt ?? assignment.updatedAt;
@@ -68,6 +92,7 @@ function collectUploads(views: AssignmentView[], formsById: Map<string, Form>): 
         filename: key ? filenameFromKey(key) : assignment.fileUrl.split("/").pop() || "File",
         uploadedAt,
         label: task.title,
+        uploadedBy: null,
       });
     }
 
@@ -83,6 +108,7 @@ function collectUploads(views: AssignmentView[], formsById: Map<string, Form>): 
         filename: filenameFromKey(value),
         uploadedAt,
         label: `${task.title} — ${field.label}`,
+        uploadedBy: null,
       });
     }
   }
@@ -100,8 +126,11 @@ function collectUploads(views: AssignmentView[], formsById: Map<string, Form>): 
  * task assignments and `event_speakers`, so a user id that belongs to another
  * event's roster — or to no roster at all — is simply not found here.
  *
- * Assigning a task from this page is deliberately absent: task assignment is
- * D-052's, on the tasks list. This page reports status, it doesn't create it.
+ * The record is also where a single speaker is acted on: one task assigned to
+ * them alone (D-052, shipped by D-069) and an invitation into their portal
+ * (D-070). Both are idempotent — assigning a task they already hold changes
+ * nothing, and an invitation is just the magic-link sign-in, so it can be
+ * re-sent freely.
  */
 export default async function SpeakerRecordPage({
   params,
@@ -112,9 +141,11 @@ export default async function SpeakerRecordPage({
   const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const [{ rollups, sessionsBySpeaker, notesBySpeaker }, forms] = await Promise.all([
+  const [{ rollups, sessionsBySpeaker, notesBySpeaker }, forms, eventTasks] = await Promise.all([
     loadSpeakerRoster(repos, event.id),
     repos.forms.listByEvent(event.id),
+    // Everything this speaker could be handed from here (decisions.md D-069).
+    repos.tasks.listByEvent(event.id),
   ]);
 
   const rollup = rollups.find((candidate) => candidate.speaker.id === speakerId);
@@ -122,9 +153,25 @@ export default async function SpeakerRecordPage({
 
   const speaker = rollup.speaker;
   const sessions = sessionsBySpeaker.get(speaker.id) ?? [];
+  // Files attached to the person rather than to a task — their headshot,
+  // whether they uploaded it from the portal or an organizer supplied it here.
+  const profileVersions = await repos.fileVersions.listProfileVersionsByOwners([speaker.id]);
   const uploads = collectUploads(
     rollup.views,
     new Map(forms.map((form) => [form.id, form])),
+    profileVersions,
+  );
+  // Uploaders that aren't the speaker themself — an organizer who supplied a
+  // headshot on their behalf is the one name the panel can't assume.
+  const uploaderIds = [
+    ...new Set(
+      uploads
+        .map((upload) => upload.uploadedBy)
+        .filter((id): id is string => id !== null && id !== speaker.id),
+    ),
+  ];
+  const uploaders = new Map(
+    (await repos.users.listByIds(uploaderIds)).map((person) => [person.id, person]),
   );
   const headshotKey = speaker.headshotUrl ? keyFromFileUrl(speaker.headshotUrl) : null;
 
@@ -140,6 +187,19 @@ export default async function SpeakerRecordPage({
   const emailHistory = await repos.emailLog.listByRecipient(speaker.email);
   const emailHistoryShown = emailHistory.slice(0, EMAIL_HISTORY_LIMIT);
   const emailHistoryOlderCount = emailHistory.length - emailHistoryShown.length;
+  // An invitation already in the log only changes the button's wording — it
+  // never blocks a re-send, since "resend that" is the usual reason to press
+  // it (decisions.md D-070).
+  const alreadyInvited = emailHistory.some((log) => log.kind === "portal_invite");
+
+  // Tasks this speaker already holds, so the assign picker can label them
+  // rather than hide them (decisions.md D-069).
+  const assignedTaskIds = new Set(rollup.views.map((view) => view.task.id));
+  const assignableTasks = eventTasks.map((task) => ({
+    id: task.id,
+    title: task.title,
+    assigned: assignedTaskIds.has(task.id),
+  }));
 
   return (
     <div>
@@ -156,8 +216,16 @@ export default async function SpeakerRecordPage({
         description={speaker.email}
         action={
           <div className="flex flex-wrap items-center gap-1.5">
+            {/* The effective status (decisions.md D-068): the organizer's
+                stored answer when they've given one, their session
+                attachment otherwise. "Declined" is only ever stored — the
+                derivation can't tell a refusal from a not-yet. */}
             <Badge variant={rollup.confirmed ? "default" : "outline"}>
-              {rollup.confirmed ? "Confirmed" : "Not confirmed"}
+              {rollup.confirmed
+                ? "Confirmed"
+                : rollup.confirmationStatus === "declined"
+                  ? "Declined"
+                  : "Not confirmed"}
             </Badge>
             {rollup.overdueTasks > 0 ? (
               <Badge variant="outline" className="border-destructive bg-destructive/10 text-destructive">
@@ -280,7 +348,7 @@ export default async function SpeakerRecordPage({
               <CardTitle>Onboarding tasks</CardTitle>
               <CardDescription>
                 {rollup.totalTasks === 0
-                  ? "Nothing assigned yet — tasks are assigned from the Tasks page."
+                  ? "Nothing assigned yet — hand them one below, or assign to everyone from the Tasks page."
                   : `${rollup.completedTasks} of ${rollup.totalTasks} done (${rollup.completionPercent}%).`}
               </CardDescription>
             </CardHeader>
@@ -314,13 +382,26 @@ export default async function SpeakerRecordPage({
                   ))}
                 </ul>
               )}
+
+              {/* Assigning one task to one speaker, without fanning it out to
+                  the whole roster (decisions.md D-069). */}
+              <div className="mt-4 border-t border-border pt-4">
+                <h3 className="mb-2 text-sm font-medium text-foreground">Assign a task</h3>
+                <AssignTaskForm
+                  eventSlug={eventSlug}
+                  speakerId={speaker.id}
+                  tasks={assignableTasks}
+                />
+              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Uploads</CardTitle>
-              <CardDescription>Files they&apos;ve sent in through their tasks.</CardDescription>
+              <CardDescription>
+                Files they&apos;ve sent in through their tasks, plus the headshot on their profile.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {uploads.length === 0 ? (
@@ -328,7 +409,10 @@ export default async function SpeakerRecordPage({
               ) : (
                 <ul className="flex flex-col gap-3">
                   {uploads.map((upload) => (
-                    <li key={upload.url} className="flex items-center gap-3">
+                    <li
+                      key={`${upload.url}-${upload.uploadedAt.getTime()}`}
+                      className="flex items-center gap-3"
+                    >
                       {upload.key && isImageKey(upload.key) ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -348,6 +432,12 @@ export default async function SpeakerRecordPage({
                         </a>
                         <span className="text-xs text-muted-foreground">
                           {upload.label} · {formatDueDate(upload.uploadedAt, event.timezone)}
+                          {upload.uploadedBy && uploaders.has(upload.uploadedBy)
+                            ? ` · uploaded by ${
+                                uploaders.get(upload.uploadedBy)!.name ??
+                                uploaders.get(upload.uploadedBy)!.email
+                              }`
+                            : ""}
                         </span>
                       </div>
                     </li>
@@ -361,6 +451,25 @@ export default async function SpeakerRecordPage({
         <div className="flex flex-col gap-4 lg:col-span-1">
           <Card>
             <CardHeader>
+              <CardTitle>Confirmation</CardTitle>
+              <CardDescription>
+                Whether this speaker is confirmed for the event. Left on automatic it follows
+                their sessions; set it yourself when they&apos;ve confirmed by email, or when
+                they&apos;ve dropped out of a session that hasn&apos;t been unpicked yet.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SpeakerConfirmationForm
+                eventSlug={eventSlug}
+                speakerId={speaker.id}
+                confirmationStatus={rollup.confirmationStatus}
+                derivedConfirmed={rollup.derivedConfirmed}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Internal notes</CardTitle>
               <CardDescription>
                 Logistics for this event only — travel, seating, dietary needs.
@@ -371,6 +480,24 @@ export default async function SpeakerRecordPage({
                 eventSlug={eventSlug}
                 speakerId={speaker.id}
                 notes={notesBySpeaker.get(speaker.id) ?? null}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Speaker portal</CardTitle>
+              <CardDescription>
+                Invite this speaker into their portal, where they complete tasks and keep their
+                profile current.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PortalInviteButton
+                eventSlug={eventSlug}
+                speakerId={speaker.id}
+                speakerEmail={speaker.email}
+                alreadyInvited={alreadyInvited}
               />
             </CardContent>
           </Card>

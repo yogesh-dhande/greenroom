@@ -83,9 +83,12 @@ function duplicateNameTitle(rollup: SpeakerRollup, rollups: SpeakerRollup[]): st
  * completion percentage, at a glance, in one table. Every row opens that
  * speaker's record (decisions.md D-051).
  *
- * "Confirmed" mirrors the acceptance rule from decisions.md D-017: acceptance
- * auto-creates the session record (even before it's scheduled), so having any
- * session row for this event is what confirmed means. Being *on the roster* is
+ * "Confirmed" is the organizer's stored status when they've set one on the
+ * speaker's record, and otherwise the acceptance rule from decisions.md
+ * D-017: acceptance auto-creates the session record (even before it's
+ * scheduled), so having any session row for this event is what confirmed
+ * means by default (decisions.md D-068 — the column, the filter and the
+ * record page all read the same resolved value). Being *on the roster* is
  * broader — see `rosterSpeakerIds` — because a speaker added by hand or by
  * import has no session yet and still has to be reachable.
  *
@@ -97,15 +100,15 @@ export default async function SpeakersPage({
   searchParams,
 }: {
   params: Promise<{ eventSlug: string }>;
-  searchParams: Promise<{ q?: string; status?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; confirmation?: string }>;
 }) {
   const { eventSlug } = await params;
-  const { q = "", status = "all" } = await searchParams;
+  const { q = "", status = "all", confirmation = "all" } = await searchParams;
   const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
   const { rollups } = await loadSpeakerRoster(repos, event.id);
-  const rows = filterSpeakerRollups(rollups, { q, status });
+  const rows = filterSpeakerRollups(rollups, { q, status, confirmation });
   // Checked against the whole roster, not just the filtered rows, so a
   // collision doesn't disappear just because a search/status filter hides
   // the other name (decisions.md D-059).
@@ -131,7 +134,13 @@ export default async function SpeakersPage({
         />
       ) : (
         <>
-          <SpeakerFilters q={q} status={status} total={rollups.length} shown={rows.length} />
+          <SpeakerFilters
+            q={q}
+            status={status}
+            confirmation={confirmation}
+            total={rollups.length}
+            shown={rows.length}
+          />
 
           {rows.length === 0 ? (
             <EmptyState
@@ -189,8 +198,19 @@ export default async function SpeakersPage({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={rollup.confirmed ? "default" : "outline"}>
-                        {rollup.confirmed ? "Confirmed" : "Not yet"}
+                      <Badge
+                        variant={rollup.confirmed ? "default" : "outline"}
+                        title={
+                          rollup.confirmationStatus
+                            ? "Set by an organizer on the speaker's record"
+                            : "Automatic — follows their sessions"
+                        }
+                      >
+                        {rollup.confirmed
+                          ? "Confirmed"
+                          : rollup.confirmationStatus === "declined"
+                            ? "Declined"
+                            : "Not yet"}
                       </Badge>
                     </TableCell>
                     <TableCell>

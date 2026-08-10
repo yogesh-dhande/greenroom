@@ -4,8 +4,10 @@ import { SpeakerGallery } from "@/app/p/[eventSlug]/speakers/speaker-gallery";
 import { programVisible } from "@/domain/program-visibility";
 
 /** Chrome-less speaker gallery for iframing (spec.md "Important / strongly
- * desired": embeds). Same data + component as `/p/[eventSlug]/speakers`,
- * just without the page header/nav/footer. */
+ * desired": embeds; decisions.md D-074). Same data + component as
+ * `/p/[eventSlug]/speakers`, minus the page header/nav/footer, rendered with
+ * the headshot-forward `variant="embed"` so the embed reads as a visually
+ * distinct surface rather than the full page's content-heavy cards. */
 export default async function EmbedSpeakersPage({
   params,
 }: {
@@ -15,5 +17,5 @@ export default async function EmbedSpeakersPage({
   const [event, speakers] = await Promise.all([getPublicEvent(eventSlug), getGallery(eventSlug)]);
   // Same publish gate as the chrome'd gallery (decisions.md D-056).
   if (!programVisible(event)) return <ProgramComingSoon eventName={event.name} />;
-  return <SpeakerGallery speakers={speakers} timezone={event.timezone} />;
+  return <SpeakerGallery speakers={speakers} timezone={event.timezone} variant="embed" />;
 }

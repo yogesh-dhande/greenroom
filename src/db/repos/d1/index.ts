@@ -10,6 +10,7 @@ import { createFormsRepo } from "./forms";
 import { createReviewRoundsRepo } from "./review-rounds";
 import { createReviewsRepo } from "./reviews";
 import { createRoomsRepo } from "./rooms";
+import { createSessionRevisionsRepo } from "./session-revisions";
 import { createSessionsRepo } from "./sessions";
 import { createSubmissionsRepo } from "./submissions";
 import { createTaskAssignmentsRepo } from "./task-assignments";
@@ -36,6 +37,7 @@ export function createD1Repos(d1: D1Database): Repos {
     tracks: createTracksRepo(db),
     rooms: createRoomsRepo(db),
     sessions: createSessionsRepo(db),
+    sessionRevisions: createSessionRevisionsRepo(db),
     tasks: createTasksRepo(db),
     taskAssignments: createTaskAssignmentsRepo(db),
     fileVersions: createFileVersionsRepo(db),

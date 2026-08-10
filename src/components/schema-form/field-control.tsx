@@ -184,10 +184,15 @@ export function FieldControl({
   field,
   uploadAction,
   uploadScope,
+  note,
 }: {
   field: FormField;
   uploadAction: UploadAction;
   uploadScope: string;
+  /** Runtime note (e.g. "prefilled from your session") - distinct from the
+   * schema's own `field.helpText`, which an organizer writes once and every
+   * submitter sees. */
+  note?: string;
 }) {
   const { control, register, formState } = useFormContext<FormValues>();
   const error = formState.errors[field.id] as { message?: string } | undefined;
@@ -238,6 +243,7 @@ export function FieldControl({
   const help = field.helpText ? (
     <p className="text-sm text-muted-foreground">{field.helpText}</p>
   ) : null;
+  const noteText = note ? <p className="text-sm text-muted-foreground">{note}</p> : null;
 
   const max = effectiveMaxLength(field);
 
@@ -341,6 +347,7 @@ export function FieldControl({
         label
       )}
       {help}
+      {noteText}
       {control_}
       {max !== null ? <CharacterCount field={field} max={max} /> : null}
       {message ? <p className="text-sm text-destructive">{message}</p> : null}

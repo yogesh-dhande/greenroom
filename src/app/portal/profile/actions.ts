@@ -7,6 +7,8 @@ import { getFilesBucket, getRepos } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import {
   checkUpload,
+  filenameFromKey,
+  fileUrl,
   isImageUploadType,
   isServableKey,
   keyFromFileUrl,
@@ -53,6 +55,10 @@ async function revalidateSpeakerSurfaces(repos: Repos, userId: string): Promise<
     revalidatePath(`/embed/${event.slug}/speakers`);
     revalidatePath(`/embed/${event.slug}/schedule`);
     revalidatePath(`/admin/${event.slug}/speakers`);
+    // The speaker's own record renders their uploads, and the Files library
+    // now carries their headshot too.
+    revalidatePath(`/admin/${event.slug}/speakers/${userId}`);
+    revalidatePath(`/admin/${event.slug}/files`);
   }
 }
 
@@ -93,6 +99,24 @@ export async function saveProfile(values: FormValues): Promise<SchemaFormResult>
   }
 
   await repos.users.update(user.id, parsed.patch);
+
+  // Track the headshot as a file, not just as an avatar URL (spec.md §6 — the
+  // Files library covers "decks, headshots, paperwork"). Recorded here rather
+  // than in `uploadHeadshot` so a picked-then-abandoned image never becomes a
+  // row: only a headshot the speaker actually saved is a file they sent in.
+  // `users.headshot_url` is untouched by this and stays what renders the
+  // avatar; this row is the filename/uploader/timestamp beside it.
+  if (newKey) {
+    await repos.fileVersions.create({
+      scope: "profile",
+      ownerUserId: user.id,
+      fileKey: newKey,
+      url: fileUrl(newKey),
+      filename: filenameFromKey(newKey),
+      uploadedBy: user.id,
+    });
+  }
+
   await revalidateSpeakerSurfaces(repos, user.id);
 
   return { ok: true, message: "Profile saved." };

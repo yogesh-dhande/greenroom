@@ -440,6 +440,17 @@ export const sessions = sqliteTable(
     status: text("status", { enum: ["draft", "confirmed", "cancelled"] })
       .notNull()
       .default("confirmed"),
+    /**
+     * Editorial approval of the session's *content* (decisions.md D-072) —
+     * deliberately a separate column from `status` above, which is the
+     * scheduling state conflict detection reads. `approved` is the default so
+     * a newly converted or directly-entered session behaves exactly as it did
+     * before this column existed; an organizer moves it back to draft or
+     * in_review on purpose.
+     */
+    contentStatus: text("content_status", { enum: ["draft", "in_review", "approved"] })
+      .notNull()
+      .default("approved"),
     ...timestamps,
   },
   (t) => [index("sessions_event_day_idx").on(t.eventId, t.day)],
@@ -460,6 +471,39 @@ export const sessionSpeakers = sqliteTable(
     primaryKey({ columns: [t.sessionId, t.userId] }),
     index("session_speakers_user_idx").on(t.userId),
   ],
+);
+
+/**
+ * Abstract revision history (decisions.md D-071). Append-only: one row per
+ * edit that actually changed a session's abstract, whoever made it. `field`
+ * is a column rather than an implied constant so a second tracked field
+ * (title, say) needs no table; today only "abstract" is written.
+ *
+ * `author_user_id` is nullable and set-null on delete — history outlives the
+ * account that wrote it, since the point of the panel is what the abstract
+ * used to say.
+ */
+export const sessionRevisions = sqliteTable(
+  "session_revisions",
+  {
+    id: id(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    field: text("field", { enum: ["abstract"] })
+      .notNull()
+      .default("abstract"),
+    /** What the field held before this edit; null when it was empty. */
+    priorValue: text("prior_value"),
+    newValue: text("new_value"),
+    authorUserId: text("author_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("session_revisions_session_idx").on(t.sessionId)],
 );
 
 /**
@@ -487,6 +531,15 @@ export const eventSpeakers = sqliteTable(
     /** Free text, organizer-only — never shown to the speaker or the public.
      * One field rather than a custom-field builder, per D-051. */
     notes: text("notes"),
+    /**
+     * The organizer's stored answer to "is this speaker confirmed?"
+     * (decisions.md D-068). Deliberately nullable with no default and no
+     * backfill: NULL means nobody has said, so the surfaces fall back to the
+     * derivation they used before D-068 (confirmed <=> attached to one of
+     * this event's sessions). A stored value wins over that derivation
+     * everywhere confirmation is shown or filtered.
+     */
+    confirmationStatus: text("confirmation_status", { enum: ["confirmed", "declined"] }),
     ...timestamps,
   },
   (t) => [
@@ -549,10 +602,15 @@ export const taskAssignments = sqliteTable(
 );
 
 /**
- * Every file a speaker has sent for one assignment (decisions.md D-054).
- * Rows are immutable: replacing a deliverable adds a version, it never
- * rewrites one, and the newest row is what `task_assignments.file_url`
- * points at.
+ * Every file a speaker has sent in (decisions.md D-054), whether it answered
+ * an onboarding task or was attached to their profile. Rows are immutable:
+ * replacing a file adds a version, it never rewrites one, and the newest row
+ * for an assignment is what `task_assignments.file_url` points at.
+ *
+ * `scope` says which owner column carries the row: `assignment` rows hang off
+ * `assignment_id`, `profile` rows off `owner_user_id` (a headshot uploaded
+ * from the portal profile or by an organizer on a speaker's behalf). Exactly
+ * one of the two is set; both cascade with the thing they belong to.
  *
  * Uploads made before this table existed have no rows, and nothing
  * backfills them — the assignment's own `file_url` stands in as version 1
@@ -562,9 +620,19 @@ export const fileVersions = sqliteTable(
   "file_versions",
   {
     id: id(),
-    assignmentId: text("assignment_id")
+    /** Which owner column this row uses. Defaults to `assignment`, the only
+     * kind that existed before profile files were tracked. */
+    scope: text("scope", { enum: ["assignment", "profile"] })
       .notNull()
-      .references(() => taskAssignments.id, { onDelete: "cascade" }),
+      .default("assignment"),
+    /** Set for `assignment` rows, null for `profile` rows. */
+    assignmentId: text("assignment_id").references(() => taskAssignments.id, {
+      onDelete: "cascade",
+    }),
+    /** The speaker a `profile` row belongs to; null for `assignment` rows.
+     * Distinct from `uploaded_by`, which can be the organizer who supplied
+     * the file on their behalf. */
+    ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "cascade" }),
     /** Stored R2 object key; null for a file that only ever existed as an
      * absolute URL (an imported deliverable). */
     fileKey: text("file_key"),
@@ -578,7 +646,10 @@ export const fileVersions = sqliteTable(
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (t) => [index("file_versions_assignment_idx").on(t.assignmentId)],
+  (t) => [
+    index("file_versions_assignment_idx").on(t.assignmentId),
+    index("file_versions_owner_idx").on(t.ownerUserId),
+  ],
 );
 
 /**
@@ -653,6 +724,9 @@ export const emailLog = sqliteTable(
         "calendar_invite",
         // The Team page's "Add a teammate" invitation email (D-062).
         "team_invite",
+        // The per-speaker "Send portal invite" from a speaker's record page
+        // (D-070).
+        "portal_invite",
         "manual",
       ],
     }).notNull(),

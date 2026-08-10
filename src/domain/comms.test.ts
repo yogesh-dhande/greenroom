@@ -21,6 +21,7 @@ import {
   decideDraftReminder,
   decideTaskDigest,
   DRAFT_REMINDER_WINDOW_HOURS,
+  eventFields,
   filterCommunicationLog,
   inviteBlocker,
   isTaskDigestWindow,
@@ -318,6 +319,39 @@ function fakeSender() {
   };
   return { sender, sent };
 }
+
+// ---------------------------------------------------------------------------
+// eventFields - the {{organizerEmail}} merge token (no-reply leak fix)
+// ---------------------------------------------------------------------------
+
+describe("eventFields - {{organizerEmail}}", () => {
+  it("falls back to the transport's From address for an automated send (no viewer in context)", () => {
+    const { sender } = fakeSender();
+    const ctx: CommsContext = { repos: {} as Repos, sender, appUrl: "https://example.com", now: NOW };
+
+    const fields = eventFields(ctx, event());
+
+    expect(fields.organizerEmail).toBe(sender.from.email);
+  });
+
+  it("uses the signed-in viewer's own address when an admin-initiated send set one", () => {
+    const { sender } = fakeSender();
+    const ctx: CommsContext = {
+      repos: {} as Repos,
+      sender,
+      appUrl: "https://example.com",
+      now: NOW,
+      organizerEmail: "priya@example.test",
+    };
+
+    const fields = eventFields(ctx, event());
+
+    expect(fields.organizerEmail).toBe("priya@example.test");
+    // The whole point of the fix: a real send must not resolve to the
+    // no-reply transport address just because it's always in context.
+    expect(fields.organizerEmail).not.toBe(sender.from.email);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // isTaskDigestWindow — the weekly schedule on a 15-minute cron (D-039)

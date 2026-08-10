@@ -48,6 +48,16 @@ function organizerNameFor(viewer: { name: string | null; email: string }): strin
   return viewer.name?.trim() || viewer.email;
 }
 
+/**
+ * The `{{organizerEmail}}` merge token for mail this admin triggers by hand -
+ * the acting admin's own address, not the no-reply transport address (same
+ * rationale as `organizerNameFor`, extended to the reply address: see
+ * `CommsContext.organizerEmail` in src/domain/comms.ts).
+ */
+function organizerEmailFor(viewer: { email: string }): string {
+  return viewer.email;
+}
+
 async function authorize(eventSlug: string) {
   const viewer = await requireAdmin(`/admin/${eventSlug}/communications`);
   const repos = await getRepos();
@@ -95,6 +105,7 @@ export async function sendComposedEmail(eventSlug: string, input: ManualEmailInp
   const comms = await getCommsContext({
     repos: auth.repos,
     organizerName: organizerNameFor(auth.viewer),
+    organizerEmail: organizerEmailFor(auth.viewer),
   });
 
   let sent = 0;
@@ -236,6 +247,7 @@ export async function sendSessionInvite(eventSlug: string, sessionId: string) {
   const comms = await getCommsContext({
     repos: auth.repos,
     organizerName: organizerNameFor(auth.viewer),
+    organizerEmail: organizerEmailFor(auth.viewer),
   });
 
   let deliveries;
@@ -281,6 +293,7 @@ export async function sendRemindersNow(eventSlug: string) {
   const comms = await getCommsContext({
     repos: auth.repos,
     organizerName: organizerNameFor(auth.viewer),
+    organizerEmail: organizerEmailFor(auth.viewer),
   });
 
   let result;

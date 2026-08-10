@@ -79,6 +79,7 @@ function session(overrides: Partial<Session> = {}): Session {
     startTime: null,
     endTime: null,
     status: "confirmed",
+    contentStatus: "approved",
     ...timestamps(),
     ...overrides,
   };

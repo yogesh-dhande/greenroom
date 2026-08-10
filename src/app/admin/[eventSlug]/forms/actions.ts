@@ -199,6 +199,34 @@ export async function saveForm(eventSlug: string, formId: string, input: SaveFor
 // Publish / unpublish / delete
 // ---------------------------------------------------------------------------
 
+/**
+ * Closes submissions right now, bypassing the "close has to be after open"
+ * check `saveForm` applies: that rule is about an organizer describing a
+ * sensible window, not about this button, whose entire point is to force the
+ * window shut immediately even if `opensAt` lands in the same instant (an
+ * organizer opening and closing back to back) or later (closing before a
+ * scheduled form ever opens, to cancel it).
+ */
+export async function closeFormNow(eventSlug: string, formId: string) {
+  await requireAdmin(`/admin/${eventSlug}/forms`);
+
+  const repos = await getRepos();
+  const form = await repos.forms.getById(formId);
+  if (!form) return fail("That form no longer exists");
+
+  const closesAt = new Date();
+  try {
+    await repos.forms.update(form.id, { closesAt });
+  } catch {
+    return fail("Couldn't close the form - try again");
+  }
+
+  revalidatePath(`/admin/${eventSlug}/forms`);
+  revalidatePath(`/admin/${eventSlug}/forms/${form.id}`);
+  revalidatePath(`/submit/${form.slug}`);
+  return { ok: true as const, data: { closesAt } };
+}
+
 export async function setFormPublished(eventSlug: string, formId: string, isPublished: boolean) {
   await requireAdmin(`/admin/${eventSlug}/forms`);
 

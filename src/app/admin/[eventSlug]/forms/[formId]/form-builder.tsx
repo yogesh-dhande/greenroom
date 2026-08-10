@@ -18,6 +18,7 @@ import {
   fromZonedInputValue,
   hasVideoLinkField,
   publicFields,
+  toZonedInputValue,
 } from "@/domain/forms";
 import { slugify } from "@/lib/slug";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { FieldEditor } from "./field-editor";
-import { saveForm, setFormPublished } from "../actions";
+import { closeFormNow, saveForm, setFormPublished } from "../actions";
 
 export interface FormDraft {
   id: string;
@@ -110,6 +111,7 @@ export function FormBuilder({
   const [slugTouched, setSlugTouched] = useState(true);
   const [isSaving, startSaving] = useTransition();
   const [isPublishing, startPublishing] = useTransition();
+  const [isClosingNow, startClosingNow] = useTransition();
   // Server-rejected save, kept on screen (not just a transient toast) until
   // the user changes something or saves successfully — a failed save used to
   // leave no trace once the toast faded.
@@ -197,6 +199,26 @@ export function FormBuilder({
     return true;
   }
 
+  // One click, no confirm - an organizer reaching for this already means it
+  // (spec.md section 2: no clean way to close a CFP window early). Goes
+  // straight to the server rather than through `persist`, so it can't be
+  // blocked by `dateRangeInvalid` on an unrelated unsaved edit elsewhere on
+  // the form.
+  function closeNow() {
+    startClosingNow(async () => {
+      const result = await closeFormNow(eventSlug, draft.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      const closedAtInput = toZonedInputValue(result.data.closesAt, eventTimezone);
+      setDraft((current) => ({ ...current, closesAt: closedAtInput }));
+      setSavedForm((current) => ({ ...current, closesAt: closedAtInput }));
+      toast.success("Submissions closed");
+      router.refresh();
+    });
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -234,7 +256,7 @@ export function FormBuilder({
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              disabled={isSaving || isPublishing || dateRangeInvalid}
+              disabled={isSaving || isPublishing || isClosingNow || dateRangeInvalid}
               onClick={() => startSaving(async () => {
                 if (await persist()) toast.success("Form saved");
               })}
@@ -242,7 +264,7 @@ export function FormBuilder({
               {isSaving ? "Saving…" : "Save"}
             </Button>
             <Button
-              disabled={isSaving || isPublishing || dateRangeInvalid}
+              disabled={isSaving || isPublishing || isClosingNow || dateRangeInvalid}
               variant={draft.isPublished ? "outline" : "default"}
               onClick={() =>
                 startPublishing(async () => {
@@ -599,12 +621,25 @@ export function FormBuilder({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="closes-at">Closes</Label>
-              <Input
-                id="closes-at"
-                type="datetime-local"
-                value={draft.closesAt}
-                onChange={(event) => patch({ closesAt: event.target.value })}
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="closes-at"
+                  type="datetime-local"
+                  value={draft.closesAt}
+                  onChange={(event) => patch({ closesAt: event.target.value })}
+                />
+                {state === "open" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isSaving || isPublishing || isClosingNow}
+                    onClick={closeNow}
+                  >
+                    {isClosingNow ? "Closing..." : "Close now"}
+                  </Button>
+                ) : null}
+              </div>
               {dateRangeInvalid ? (
                 <p role="alert" className="text-sm text-destructive">
                   The close date has to be after the open date.

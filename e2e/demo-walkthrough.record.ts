@@ -722,7 +722,9 @@ test.describe.serial("Greenroom demo walkthrough", () => {
     }, testInfo) => {
       await startAct(page, 4, "The right reviewer sees it, and only the right reviewer");
 
-      await page.goto(SUBMISSIONS);
+      // Dana holds active round assignments, so the bare queue defaults to the
+      // assigned view (D-066); this act narrates the track-scoped list.
+      await page.goto(`${SUBMISSIONS}?view=all`);
       await say(
         page,
         "Dana Okoye reviews Evals & Reliability and AI Engineering.",
@@ -747,7 +749,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
           page,
           "Not access denied, not greyed out. For Dana, that talk does not exist.",
         );
-        await page.goto(SUBMISSIONS);
+        await page.goto(`${SUBMISSIONS}?view=all`);
       }
 
       await page.getByRole("link", { name: TALK }).click();

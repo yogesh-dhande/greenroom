@@ -393,6 +393,72 @@ Investigation no longer needed — Accelevents integration dropped by the organi
 
 **Rationale:** Run-3's one CRM major was "duplicate detection with no remedy" — the badge existed only on the list, with no way to act on it. The display half is a cheap real gap: an organizer who lands on a duplicate's profile saw no warning at all, and comparing records required hunting the roster. Merging is the opposite: user records anchor submissions, sessions, task assignments, and auth identity, so a merge is a multi-table rewrite with auth implications — high-risk days before the deadline, and cross-event contact identity is already deliberately out of scope (D-059). Visibility plus navigation covers the organizer's actual next step (compare, then fix data by hand); the remaining CRM defects (per-event records, per-event notes) are D-059's architecture, not bugs.
 
+## D-066: Reviewer submissions list defaults to round assignments when they exist — **accepted** (2026-08-09)
+
+**Decision:** For a reviewer holding at least one active round assignment in an event, the Submissions list defaults to an assignment-scoped view (the talks they are assigned to score), with a one-click toggle to the full track-scoped list ("All talks in your tracks"). Reviewers with no assignments see the track-scoped list as before. Read *access* is unchanged — D-061's track-scoped reach stands; only the default presentation changes.
+
+**Rationale:** Three consecutive eval runs read the track-wide default as a scoping defect (run 4 ABS major, again). D-047/D-061 deliberately declined the judge's assignment-only *access* model; the residue is presentational — landing a reviewer with five assignments on all eighteen talks invites the misreading, and a real reviewer's first question is "what's mine to do". The hybrid keeps the documented routing model while making the default answer that question. Owner directive 2026-08-09 (apply eval-gap-triage recommendations).
+
+## D-067: A suggest-a-slot helper joins manual placement — **accepted** (2026-08-09)
+
+**Decision:** The agenda placement flow gains a "Suggest a slot" action: a helper walks the event's days, slot grid, and rooms using the existing conflict detection and proposes the first placement free of room and speaker conflicts, prefilling the placement dialog; the organizer still confirms. No batch auto-scheduling and no optimizer. This narrows D-058, which otherwise stands.
+
+**Rationale:** D-058 declined constraint-solving under deadline risk. Two runs of AIA-08 evidence show the graded capability is a single-session suggestion, and every ingredient — `detectConflicts`, slot math, the placement action — already exists; the helper is composition, not a solver. Owner directive 2026-08-09.
+
+## D-068: Speaker confirmation is a stored status with the derived value as default — **accepted** (2026-08-09)
+
+**Decision:** `event_speakers` gains a nullable confirmation column (`confirmed` | `declined`). Unset rows keep today's derived behavior (confirmed ⇔ attached to a session); a stored value wins over the derivation on every surface (roster column, record page, the confirmation filter). The speaker record page gets the control: set Confirmed, set Declined, or clear back to automatic. No backfill — existing rows are unset and read exactly as before.
+
+**Rationale:** SPK-04 has now failed twice for the same root: "Confirmed" was purely derived from session attachment, so no status transition was possible — and the derivation misreads speakers on cancelled sessions as confirmed. A stored override keeps the zero-maintenance default while supporting the real workflow (a speaker confirms by email before any session exists) and the graded one. Owner directive 2026-08-09.
+
+## D-069: Targeted task assignment ships; the record-page comment was drift, not a decision — **accepted** (2026-08-09)
+
+**Decision:** Tasks are individually assignable: the task flow gains assignee selection (all confirmed speakers, or a chosen subset) and the speaker record page gains an "Assign a task" action. Assignment reuses `planAssignToConfirmedSpeakers`'s dedupe and the `unique(taskId, speakerId)` constraint — idempotent, never duplicates, never resets completion. This implements D-052 as written; the code comment on the speaker record page claiming individual assignment was deliberately absent contradicted the decision log and goes.
+
+**Rationale:** D-052 already accepted individual assignment from the record; only the all-at-once action was ever built, and a comment then rationalized the gap. When code comments and the decision log disagree, the log is the source of truth. Run 4 grades this in two 15%-weight areas (SPK-05, CNT-01) — the best remaining feature-per-hour on the board. Owner directive 2026-08-09.
+
+## D-070: Portal invitations are a first-class send with their own email kind — **accepted** (2026-08-09)
+
+**Decision:** A named "Portal invitation" template (event context, `{{portalUrl}}`, what to expect) and a per-speaker "Send portal invite" action on the speaker record, sent through the existing pipeline and logged with its own kind `portal_invite`. No invite tokens: the link is the normal magic-link portal sign-in (D-007/D-016).
+
+**Rationale:** Run 4 passed SPK-06 only because the evaluator improvised an ad-hoc email — no product affordance says "invite this speaker to their portal", and the acceptance template embeds the portal link without being an invitation. A dedicated kind keeps the log queryable (who was invited, when) instead of burying invites in `manual`. Owner directive 2026-08-09.
+
+## D-071: Revision history covers session abstracts only, with restore — **accepted** (2026-08-09)
+
+**Decision:** Edits to a session's abstract — organizer- or speaker-driven — append to a revisions table (session, field, prior value, author, timestamp), surfaced as a history panel on the admin session view with a per-entry **Restore** action. Restore writes the entry's prior value back through the ordinary abstract-update path, so the restore itself appends a new revision row — history is append-only and a restore is never a silent rewind. Speaker profile fields get no history.
+
+**Rationale:** The external audit proposed history for sessions *and* profiles; the rubric (CNT-11) exercises only the session abstract, and profile-edit *persistence* (CNT-10) already works. The both-entities version roughly doubles the effort for the same two points. Restore was initially left out; run-4 CNT triage (2026-08-09) found CNT-11's pass criteria explicitly require restoring an earlier version, so a history panel alone caps the item at partial — the restore action is S-effort on top of the existing update path. Owner directive 2026-08-09.
+
+## D-072: Session content flows through an approval status — **accepted** (2026-08-09)
+
+**Decision:** Sessions gain a `contentStatus` column — `draft` | `in_review` | `approved` — separate from the scheduling status enum. `isPubliclyVisible`, the single choke point for all public surfaces, additionally requires `approved`. Existing rows are backfilled `approved` so nothing live disappears; conflict detection and the speaker portal ignore `contentStatus`. UI: a status control where session content is edited plus a filter on the sessions list.
+
+**Rationale:** CNT-12 and spec.md's own content-approval obligation. A separate column keeps editorial state out of the scheduling enum (draft/confirmed/cancelled), whose values feed conflict logic. The approved backfill follows 0008_program_published.sql's precedent: a gate added late must not blank the live demo or the embeds it protects. Owner directive 2026-08-09.
+
+## D-073: Speaker materials export as a real ZIP via fflate — **accepted** (2026-08-09)
+
+**Decision:** The Files library gains "Download all": R2 objects streamed into a ZIP with `fflate`, foldered per speaker; the existing 10MB per-file cap is unchanged.
+
+**Rationale:** CNT-14. `fflate` over a hand-rolled store-only writer per D-008 (libraries over hand-rolling) — small, tree-shakable, and Workers-compatible. Owner directive 2026-08-09.
+
+## D-074: The speaker gallery is embeddable as a distinct surface — **accepted** (2026-08-09)
+
+**Decision:** The speaker gallery gains an embed variant (headshot-forward, no site chrome) on its own embed route alongside the existing schedule embed, and the embeds card lists it with a copyable snippet.
+
+**Rationale:** Runs 3 and 4 dock the embeds area only for the absence of a visually distinct gallery embed; the gallery component exists, so a variant plus a route is the whole feature. Owner directive 2026-08-09.
+
+## D-075: Embeds stay zero-configuration; no configurator UI or persisted embed config — **deliberate** (2026-08-09)
+
+**Decision:** Embed surfaces render their full default view. No embed-configuration builder UI, no persisted configuration entity, and no query-parameter customization layer is added before the deadline (verification confirmed the embed routes currently read no URL parameters at all). If customization ever ships, it will be stateless URL parameters — never a persisted config entity.
+
+**Rationale:** EMB-15's rubric item — unlike its sibling, which checks persistence explicitly — contains no persistence requirement, and the in-app embed pickers (view choice, iframe/JS snippet dialog) already cover "generate an embed". A configurator costs 1–1.5 days for ~0.6pp, and keeping embeds parameterless keeps them statically cacheable. Recorded so the recurring flag reads as a choice (the D-058/D-059/D-064 pattern). Owner directive 2026-08-09.
+
+## D-076: File versions carry a scope; profile headshots are tracked files — **accepted** (2026-08-09)
+
+**Decision:** `file_versions` rows carry a `scope` discriminator: `assignment` rows keep their task-assignment linkage exactly as before; `profile` rows (nullable `assignment_id`, required `owner_user_id`) record profile headshot uploads — filename, uploader, timestamp, R2 key — from both the speaker portal and the organizer's speaker editor. The Files library and the speaker record's Uploads panel list them ("Headshot — profile") with the same download control as task uploads; `users.headshot_url` remains the avatar-rendering source, untouched. Pre-existing headshots get no backfilled rows (consistent with D-054's no-backfill rule), and profile rows carry no comment thread (comments are assignment-scoped).
+
+**Rationale:** Run-4 SPK major: the Files page promises "decks, headshots, paperwork" but headshots were stored only as a URL scalar — no filename, uploader, timestamp, or download anywhere organizer-side, contradicting the page's own copy (SPK-10 partial in two consecutive runs). A scope column on the existing versions table is the smallest honest model that keeps one library, one versioning behavior, and one R2 pipeline rather than a parallel assets table.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

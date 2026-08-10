@@ -33,6 +33,7 @@ import {
   type ScheduleSessionView,
   type SessionWithSpeakers,
 } from "@/domain/program";
+import { programVisible } from "@/domain/program-visibility";
 
 /** A confirmed, scheduled session with sensible defaults, overridable per
  * test — mirrors the fixture builder in scheduling.test.ts. */
@@ -50,6 +51,7 @@ function session(
     startTime: "10:00",
     endTime: "10:30",
     status: "confirmed",
+    contentStatus: "approved",
     speakerIds: [],
     createdAt: new Date(0),
     updatedAt: new Date(0),
@@ -71,9 +73,53 @@ function person(
 
 describe("isPubliclyVisible / gallerySessions / scheduleSessions", () => {
   it("only confirmed sessions are publicly visible", () => {
-    expect(isPubliclyVisible({ status: "confirmed" })).toBe(true);
-    expect(isPubliclyVisible({ status: "draft" })).toBe(false);
-    expect(isPubliclyVisible({ status: "cancelled" })).toBe(false);
+    expect(isPubliclyVisible({ status: "confirmed", contentStatus: "approved" })).toBe(true);
+    expect(isPubliclyVisible({ status: "draft", contentStatus: "approved" })).toBe(false);
+    expect(isPubliclyVisible({ status: "cancelled", contentStatus: "approved" })).toBe(false);
+  });
+
+  // decisions.md D-072: the editorial gate is a second, independent condition
+  // on the same choke point — approved content on a cancelled session is still
+  // invisible, and confirmed scheduling on unapproved content is too.
+  it.each([
+    ["draft" as const, false],
+    ["in_review" as const, false],
+    ["approved" as const, true],
+  ])("content status %s gates a confirmed session (%s)", (contentStatus, visible) => {
+    expect(isPubliclyVisible({ status: "confirmed", contentStatus })).toBe(visible);
+    expect(isPubliclyVisible({ status: "cancelled", contentStatus })).toBe(false);
+    expect(isPubliclyVisible({ status: "draft", contentStatus })).toBe(false);
+  });
+
+  /**
+   * The full matrix a public surface actually evaluates: the program's publish
+   * flag (D-056, `programVisible`) AND the session's own gates. Nothing is
+   * public until both open, and an unpublished program hides even approved,
+   * confirmed content.
+   */
+  it.each([
+    [true, "approved" as const, true],
+    [true, "in_review" as const, false],
+    [true, "draft" as const, false],
+    [false, "approved" as const, false],
+    [false, "in_review" as const, false],
+    [false, "draft" as const, false],
+  ])(
+    "programPublished=%s x contentStatus=%s -> public=%s",
+    (programPublished, contentStatus, expected) => {
+      const event = { programPublished };
+      const talk = { status: "confirmed" as const, contentStatus };
+      expect(programVisible(event) && isPubliclyVisible(talk)).toBe(expected);
+    },
+  );
+
+  it("gallery drops sessions whose content isn't approved", () => {
+    const approved = session({ id: "a", contentStatus: "approved" });
+    const inReview = session({ id: "b", contentStatus: "in_review" });
+    const draftContent = session({ id: "c", contentStatus: "draft" });
+
+    expect(gallerySessions([approved, inReview, draftContent])).toEqual([approved]);
+    expect(scheduleSessions([approved, inReview, draftContent])).toEqual([approved]);
   });
 
   it("gallery keeps confirmed sessions whether or not they're scheduled", () => {

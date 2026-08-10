@@ -18,10 +18,20 @@ export interface SessionWithSpeakers extends Session {
 // Visibility rules
 // ---------------------------------------------------------------------------
 
-/** A cancelled session is stood down — it must never appear in a public
- * view, scheduled or not (decisions.md D-025 §4). */
-export function isPubliclyVisible(session: Pick<Session, "status">): boolean {
-  return session.status === "confirmed";
+/**
+ * The single choke point every public surface goes through. Two independent
+ * gates, both of which must open:
+ *
+ * - **Scheduling** — a cancelled or still-draft session is stood down and must
+ *   never appear in a public view, scheduled or not (decisions.md D-025 §4).
+ * - **Editorial** — only `approved` content is printed (D-072). The column is
+ *   separate from `status` on purpose, so holding an abstract back for a
+ *   rewrite never touches the scheduling state conflict detection reads.
+ */
+export function isPubliclyVisible(
+  session: Pick<Session, "status" | "contentStatus">,
+): boolean {
+  return session.status === "confirmed" && session.contentStatus === "approved";
 }
 
 /**
@@ -30,7 +40,7 @@ export function isPubliclyVisible(session: Pick<Session, "status">): boolean {
  * speaker lineup before the full timetable is locked in, so a session
  * waiting in the agenda's parking lot still counts as an "accepted" talk.
  */
-export function gallerySessions<T extends Pick<Session, "status">>(
+export function gallerySessions<T extends Pick<Session, "status" | "contentStatus">>(
   sessions: T[],
 ): T[] {
   return sessions.filter(isPubliclyVisible);
@@ -52,7 +62,7 @@ function isPlacedOnAgenda<
  * a placeholder time.
  */
 export function scheduleSessions<
-  T extends Pick<Session, "status" | "day" | "startTime" | "endTime">,
+  T extends Pick<Session, "status" | "contentStatus" | "day" | "startTime" | "endTime">,
 >(sessions: T[]): T[] {
   return sessions.filter((s) => isPubliclyVisible(s) && isPlacedOnAgenda(s));
 }

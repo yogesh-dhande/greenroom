@@ -97,6 +97,14 @@ export default async function EventOverviewPage({
                 — the email log, composer, templates, and invites.
               </li>
             ) : null}
+            {user.role === "admin" ? (
+              <li>
+                <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/communications`}>
+                  Send a reminder digest
+                </Link>{" "}
+                — nudge speakers with outstanding onboarding tasks.
+              </li>
+            ) : null}
             <li>
               <Link className="text-foreground underline underline-offset-4" href={`/p/${eventSlug}`}>
                 Public program

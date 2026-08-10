@@ -229,6 +229,7 @@ export const COMMS_TEMPLATE_IDS = [
   "task_digest",
   "round_reminder",
   "calendar_invite",
+  "portal_invite",
 ] as const;
 
 export type CommsTemplateId = (typeof COMMS_TEMPLATE_IDS)[number];
@@ -511,6 +512,32 @@ If this time doesn't work, reply and let us know as early as you can.
 {{organizerName}}
 {{eventName}}`,
   },
+  {
+    id: "portal_invite",
+    name: "Portal invitation",
+    description:
+      "Invites one speaker into their portal, sent from their record page (D-070). The link is the normal magic-link sign-in — no invite token.",
+    kind: "portal_invite",
+    subject: "Your speaker portal for {{eventName}} is ready",
+    body: `Hi {{speakerFirstName}},
+
+You have a speaker portal for {{eventName}}{{#eventDates}}, {{eventDates}}{{/eventDates}} — this is your invitation to it.
+
+It's where everything to do with your talk lives: the checklist we need from you (bio, headshot, session details), anything you upload, and your session time once the schedule is set. Sign in with this email address and you're in — there's no password, just a magic link:
+
+{{portalUrl}}
+
+{{#outstandingTasks}}
+Waiting for you there:
+
+{{outstandingTasks}}
+
+{{/outstandingTasks}}
+If something looks wrong — or this isn't the right address for you — just reply to this email.
+
+{{organizerName}}
+{{eventName}}`,
+  },
 ];
 
 export const COMMS_TEMPLATES: Record<CommsTemplateId, CommsTemplate> = Object.fromEntries(
@@ -570,6 +597,7 @@ export const TEMPLATE_TRIGGERS: Record<CommsTemplateId, EmailTrigger> = {
   task_digest: "deadline_reminder",
   round_reminder: "manual",
   calendar_invite: "manual",
+  portal_invite: "manual",
 };
 
 export interface ResolvedTemplate {
@@ -679,6 +707,10 @@ export const TEMPLATE_MERGE_FIELDS: Record<CommsTemplateId, MergeField[]> = {
   // round-specific trio.
   round_reminder: [...COMMON_MERGE_FIELDS, "roundName", "pendingScorecards", "roundQueueUrl"],
   calendar_invite: [...COMMON_MERGE_FIELDS, ...SESSION_MERGE_FIELDS],
+  // An invitation speaks about the portal and what's waiting in it, so it
+  // gets the checklist but no single submission or session — the invite is
+  // sent to a person on the roster, who may not have either yet.
+  portal_invite: [...COMMON_MERGE_FIELDS, "outstandingTasks"],
 };
 
 /** What an organizer-composed one-off message can reference (src/domain/comms.ts

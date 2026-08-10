@@ -2,7 +2,7 @@ import Link from "next/link";
 import { UserRoundIcon } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { getRepos } from "@/lib/db";
-import { isScheduled, type Event, type Form, type Room } from "@/db/entities";
+import { isScheduled, type Event } from "@/db/entities";
 import { buildAssignmentViews, nextDueAssignmentId, sortAssignmentViews } from "@/domain/onboarding";
 import { buildCommentThread, buildFileHistory, groupByAssignment } from "@/domain/files";
 import { speakerFacingStatus } from "@/domain/evaluation";
@@ -58,9 +58,6 @@ export default async function PortalHomePage() {
         .map((task) => task.formId as string),
     ),
   );
-  const forms = await Promise.all(formIds.map((id) => repos.forms.getById(id)));
-  const formsById = new Map(forms.filter((form): form is Form => form !== null).map((form) => [form.id, form]));
-
   const eventIds = Array.from(
     new Set([
       ...submissions.map((submission) => submission.eventId),
@@ -68,15 +65,25 @@ export default async function PortalHomePage() {
       ...tasks.map((task) => task.eventId),
     ]),
   );
-  const events = (await Promise.all(eventIds.map((id) => repos.events.getById(id))))
-    .filter((event): event is Event => event !== null)
+
+  // Batched, not one query per id: a speaker with a handful of events and
+  // tasks used to issue a D1 round trip per form, per event, and per event's
+  // rooms, and those loops are the first thing to hurt once a portal has real
+  // data in it.
+  const [forms, eventRows] = await Promise.all([
+    repos.forms.listByIds(formIds),
+    repos.events.listByIds(eventIds),
+  ]);
+  const formsById = new Map(forms.map((form) => [form.id, form]));
+
+  const eventsById = new Map(eventRows.map((event) => [event.id, event]));
+  const events = eventIds
+    .map((id) => eventsById.get(id))
+    .filter((event): event is Event => event !== undefined)
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const roomLists = await Promise.all(events.map((event) => repos.rooms.listByEvent(event.id)));
-  const roomsById = new Map<string, Room>();
-  for (const rooms of roomLists) {
-    for (const room of rooms) roomsById.set(room.id, room);
-  }
+  const rooms = await repos.rooms.listByEvents(events.map((event) => event.id));
+  const roomsById = new Map(rooms.map((room) => [room.id, room]));
 
   const views = sortAssignmentViews(buildAssignmentViews(assignments, tasksById));
   // The one task the speaker should land on expanded — across every event,

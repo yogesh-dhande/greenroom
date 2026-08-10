@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, InfoIcon } from "lucide-react";
 import {
   roundScoreValue,
   sortResultRows,
@@ -101,13 +101,22 @@ export function ResultsTable({ rows }: { rows: ResultRow[] }) {
             />
           </TableHead>
           <TableHead className="text-right">
-            <SortButton
-              label="Aggregate score"
-              sortBy="score"
-              sortKey={sortKey}
-              direction={direction}
-              onToggle={toggle}
-            />
+            <span className="inline-flex items-center justify-end gap-1">
+              <SortButton
+                label="Aggregate score"
+                sortBy="score"
+                sortKey={sortKey}
+                direction={direction}
+                onToggle={toggle}
+              />
+              <span title="0-100: normalized weighted mean of each criterion's rating.">
+                <InfoIcon aria-hidden className="size-3.5 text-muted-foreground" />
+                <span className="sr-only">
+                  0-100: normalized weighted mean of each criterion&apos;s
+                  rating.
+                </span>
+              </span>
+            </span>
           </TableHead>
         </TableRow>
       </TableHeader>

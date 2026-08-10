@@ -35,9 +35,11 @@ function queueLink(page: Page, title: string) {
   return page.getByRole("link", { name: title });
 }
 
-/** Opens a submission's detail page the way an organizer does: from the queue. */
+/** Opens a submission's detail page the way an organizer does: from the queue.
+ * A reviewer with active round assignments defaults to the assigned view
+ * (D-066), so the track-scoped list is addressed explicitly. */
 async function openSubmission(page: Page, title: string): Promise<void> {
-  await page.goto(SUBMISSIONS);
+  await page.goto(`${SUBMISSIONS}?view=all`);
   await queueLink(page, title).click();
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
 }
@@ -108,6 +110,11 @@ test("a reviewer only sees the tracks they own", async ({ page }) => {
   await signIn(page, "dana@greenroom.dev");
   await page.goto(SUBMISSIONS);
 
+  // Dana holds active round assignments, so she lands on the assigned view
+  // (D-066) and widens to her full track list from there.
+  await expect(page.getByRole("link", { name: /Your assigned talks/ })).toBeVisible();
+  await page.getByRole("link", { name: /All talks in your tracks/ }).click();
+
   // Dana reviews AI Engineering and Evals & Reliability, not Agents & Tool Use.
   await expect(queueLink(page, PROMPT_LIBRARY)).toBeVisible();
   await expect(queueLink(page, MULTI_AGENT)).toHaveCount(0);
@@ -144,8 +151,8 @@ test("a reviewer records a recommendation, and the tally updates", async ({ page
     page.getByRole("paragraph").filter({ hasText: "Exactly the migration story" }),
   ).toBeVisible();
 
-  // The queue shows the same tally.
-  await page.goto(SUBMISSIONS);
+  // The queue shows the same tally (widened past the D-066 assigned default).
+  await page.goto(`${SUBMISSIONS}?view=all`);
   await expect(page.getByRole("row", { name: PROMPT_LIBRARY })).toContainText("1 approve");
 });
 

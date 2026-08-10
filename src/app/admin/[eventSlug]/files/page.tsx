@@ -1,20 +1,17 @@
 import Link from "next/link";
-import { DownloadIcon, PaperclipIcon } from "lucide-react";
+import { DownloadIcon, PackageIcon, PaperclipIcon } from "lucide-react";
 import { getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
-import { buildAssignmentViews } from "@/domain/onboarding";
-import {
-  buildCommentThread,
-  collectDeliverables,
-  formatFileMoment,
-  groupByAssignment,
-} from "@/domain/files";
+import { buildCommentThread, formatFileMoment } from "@/domain/files";
+import { NO_FILES_MESSAGE } from "@/domain/file-export";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { FileCommentThread, FileVersionList } from "@/components/file-thread";
 import { postDeliverableComment } from "./actions";
+import { loadFileLibrary } from "./data";
 
 /**
  * Every file the event's speakers have sent in, in one place (spec.md §6,
@@ -23,8 +20,10 @@ import { postDeliverableComment } from "./actions";
  * The rows come from `collectDeliverables`, the same collector the portal
  * uses, so an upload can't be visible on one surface and missing on the
  * other: a `file_request` assignment's own upload and a `form` task's file
- * answers both land here. Each row expands to what it replaced and to the
- * comment thread the speaker sees on their task card.
+ * answers both land here, alongside the profile files (headshots) tracked
+ * against the speaker rather than against a task. Each row expands to what it
+ * replaced and, for a task file, to the comment thread the speaker sees on
+ * their task card.
  *
  * Admin-only, like the roster it reports on (decisions.md D-047) — a
  * reviewer's workspace is submissions and rounds.
@@ -38,48 +37,40 @@ export default async function FilesPage({
   const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const [assignments, tasks, forms] = await Promise.all([
-    repos.taskAssignments.listByEvent(event.id),
-    repos.tasks.listByEvent(event.id),
-    repos.forms.listByEvent(event.id),
-  ]);
+  const { deliverables, commentsByAssignment, peopleById, sessionTitlesBySpeaker } =
+    await loadFileLibrary(repos, event.id);
 
-  const assignmentIds = assignments.map((assignment) => assignment.id);
-  const [versions, comments] = await Promise.all([
-    repos.fileVersions.listByAssignments(assignmentIds),
-    repos.fileComments.listByAssignments(assignmentIds),
-  ]);
-
-  const deliverables = collectDeliverables({
-    views: buildAssignmentViews(assignments, new Map(tasks.map((task) => [task.id, task]))),
-    formsById: new Map(forms.map((form) => [form.id, form])),
-    versionsByAssignment: groupByAssignment(versions),
-  });
-  const commentsByAssignment = groupByAssignment(comments);
-
-  // Speakers behind the uploads and authors behind the comments, in one
-  // lookup — the same person is usually both.
-  const people = await repos.users.listByIds(
-    Array.from(
-      new Set([
-        ...deliverables.map((deliverable) => deliverable.speakerId),
-        ...comments.map((comment) => comment.authorId),
-      ]),
-    ),
-  );
-  const peopleById = new Map(people.map((person) => [person.id, person]));
+  // "Download all" streams exactly these rows' current files (D-073). With
+  // nothing uploaded there is nothing to archive, so the control says so
+  // rather than handing over an empty ZIP.
+  const canDownloadAll = deliverables.some((deliverable) => deliverable.current.key !== null);
 
   return (
     <div>
       <PageHeader
         title="Files"
         description="Every deliverable your speakers have uploaded — decks, headshots, paperwork — with what each one replaced and the conversation about it."
+        action={
+          canDownloadAll ? (
+            <Button asChild variant="outline">
+              <Link href={`/admin/${eventSlug}/files/download-all`}>
+                <PackageIcon className="size-3.5" />
+                Download all
+              </Link>
+            </Button>
+          ) : (
+            <Button variant="outline" disabled title={NO_FILES_MESSAGE}>
+              <PackageIcon className="size-3.5" />
+              Download all
+            </Button>
+          )
+        }
       />
 
       {deliverables.length === 0 ? (
         <EmptyState
           title="Nothing uploaded yet"
-          description="Files speakers upload for their onboarding tasks land here — with the task they belong to, who sent them, and every earlier version."
+          description="Files speakers upload — for an onboarding task or on their profile — land here, with what they belong to, who sent them, and every earlier version."
         />
       ) : (
         <Table>
@@ -87,6 +78,7 @@ export default async function FilesPage({
             <TableRow>
               <TableHead>File</TableHead>
               <TableHead>Speaker</TableHead>
+              <TableHead>Session</TableHead>
               <TableHead>Task</TableHead>
               <TableHead>Uploaded</TableHead>
               <TableHead className="text-right">Versions</TableHead>
@@ -96,11 +88,22 @@ export default async function FilesPage({
           <TableBody>
             {deliverables.map((deliverable) => {
               const speaker = peopleById.get(deliverable.speakerId);
-              const thread = buildCommentThread(
-                commentsByAssignment.get(deliverable.assignmentId) ?? [],
-                peopleById,
-              );
-              const rowKey = `${deliverable.assignmentId}-${deliverable.label}`;
+              // Comments hang off an assignment, so a profile file has no
+              // thread to show and no assignment to post one against.
+              const thread = deliverable.assignmentId
+                ? buildCommentThread(
+                    commentsByAssignment.get(deliverable.assignmentId) ?? [],
+                    peopleById,
+                  )
+                : [];
+              const uploader =
+                deliverable.current.uploadedBy && deliverable.current.uploadedBy !== deliverable.speakerId
+                  ? peopleById.get(deliverable.current.uploadedBy)
+                  : undefined;
+              // Keyed on the speaker as well as the assignment: profile rows
+              // carry no assignment id, so two speakers' headshots would
+              // otherwise collide on one key.
+              const rowKey = `${deliverable.assignmentId ?? `profile-${deliverable.speakerId}`}-${deliverable.label}`;
 
               return [
                 <TableRow key={rowKey} className="border-b-0">
@@ -127,11 +130,19 @@ export default async function FilesPage({
                       <span className="text-sm text-muted-foreground">Unknown speaker</span>
                     )}
                   </TableCell>
+                  <TableCell className="max-w-56 truncate text-sm text-muted-foreground">
+                    {sessionTitlesBySpeaker.get(deliverable.speakerId)?.join(", ") || "—"}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {deliverable.label}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {formatFileMoment(deliverable.current.uploadedAt, event.timezone)}
+                    {uploader ? (
+                      <span className="block text-xs">
+                        by {uploader.name ?? uploader.email}
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {deliverable.versionCount > 1 ? (
@@ -151,35 +162,42 @@ export default async function FilesPage({
                     </a>
                   </TableCell>
                 </TableRow>,
-                <TableRow key={`${rowKey}-detail`} className="hover:bg-transparent">
-                  <TableCell colSpan={6} className="pt-0">
-                    {/* Plain <details>: the history and the thread are
-                        secondary to the list, and this needs no client state
-                        to stay closed until an organizer asks for it. */}
-                    <details className="group">
-                      <summary className="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                        Versions and comments
-                        {thread.length > 0 ? ` (${thread.length})` : ""}
-                      </summary>
-                      <div className="mt-3 flex flex-col gap-4 rounded-md border border-border p-3">
-                        <FileVersionList
-                          versions={deliverable.older}
-                          timeZone={event.timezone}
-                        />
-                        <FileCommentThread
-                          comments={thread}
-                          timeZone={event.timezone}
-                          action={postDeliverableComment.bind(
-                            null,
-                            eventSlug,
-                            deliverable.assignmentId,
+                // A profile file with nothing behind it has neither history
+                // nor a thread, so it gets no expander at all.
+                deliverable.assignmentId === null && deliverable.older.length === 0 ? null : (
+                  <TableRow key={`${rowKey}-detail`} className="hover:bg-transparent">
+                    <TableCell colSpan={7} className="pt-0">
+                      {/* Plain <details>: the history and the thread are
+                          secondary to the list, and this needs no client state
+                          to stay closed until an organizer asks for it. */}
+                      <details className="group">
+                        <summary className="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                          {deliverable.assignmentId === null
+                            ? "Earlier versions"
+                            : `Versions and comments${thread.length > 0 ? ` (${thread.length})` : ""}`}
+                        </summary>
+                        <div className="mt-3 flex flex-col gap-4 rounded-md border border-border p-3">
+                          <FileVersionList
+                            versions={deliverable.older}
+                            timeZone={event.timezone}
+                          />
+                          {deliverable.assignmentId === null ? null : (
+                            <FileCommentThread
+                              comments={thread}
+                              timeZone={event.timezone}
+                              action={postDeliverableComment.bind(
+                                null,
+                                eventSlug,
+                                deliverable.assignmentId,
+                              )}
+                              placeholder="Ask for a change, or note what you did with this file…"
+                            />
                           )}
-                          placeholder="Ask for a change, or note what you did with this file…"
-                        />
-                      </div>
-                    </details>
-                  </TableCell>
-                </TableRow>,
+                        </div>
+                      </details>
+                    </TableCell>
+                  </TableRow>
+                ),
               ];
             })}
           </TableBody>

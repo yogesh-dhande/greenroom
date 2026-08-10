@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { Event, User } from "@/db/entities";
+import { speakerConfirmationSchema, type Event, type User } from "@/db/entities";
 import type { Repos } from "@/db/repos";
+import { sendPortalInvite } from "@/domain/comms";
 import { normalizeEmail } from "@/domain/team";
+import { planAssignToSpeakers } from "@/domain/task-assign";
 import {
   importProfilePatch,
   parseSpeakerCsv,
@@ -14,10 +16,12 @@ import {
   type SpeakerImportRow,
   type SpeakerImportSummary,
 } from "@/domain/speaker-import";
+import { getCommsContext } from "@/lib/comms-context";
 import { getFilesBucket, getRepos } from "@/lib/db";
 import { requireEventAdmin } from "@/lib/session";
 import {
   checkUpload,
+  filenameFromKey,
   fileUrl,
   isImageUploadType,
   isServableKey,
@@ -279,7 +283,7 @@ export async function uploadSpeakerHeadshot(
   speakerId: string,
   formData: FormData,
 ) {
-  const { event } = await requireEventAdmin(eventSlug);
+  const { event, user: admin } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
   const speaker = await loadRosterSpeaker(repos, event, speakerId);
@@ -306,12 +310,25 @@ export async function uploadSpeakerHeadshot(
       },
     });
     await repos.users.update(speaker.id, { headshotUrl: fileUrl(key) });
+    // Tracked as a file as well as an avatar (spec.md §6): the Files library
+    // and the speaker's Uploads panel both report headshots, and this row is
+    // the filename/uploader/timestamp behind them. `uploadedBy` is the
+    // organizer here — the owner is the speaker they supplied it for.
+    await repos.fileVersions.create({
+      scope: "profile",
+      ownerUserId: speaker.id,
+      fileKey: key,
+      url: fileUrl(key),
+      filename: filenameFromKey(key),
+      uploadedBy: admin.id,
+    });
   } catch {
     return fail("Couldn't save that headshot — try again");
   }
 
   revalidatePath(rosterPath(eventSlug));
   revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
+  revalidatePath(`/admin/${eventSlug}/files`);
   // Headshots feed the public gallery and schedule bylines too (spec.md §6).
   revalidatePath(`/p/${eventSlug}/speakers`);
   revalidatePath(`/p/${eventSlug}/schedule`);
@@ -350,4 +367,184 @@ export async function saveSpeakerNotes(eventSlug: string, input: SpeakerNotesInp
 
   revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
   return { ok: true as const, data: { message: notes ? "Notes saved" : "Notes cleared" } };
+}
+
+// ---------------------------------------------------------------------------
+// Confirmation status (decisions.md D-068)
+// ---------------------------------------------------------------------------
+
+const confirmationInputSchema = z.object({
+  speakerId: z.string().min(1),
+  /** `null` is a real, meaningful value here — "back to automatic" — so it is
+   * spelled out rather than left to an omitted field. */
+  confirmation: speakerConfirmationSchema.nullable(),
+});
+export type SpeakerConfirmationInput = z.infer<typeof confirmationInputSchema>;
+
+/**
+ * Sets or clears the organizer's stored confirmation for one speaker
+ * (decisions.md D-068).
+ *
+ * Three states, not two: `confirmed` and `declined` are stored and win over
+ * the session-attachment derivation everywhere confirmation is shown or
+ * filtered, and `null` clears the override so the speaker goes back to
+ * deriving — which is where every row starts and where un-answered rows stay
+ * (no backfill). Clearing is therefore a write of null, never a no-op.
+ *
+ * Writing through `eventSpeakers.setConfirmation` creates the membership row
+ * when it doesn't exist yet: a speaker who arrived through acceptance has a
+ * session but no `event_speakers` record, and they're exactly who an
+ * organizer marks `declined` first.
+ */
+export async function setSpeakerConfirmation(
+  eventSlug: string,
+  input: SpeakerConfirmationInput,
+) {
+  const { event } = await requireEventAdmin(eventSlug);
+
+  const parsed = confirmationInputSchema.safeParse(input);
+  if (!parsed.success) return fail("That isn't a confirmation status");
+
+  const repos = await getRepos();
+  const speaker = await loadRosterSpeaker(repos, event, parsed.data.speakerId);
+  if (!speaker) return fail("That speaker isn't on this event's roster");
+
+  try {
+    await repos.eventSpeakers.setConfirmation(event.id, speaker.id, parsed.data.confirmation);
+  } catch {
+    return fail("Couldn't save that status — try again");
+  }
+
+  revalidatePath(rosterPath(eventSlug));
+  revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
+  // "Assign to confirmed speakers" reads the same roster (decisions.md D-069),
+  // so a declined speaker has to drop out of that picker too.
+  revalidatePath(`/admin/${eventSlug}/tasks`);
+  return {
+    ok: true as const,
+    data: {
+      message:
+        parsed.data.confirmation === null
+          ? "Confirmation back to automatic"
+          : parsed.data.confirmation === "confirmed"
+            ? "Marked confirmed"
+            : "Marked declined",
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Assign one task to this speaker (decisions.md D-052, D-069)
+// ---------------------------------------------------------------------------
+
+const assignTaskInputSchema = z.object({
+  speakerId: z.string().min(1),
+  taskId: z.string().min(1, "Pick a task to assign"),
+});
+export type AssignTaskInput = z.infer<typeof assignTaskInputSchema>;
+
+/**
+ * Hands one of this event's tasks to one speaker, from their record page
+ * (decisions.md D-052, shipped by D-069).
+ *
+ * Both event-scoping guards apply, because a task id and a speaker id are
+ * both just ids on a public endpoint: the speaker must be on *this* event's
+ * roster (`loadRosterSpeaker`) and the task must belong to *this* event.
+ *
+ * Idempotent by the same machinery as every other assignment path: the
+ * existing row is read with `getByTaskAndSpeaker` and handed to
+ * `planAssignToSpeakers`, which plans nothing for a speaker who already
+ * holds the task. Re-assigning is therefore a no-op — no duplicate row (the
+ * `unique(taskId, speakerId)` constraint would refuse one anyway), and no
+ * touch to a status/completedAt that's already been earned.
+ */
+export async function assignTaskToSpeaker(eventSlug: string, input: AssignTaskInput) {
+  const { event } = await requireEventAdmin(eventSlug);
+
+  const parsed = assignTaskInputSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Pick a task to assign");
+
+  const repos = await getRepos();
+  const speaker = await loadRosterSpeaker(repos, event, parsed.data.speakerId);
+  if (!speaker) return fail("That speaker isn't on this event's roster");
+
+  const task = await repos.tasks.getById(parsed.data.taskId);
+  if (!task || task.eventId !== event.id) return fail("That task no longer exists");
+
+  let assigned: boolean;
+  try {
+    const existing = await repos.taskAssignments.getByTaskAndSpeaker(task.id, speaker.id);
+    const plan = planAssignToSpeakers({
+      taskId: task.id,
+      speakerIds: [speaker.id],
+      existingAssignments: existing ? [existing] : [],
+    });
+    for (const assignment of plan.newAssignments) {
+      await repos.taskAssignments.create(assignment);
+    }
+    assigned = plan.newAssignments.length > 0;
+  } catch {
+    return fail("Couldn't assign that task — try again");
+  }
+
+  revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
+  revalidatePath(rosterPath(eventSlug));
+  revalidatePath(`/admin/${eventSlug}/tasks`);
+  revalidatePath("/portal");
+  return {
+    ok: true as const,
+    data: {
+      assigned,
+      message: assigned
+        ? `"${task.title}" assigned to ${speaker.name ?? speaker.email}`
+        : `${speaker.name ?? speaker.email} already has "${task.title}"`,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Portal invitation (decisions.md D-070)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emails one speaker an invitation into their portal (decisions.md D-070).
+ *
+ * `organizerName`/`organizerEmail` come from the signed-in admin, exactly as
+ * the Communications screen's own sends do (D-053(2)): this is an
+ * admin-initiated send, so "{{organizerName}}" must be the person who
+ * pressed the button rather than the "The program team" fallback that
+ * automated sends fall back to.
+ *
+ * Re-sending is deliberately allowed and unguarded — "I don't think that
+ * arrived" is the normal reason to press this — and each send is its own
+ * `portal_invite` row in `email_log`, which is what makes the record page's
+ * email history a truthful account of who was invited and when.
+ */
+export async function sendSpeakerPortalInvite(eventSlug: string, speakerId: string) {
+  const { event, user: admin } = await requireEventAdmin(eventSlug);
+
+  const repos = await getRepos();
+  const speaker = await loadRosterSpeaker(repos, event, speakerId);
+  if (!speaker) return fail("That speaker isn't on this event's roster");
+
+  const comms = await getCommsContext({
+    repos,
+    organizerName: admin.name?.trim() || admin.email,
+    organizerEmail: admin.email,
+  });
+
+  let delivery;
+  try {
+    delivery = await sendPortalInvite(comms, { eventId: event.id, speakerId: speaker.id });
+  } catch {
+    return fail("Couldn't send the invitation — try again");
+  }
+
+  revalidatePath(`${rosterPath(eventSlug)}/${speaker.id}`);
+  revalidatePath(`/admin/${eventSlug}/communications`);
+
+  if (delivery.status === "failed") {
+    return fail(delivery.error ?? "The invitation couldn't be delivered");
+  }
+  return { ok: true as const, data: { message: `Portal invitation sent to ${speaker.email}` } };
 }

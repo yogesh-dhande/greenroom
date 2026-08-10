@@ -8,7 +8,9 @@ import { z } from "zod";
 import type { Form, Task } from "@/db/entities";
 import { taskTypeSchema } from "@/db/entities";
 import { toZonedInputValue } from "@/domain/forms";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,11 +31,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createTask, updateTask } from "./actions";
+import type { TaskSpeakerOption } from "./types";
 
 const TASK_TYPE_LABEL: Record<string, string> = {
   form: "Fill out a form",
   file_request: "Upload a file",
   confirm: "Confirm information",
+};
+
+const ASSIGNEE_MODE_LABEL: Record<string, string> = {
+  all_confirmed: "All confirmed speakers",
+  selected: "Specific speakers",
 };
 
 const formSchema = z
@@ -44,14 +52,24 @@ const formSchema = z
     formId: z.string(),
     dueAt: z.string(),
     autoAssignOnAccept: z.boolean(),
+    assigneeMode: z.enum(["all_confirmed", "selected"]),
+    assigneeSpeakerIds: z.array(z.string()),
   })
   .refine((v) => v.type !== "form" || Boolean(v.formId), {
     message: "Choose which form this task collects",
     path: ["formId"],
+  })
+  .refine((v) => v.assigneeMode !== "selected" || v.assigneeSpeakerIds.length > 0, {
+    message: "Tick at least one speaker, or assign to all confirmed speakers",
+    path: ["assigneeSpeakerIds"],
   });
 type FormValues = z.infer<typeof formSchema>;
 
-function defaultsFor(task: Task | undefined, eventTimezone: string): FormValues {
+function defaultsFor(
+  task: Task | undefined,
+  eventTimezone: string,
+  assignedSpeakerIds: string[],
+): FormValues {
   return {
     title: task?.title ?? "",
     instructions: task?.instructions ?? "",
@@ -59,15 +77,32 @@ function defaultsFor(task: Task | undefined, eventTimezone: string): FormValues 
     formId: task?.formId ?? "",
     dueAt: toZonedInputValue(task?.dueAt ?? null, eventTimezone),
     autoAssignOnAccept: task?.autoAssignOnAccept ?? true,
+    // "All confirmed speakers" is the default on create *and* on edit: the
+    // mode is an instruction for this save, not a stored property of the
+    // task, so re-opening a task must not imply it's limited to whoever was
+    // picked last time.
+    assigneeMode: "all_confirmed",
+    // Speakers who already hold the task start ticked and stay ticked — the
+    // dialog can add assignees, never remove them (their rows may already
+    // carry submitted work).
+    assigneeSpeakerIds: assignedSpeakerIds,
   };
 }
 
 /** Create/edit dialog for one task template (spec.md §6, §8). Reuses the
- * dialog + react-hook-form pattern from admin/settings' room dialog. */
+ * dialog + react-hook-form pattern from admin/settings' room dialog.
+ *
+ * Also where a task is aimed (decisions.md D-069): "All confirmed speakers"
+ * is the default and behaves exactly as it always has — the task reaches
+ * speakers as their talks are accepted, and the task list's assign action
+ * catches up anyone already confirmed. "Specific speakers" is the targeted
+ * case, assigned the moment the task is saved. */
 export function TaskFormDialog({
   eventSlug,
   eventTimezone,
   forms,
+  speakers,
+  assignedSpeakerIds = [],
   task,
   trigger,
 }: {
@@ -75,6 +110,11 @@ export function TaskFormDialog({
   eventTimezone: string;
   /** The event's forms — offered as the source when `type` is "form". */
   forms: Form[];
+  /** This event's roster, for the "Specific speakers" case. */
+  speakers: TaskSpeakerOption[];
+  /** Who already holds this task — ticked and locked, since assignment here
+   * only ever adds. Empty when creating. */
+  assignedSpeakerIds?: string[];
   task?: Task;
   trigger: React.ReactNode;
 }) {
@@ -88,9 +128,11 @@ export function TaskFormDialog({
     setError,
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: defaultsFor(task, eventTimezone),
+    defaultValues: defaultsFor(task, eventTimezone, assignedSpeakerIds),
   });
   const type = useWatch({ control, name: "type" });
+  const assigneeMode = useWatch({ control, name: "assigneeMode" });
+  const alreadyAssigned = new Set(assignedSpeakerIds);
 
   async function onSubmit(values: FormValues) {
     const result = task
@@ -101,9 +143,23 @@ export function TaskFormDialog({
       toast.error(result.error);
       return;
     }
-    toast.success(task ? "Task updated" : "Task created");
+
+    const saved = task ? "Task updated" : "Task created";
+    const { assignedCount, assignFailed } = result.data;
+    if (assignFailed) {
+      toast.warning(`${saved}, but assigning it failed — try again from the task list`);
+    } else if (assignedCount > 0) {
+      toast.success(
+        `${saved} · assigned to ${assignedCount} speaker${assignedCount === 1 ? "" : "s"}`,
+      );
+    } else if (values.assigneeMode === "selected") {
+      toast.success(`${saved} — everyone you picked already had it`);
+    } else {
+      toast.success(saved);
+    }
+
     setOpen(false);
-    if (!task) reset(defaultsFor(undefined, eventTimezone));
+    if (!task) reset(defaultsFor(undefined, eventTimezone, []));
   }
 
   return (
@@ -111,7 +167,7 @@ export function TaskFormDialog({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) reset(defaultsFor(task, eventTimezone));
+        if (!next) reset(defaultsFor(task, eventTimezone, assignedSpeakerIds));
       }}
     >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -195,6 +251,100 @@ export function TaskFormDialog({
               Times are in the event&apos;s timezone ({eventTimezone}).
             </p>
           </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="task-assignee-mode">Who gets this task</Label>
+            <Controller
+              control={control}
+              name="assigneeMode"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="task-assignee-mode" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(ASSIGNEE_MODE_LABEL).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {assigneeMode === "selected" ? (
+              <p className="text-xs text-muted-foreground">
+                Only the speakers you tick, assigned as soon as you save. Nobody is unassigned
+                here — untick someone and their existing task stays as it is.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Speakers get this task as their talks are accepted. Use the assign action on the
+                task list to catch up anyone already confirmed.
+              </p>
+            )}
+          </div>
+
+          {assigneeMode === "selected" ? (
+            <Controller
+              control={control}
+              name="assigneeSpeakerIds"
+              render={({ field }) => (
+                <div className="flex max-h-56 flex-col gap-2.5 overflow-y-auto rounded-md border border-border px-3 py-2.5">
+                  {speakers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No speakers on this event&apos;s roster yet. Add one from the Speakers page,
+                      or accept a proposal, and they&apos;ll show up here.
+                    </p>
+                  ) : (
+                    speakers.map((speaker) => {
+                      const held = alreadyAssigned.has(speaker.id);
+                      const inputId = `task-assignee-${task?.id ?? "new"}-${speaker.id}`;
+                      return (
+                        <div key={speaker.id} className="flex items-center gap-2.5">
+                          <Checkbox
+                            id={inputId}
+                            // A speaker who already holds the task can't be
+                            // unticked: this dialog adds assignments, it
+                            // never deletes work.
+                            disabled={held}
+                            checked={field.value.includes(speaker.id)}
+                            onCheckedChange={(checked) =>
+                              field.onChange(
+                                checked === true
+                                  ? [...field.value, speaker.id]
+                                  : field.value.filter((id) => id !== speaker.id),
+                              )
+                            }
+                          />
+                          <Label htmlFor={inputId} className="flex-1 font-normal">
+                            {speaker.name}
+                            <span className="ml-1.5 text-xs text-muted-foreground">
+                              {speaker.email}
+                            </span>
+                          </Label>
+                          {held ? (
+                            <Badge variant="outline" className="text-muted-foreground">
+                              Already has it
+                            </Badge>
+                          ) : speaker.confirmed ? null : (
+                            <Badge variant="outline" className="text-muted-foreground">
+                              Not confirmed
+                            </Badge>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                  {errors.assigneeSpeakerIds && (
+                    <p className="text-sm text-destructive">
+                      {errors.assigneeSpeakerIds.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            />
+          ) : null}
 
           <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
             <div>

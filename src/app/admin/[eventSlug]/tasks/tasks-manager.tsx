@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/empty-state";
 import { formatDueDate } from "@/lib/event-time";
 import { assignTaskToConfirmedSpeakers, deleteTask } from "./actions";
 import { TaskFormDialog } from "./task-form-dialog";
+import type { TaskSpeakerOption } from "./types";
 
 const TASK_TYPE_LABEL: Record<string, string> = {
   form: "Fill out a form",
@@ -40,6 +41,8 @@ export function TasksManager({
   eventTimezone,
   tasks,
   forms,
+  speakers,
+  assignedSpeakerIdsByTask,
   assignmentCounts,
   confirmedSpeakerCount,
 }: {
@@ -47,6 +50,11 @@ export function TasksManager({
   eventTimezone: string;
   tasks: Task[];
   forms: Form[];
+  /** This event's roster — who the dialog can aim a task at (D-069). */
+  speakers: TaskSpeakerOption[];
+  /** Who already holds each task, keyed by task id: the dialog ticks and
+   * locks them, since assignment only ever adds. */
+  assignedSpeakerIdsByTask: Record<string, string[]>;
   /** Number of speakers currently assigned each task, keyed by task id — just
    * for the delete confirmation copy. */
   assignmentCounts: Record<string, number>;
@@ -108,6 +116,7 @@ export function TasksManager({
           eventSlug={eventSlug}
           eventTimezone={eventTimezone}
           forms={forms}
+          speakers={speakers}
           trigger={
             <Button size="sm" variant="outline">
               <PlusIcon />
@@ -168,6 +177,8 @@ export function TasksManager({
                       eventSlug={eventSlug}
                       eventTimezone={eventTimezone}
                       forms={forms}
+                      speakers={speakers}
+                      assignedSpeakerIds={assignedSpeakerIdsByTask[task.id] ?? []}
                       task={task}
                       trigger={
                         <Button size="icon-sm" variant="ghost" aria-label={`Edit ${task.title}`}>

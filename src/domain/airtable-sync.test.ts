@@ -133,6 +133,7 @@ function session(overrides: Partial<Session> = {}): Session {
     startTime: "10:00",
     endTime: "10:30",
     status: "confirmed",
+    contentStatus: "approved",
     ...timestamps(),
     ...overrides,
   };

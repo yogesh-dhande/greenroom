@@ -7,7 +7,7 @@
  * (no Repos, no I/O), so the portal home page and the admin onboarding
  * dashboard share one place that decides what "overdue" or "done" means.
  */
-import type { Task, TaskAssignment, User } from "@/db/entities";
+import type { SpeakerConfirmation, Task, TaskAssignment, User } from "@/db/entities";
 
 /** A task due within this many days (and not yet complete) is "due soon"
  * rather than plain "open" — the portal's cue to act before it's overdue. */
@@ -118,17 +118,52 @@ export function nextDueAssignmentId(views: AssignmentView[]): string | null {
   return next?.assignment.id ?? null;
 }
 
+/**
+ * Confirmation, resolved (decisions.md D-068).
+ *
+ * `stored` is the organizer's explicit answer on the `event_speakers` record
+ * — `null` when they have never said, which is every row that predates D-068
+ * (there is no backfill). `derived` is the pre-D-068 rule and stays the
+ * default: a speaker is confirmed if they are attached to one of this
+ * event's sessions (D-017 — acceptance auto-creates the session record).
+ *
+ * A stored value always wins, in both directions: 'confirmed' for a speaker
+ * who agreed by email before any session exists, and 'declined' for one who
+ * dropped out while still attached to a session the organizer hasn't
+ * unpicked yet — the misread that made the pure derivation wrong. Pure, so
+ * the roster, the filter and the record page can all call it.
+ */
+export function resolveConfirmation(
+  stored: SpeakerConfirmation | null,
+  derived: boolean,
+): boolean {
+  if (stored === null) return derived;
+  return stored === "confirmed";
+}
+
 export interface SpeakerRollup {
   speaker: User;
-  /** Has a session for this event — CFP-accepted or entered directly
-   * (spec.md §8; D-017 — acceptance auto-creates the session record). */
+  /** The effective answer the roster, the filter and the record page all
+   * show: the stored status when there is one, otherwise `derivedConfirmed`
+   * (decisions.md D-068, `resolveConfirmation`). */
   confirmed: boolean;
+  /** Has a session for this event — CFP-accepted or entered directly
+   * (spec.md §8; D-017 — acceptance auto-creates the session record). The
+   * automatic answer, kept alongside the effective one so the record page can
+   * say what "Automatic" currently resolves to. */
+  derivedConfirmed: boolean;
+  /** The organizer's stored override, or null for "automatic" (D-068). */
+  confirmationStatus: SpeakerConfirmation | null;
   totalTasks: number;
   completedTasks: number;
   outstandingTasks: number;
   overdueTasks: number;
   /** 0-100. A speaker with no assigned tasks is 100 — nothing outstanding,
-   * not a red flag. */
+   * not a red flag. This is a completion-percent convenience only: it does
+   * NOT mean the roster's "complete" filter should match them - see
+   * `speakerRosterStatus`, which gives task-less speakers their own
+   * `no_tasks` status precisely so a 100%-but-empty rollup doesn't
+   * false-positive "All tasks done". */
   completionPercent: number;
   views: AssignmentView[];
 }
@@ -138,6 +173,12 @@ export interface BuildSpeakerRollupsInput {
   confirmedSpeakerIds: Set<string>;
   assignmentsBySpeaker: Map<string, TaskAssignment[]>;
   tasksById: Map<string, Task>;
+  /** Stored confirmation per speaker, from their `event_speakers` record
+   * (decisions.md D-068). Optional, and a missing entry is the same as a
+   * null one: both mean "automatic", which is exactly the pre-D-068
+   * behavior — a speaker with no `event_speakers` row at all (they arrived
+   * via acceptance) can never have an override. */
+  confirmationBySpeaker?: Map<string, SpeakerConfirmation | null>;
   now?: Date;
 }
 
@@ -157,9 +198,14 @@ export function buildSpeakerRollups(input: BuildSpeakerRollupsInput): SpeakerRol
     const completionPercent =
       totalTasks === 0 ? 100 : Math.round((completedTasks / totalTasks) * 100);
 
+    const derivedConfirmed = input.confirmedSpeakerIds.has(speaker.id);
+    const confirmationStatus = input.confirmationBySpeaker?.get(speaker.id) ?? null;
+
     return {
       speaker,
-      confirmed: input.confirmedSpeakerIds.has(speaker.id),
+      confirmed: resolveConfirmation(confirmationStatus, derivedConfirmed),
+      derivedConfirmed,
+      confirmationStatus,
       totalTasks,
       completedTasks,
       outstandingTasks,
@@ -216,9 +262,15 @@ export function rosterSpeakerIds(input: RosterSourcesInput): Set<string> {
 /**
  * A speaker's onboarding state in one word, for the roster's filter and badge.
  * `overdue` is a sharper case of `incomplete`, not a separate bucket — see
- * `matchesRosterStatus`.
+ * `matchesRosterStatus`. `no_tasks` is its own bucket, not a flavor of
+ * `complete`: a speaker who was never assigned anything hasn't finished
+ * anything either, and folding them into `complete` is what let the "All
+ * tasks done" filter overstate onboarding progress (they render "No tasks"
+ * in the table, not a completion badge). `no_tasks` has no dedicated filter
+ * entry in `ROSTER_STATUS_FILTERS` - such speakers stay visible under the
+ * unfiltered "All speakers" default instead.
  */
-export type RosterStatus = "complete" | "incomplete" | "overdue";
+export type RosterStatus = "complete" | "incomplete" | "overdue" | "no_tasks";
 
 /** The roster filter's vocabulary; `all` is the unfiltered default. */
 export type RosterStatusFilter = "all" | RosterStatus;
@@ -230,6 +282,7 @@ export const ROSTER_STATUS_FILTERS: Array<{ value: RosterStatus; label: string }
 ];
 
 export function speakerRosterStatus(rollup: SpeakerRollup): RosterStatus {
+  if (rollup.totalTasks === 0) return "no_tasks";
   if (rollup.overdueTasks > 0) return "overdue";
   return rollup.outstandingTasks > 0 ? "incomplete" : "complete";
 }
@@ -237,7 +290,9 @@ export function speakerRosterStatus(rollup: SpeakerRollup): RosterStatus {
 /**
  * Filtering on `incomplete` includes overdue speakers: an organizer asking
  * "who still owes me something" means everyone outstanding, and hiding the
- * worst offenders behind a second filter would be a trap.
+ * worst offenders behind a second filter would be a trap. `no_tasks` speakers
+ * own neither `complete` nor `incomplete` - they haven't finished anything,
+ * but they don't "owe" anything either - so they only ever match `all`.
  */
 export function matchesRosterStatus(rollup: SpeakerRollup, filter: string): boolean {
   const status = speakerRosterStatus(rollup);
@@ -245,7 +300,7 @@ export function matchesRosterStatus(rollup: SpeakerRollup, filter: string): bool
     case "complete":
       return status === "complete";
     case "incomplete":
-      return status !== "complete";
+      return status === "incomplete" || status === "overdue";
     case "overdue":
       return status === "overdue";
     default:
@@ -263,9 +318,40 @@ export function matchesSpeakerSearch(rollup: SpeakerRollup, query: string): bool
   );
 }
 
+/** The confirmation filter's vocabulary; `all` is the unfiltered default. */
+export type ConfirmationFilter = "all" | "confirmed" | "unconfirmed";
+
+export const CONFIRMATION_FILTERS: Array<{ value: ConfirmationFilter; label: string }> = [
+  { value: "confirmed", label: "Confirmed" },
+  { value: "unconfirmed", label: "Not yet confirmed" },
+];
+
+/**
+ * A second, independent cut of the roster: whether the speaker is confirmed,
+ * reading the same `rollup.confirmed` the "Confirmed / Not yet" column shows.
+ * Since D-068 that field is the *effective* value — the organizer's stored
+ * status when they set one, the session-attachment derivation otherwise
+ * (`resolveConfirmation`) — so the filter and the column can never disagree.
+ * The filter's own vocabulary is unchanged: "Not yet confirmed" covers both
+ * an explicit `declined` and a speaker nobody has answered for yet, which is
+ * what an organizer scanning for people to chase means either way.
+ */
+export function matchesConfirmationFilter(rollup: SpeakerRollup, filter: string): boolean {
+  switch (filter) {
+    case "confirmed":
+      return rollup.confirmed;
+    case "unconfirmed":
+      return !rollup.confirmed;
+    default:
+      return true;
+  }
+}
+
 export interface RosterFilter {
   q: string;
   status: string;
+  /** Defaults to unfiltered ("all") when omitted. */
+  confirmation?: string;
 }
 
 export function filterSpeakerRollups(
@@ -273,7 +359,10 @@ export function filterSpeakerRollups(
   filter: RosterFilter,
 ): SpeakerRollup[] {
   return rollups.filter(
-    (rollup) => matchesSpeakerSearch(rollup, filter.q) && matchesRosterStatus(rollup, filter.status),
+    (rollup) =>
+      matchesSpeakerSearch(rollup, filter.q) &&
+      matchesRosterStatus(rollup, filter.status) &&
+      matchesConfirmationFilter(rollup, filter.confirmation ?? "all"),
   );
 }
 

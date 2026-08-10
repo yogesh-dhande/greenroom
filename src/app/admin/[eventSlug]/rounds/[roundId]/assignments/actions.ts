@@ -27,7 +27,7 @@ function fail(error: string) {
  * of this send (D-050).
  */
 export async function remindReviewers(eventSlug: string, roundId: string) {
-  await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
+  const viewer = await requireAdmin(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
   const repos = await getRepos();
   const event = await repos.events.getBySlug(eventSlug);
   if (!event) return fail("Event not found");
@@ -35,7 +35,14 @@ export async function remindReviewers(eventSlug: string, roundId: string) {
   const round = await repos.reviewRounds.getById(roundId);
   if (!round || round.eventId !== event.id) return fail("That round no longer exists");
 
-  const comms = await getCommsContext({ repos });
+  // The acting admin's own identity for {{organizerName}}/{{organizerEmail}}
+  // (decisions.md D-053), not the automated-send fallbacks - same pattern as
+  // ../../communications/actions.ts's organizerNameFor/organizerEmailFor.
+  const comms = await getCommsContext({
+    repos,
+    organizerName: viewer.name?.trim() || viewer.email,
+    organizerEmail: viewer.email,
+  });
   let deliveries;
   try {
     deliveries = await sendRoundReminders(comms, { roundId });

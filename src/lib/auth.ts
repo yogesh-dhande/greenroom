@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { magicLink } from "better-auth/plugins/magic-link";
@@ -18,8 +19,18 @@ import { createLoggingEmailSender, getEmailSender } from "@/lib/email";
  *
  * D1 bindings aren't available at module load time in most Next.js runtimes,
  * so the adapter's `db` is created lazily per request via getCloudflareContext.
+ *
+ * Building this is not cheap — a Drizzle client, the full repo bundle, and a
+ * betterAuth instance with its plugins — and a single /admin render used to
+ * pay for it once per session check. `cache()` is React's *per-request* memo
+ * (the same tool src/app/p/[eventSlug]/data.ts uses), so the work now happens
+ * once per request while each request still reads its own bindings. A
+ * module-level singleton would be the wrong fix: on Workers it would pin one
+ * request's `env` and leak it into every later request the isolate serves.
+ * Outside a React request scope (route handlers, the cron `scheduled`
+ * handler) `cache` simply calls through uncached, which is correct here too.
  */
-export async function getAuth() {
+export const getAuth = cache(async function getAuth() {
   const { env } = await getCloudflareContext({ async: true });
   const db = createDb(env.DB);
   // Reads/writes this file does on its own behalf still go through the
@@ -129,4 +140,4 @@ export async function getAuth() {
       }),
     ],
   });
-}
+});

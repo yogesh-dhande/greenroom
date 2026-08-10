@@ -32,6 +32,19 @@ function fail(error: string) {
 }
 
 /**
+ * The `{{organizerName}}`/`{{organizerEmail}}` merge tokens for mail this
+ * admin triggers by hand - the acting admin's own identity, not the generic
+ * `DEFAULT_ORGANIZER_NAME` signature or the no-reply transport address
+ * (decisions.md D-053, same pattern as
+ * src/app/admin/[eventSlug]/communications/actions.ts's
+ * `organizerNameFor`/`organizerEmailFor`). Automated/cron sends have no
+ * acting user and keep the fallbacks (see src/domain/comms.ts `eventFields`).
+ */
+function organizerIdentityFor(viewer: { name: string | null; email: string }) {
+  return { organizerName: viewer.name?.trim() || viewer.email, organizerEmail: viewer.email };
+}
+
+/**
  * Resolves the submission for this event and confirms the viewer may act on
  * it. A submission the viewer can't see is reported as missing — whether it
  * exists is not their business.
@@ -139,7 +152,7 @@ export async function decideSubmission(
   const parsed = decisionInputSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid decision");
 
-  const comms = await getCommsContext({ repos: auth.repos });
+  const comms = await getCommsContext({ repos: auth.repos, ...organizerIdentityFor(auth.viewer) });
 
   let result;
   try {
@@ -225,7 +238,7 @@ export async function requestChanges(
   const dueAt = parsed.data.dueAt ? new Date(`${parsed.data.dueAt}T23:59:00`) : null;
   if (dueAt && Number.isNaN(dueAt.getTime())) return fail("That deadline isn't a valid date");
 
-  const comms = await getCommsContext({ repos: auth.repos });
+  const comms = await getCommsContext({ repos: auth.repos, ...organizerIdentityFor(auth.viewer) });
 
   let deliveries;
   try {

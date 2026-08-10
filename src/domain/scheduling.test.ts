@@ -4,6 +4,7 @@ import {
   detectConflicts,
   durationMinutes,
   enumerateDays,
+  firstConflictFreeSlot,
   minutesOfDay,
   snapToGrid,
   timeOfMinutes,
@@ -25,6 +26,7 @@ function session(overrides: Partial<SessionWithSpeakers> & { id: string }): Sess
     startTime: "10:00",
     endTime: "10:30",
     status: "confirmed",
+    contentStatus: "approved",
     speakerIds: [],
     createdAt: new Date(0),
     updatedAt: new Date(0),
@@ -162,5 +164,124 @@ describe("conflict presentation", () => {
     expect(worstSeverity([])).toBeNull();
     expect(worstSeverity(advisory)).toBe("advisory");
     expect(worstSeverity([...advisory, ...blocking])).toBe("blocking");
+  });
+});
+
+describe("firstConflictFreeSlot (decisions.md D-067)", () => {
+  const days = ["2026-08-11", "2026-08-12"];
+  const rooms = ["room-a", "room-b"];
+
+  /** The session being placed: in the tray, so it has no day or times yet. */
+  function unplaced(overrides: Partial<SessionWithSpeakers> = {}): SessionWithSpeakers {
+    return session({ id: "candidate", day: null, startTime: null, endTime: null, ...overrides });
+  }
+
+  function suggest(
+    candidate: SessionWithSpeakers,
+    board: SessionWithSpeakers[],
+    overrides: Partial<Parameters<typeof firstConflictFreeSlot>[0]> = {},
+  ) {
+    return firstConflictFreeSlot({
+      session: candidate,
+      sessions: [candidate, ...board],
+      days,
+      roomIds: rooms,
+      durationMinutes: 30,
+      ...overrides,
+    });
+  }
+
+  it("suggests the first slot of the first day on an empty agenda", () => {
+    expect(suggest(unplaced(), [])).toEqual({
+      day: "2026-08-11",
+      startTime: "08:00",
+      endTime: "08:30",
+      roomId: "room-a",
+    });
+  });
+
+  it("moves to the next room when the first one is taken", () => {
+    const board = [
+      session({ id: "held", day: "2026-08-11", startTime: "08:00", endTime: "09:00", roomId: "room-a" }),
+    ];
+    expect(suggest(unplaced(), board)).toEqual({
+      day: "2026-08-11",
+      startTime: "08:00",
+      endTime: "08:30",
+      roomId: "room-b",
+    });
+  });
+
+  it("moves to the next slot when the speaker is busy in every room", () => {
+    const board = [
+      session({
+        id: "held",
+        day: "2026-08-11",
+        startTime: "08:00",
+        endTime: "08:30",
+        roomId: "room-a",
+        speakerIds: ["u1"],
+      }),
+    ];
+    // 08:00 and 08:15 overlap the speaker's other talk in both rooms, so the
+    // earliest clean start is right after it ends.
+    expect(suggest(unplaced({ speakerIds: ["u1"] }), board)).toEqual({
+      day: "2026-08-11",
+      startTime: "08:30",
+      endTime: "09:00",
+      roomId: "room-a",
+    });
+  });
+
+  it("returns null when every room on every day is booked solid", () => {
+    const board = days.flatMap((day) =>
+      rooms.map((roomId) =>
+        session({ id: `${day}-${roomId}`, day, startTime: "09:00", endTime: "10:00", roomId }),
+      ),
+    );
+    expect(
+      suggest(unplaced(), board, {
+        durationMinutes: 60,
+        window: { startMinute: 9 * 60, endMinute: 10 * 60 },
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the session is longer than the searchable day", () => {
+    expect(suggest(unplaced(), [], { durationMinutes: 13 * 60 })).toBeNull();
+  });
+
+  it("does not let a track overlap rule a slot out", () => {
+    const board = [
+      session({
+        id: "held",
+        day: "2026-08-11",
+        startTime: "08:00",
+        endTime: "09:00",
+        roomId: "room-a",
+        trackId: "t1",
+      }),
+    ];
+    expect(suggest(unplaced({ trackId: "t1" }), board)?.roomId).toBe("room-b");
+  });
+
+  it("ignores the session's own current placement when suggesting a move", () => {
+    const placed = session({
+      id: "candidate",
+      day: "2026-08-12",
+      startTime: "15:00",
+      endTime: "15:30",
+      roomId: "room-b",
+    });
+    expect(suggest(placed, [])).toEqual({
+      day: "2026-08-11",
+      startTime: "08:00",
+      endTime: "08:30",
+      roomId: "room-a",
+    });
+  });
+
+  it("suggests a roomless slot when the event has no rooms yet", () => {
+    expect(suggest(unplaced(), [], { roomIds: [] })?.roomId).toBeNull();
   });
 });

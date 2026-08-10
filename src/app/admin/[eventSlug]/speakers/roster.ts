@@ -35,6 +35,9 @@ export async function loadSpeakerRoster(repos: Repos, eventId: string): Promise<
   const sessionSpeakerRows = await repos.sessions.listSpeakersBySessionIds(
     sessions.map((session) => session.id),
   );
+  // The *derived* confirmation (D-017): attached to one of this event's
+  // sessions. Since D-068 this is only the default — an organizer's stored
+  // status on the `event_speakers` record overrides it below.
   const confirmedSpeakerIds = new Set(sessionSpeakerRows.map((row) => row.userId));
 
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
@@ -64,7 +67,18 @@ export async function loadSpeakerRoster(repos: Repos, eventId: string): Promise<
 
   return {
     rollups: sortSpeakerRollups(
-      buildSpeakerRollups({ speakers, confirmedSpeakerIds, assignmentsBySpeaker, tasksById }),
+      buildSpeakerRollups({
+        speakers,
+        confirmedSpeakerIds,
+        assignmentsBySpeaker,
+        tasksById,
+        // The organizer's stored answers (decisions.md D-068). Only members
+        // can have one; everyone else has no `event_speakers` row, so they
+        // stay on the derivation, which is also what an unset member does.
+        confirmationBySpeaker: new Map(
+          members.map((member) => [member.userId, member.confirmationStatus]),
+        ),
+      }),
     ),
     tasksById,
     sessionsBySpeaker,

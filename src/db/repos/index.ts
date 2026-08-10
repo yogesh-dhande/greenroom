@@ -8,6 +8,7 @@ import type { FormsRepo } from "./forms";
 import type { ReviewRoundsRepo } from "./review-rounds";
 import type { ReviewsRepo } from "./reviews";
 import type { RoomsRepo } from "./rooms";
+import type { SessionRevisionsRepo } from "./session-revisions";
 import type { SessionsRepo } from "./sessions";
 import type { SubmissionsRepo } from "./submissions";
 import type { TaskAssignmentsRepo } from "./task-assignments";
@@ -25,6 +26,7 @@ export type { ReviewRoundsRepo } from "./review-rounds";
 export type { TracksRepo } from "./tracks";
 export type { RoomsRepo } from "./rooms";
 export type { SessionsRepo } from "./sessions";
+export type { SessionRevisionsRepo } from "./session-revisions";
 export type { TasksRepo } from "./tasks";
 export type { TaskAssignmentsRepo } from "./task-assignments";
 export type { FileVersionsRepo } from "./file-versions";
@@ -50,6 +52,8 @@ export interface Repos {
   tracks: TracksRepo;
   rooms: RoomsRepo;
   sessions: SessionsRepo;
+  /** Append-only abstract history for a session (D-071). */
+  sessionRevisions: SessionRevisionsRepo;
   tasks: TasksRepo;
   taskAssignments: TaskAssignmentsRepo;
   /** Upload history and the comment thread on a deliverable (D-054). */

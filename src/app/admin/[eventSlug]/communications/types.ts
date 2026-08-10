@@ -22,7 +22,9 @@ export interface SpeakerOption {
   id: string;
   name: string;
   email: string;
-  /** True once they're on a session — the rest are still just proposers. */
+  /** Effective confirmation (decisions.md D-068): true once they're on a
+   * session, unless the organizer has explicitly marked them Declined — the
+   * rest are still just proposers. */
   confirmed: boolean;
 }
 
@@ -100,6 +102,9 @@ export const EMAIL_KIND_LABELS: Record<EmailKind, string> = {
   calendar_invite: "Calendar invite",
   /** The Team page's "Add a teammate" invitation email (D-062). */
   team_invite: "Team invite",
+  /** The speaker record page's "Send portal invite" (D-070) — its own kind so
+   * the log answers who was invited to their portal, and when. */
+  portal_invite: "Portal invitation",
   manual: "One-off message",
 };
 
@@ -108,6 +113,7 @@ export const LOG_KIND_ORDER: EmailKind[] = [
   "decision",
   "change_request",
   "task_digest",
+  "portal_invite",
   "round_reminder",
   "team_invite",
   "task_reminder",

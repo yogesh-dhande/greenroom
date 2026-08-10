@@ -33,7 +33,7 @@ type FormValues = z.infer<typeof formSchema>;
  * (D-044(3), D-062).
  */
 export function InviteForm({ eventSlug }: { eventSlug: string }) {
-  const [added, setAdded] = useState<string | null>(null);
+  const [added, setAdded] = useState<{ email: string; nameIgnored: boolean } | null>(null);
   const {
     register,
     handleSubmit,
@@ -58,7 +58,7 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
       return;
     }
     toast.success(result.data.message);
-    setAdded(result.data.email);
+    setAdded({ email: result.data.email, nameIgnored: result.data.nameIgnored });
     reset({ name: "", email: "", role: values.role });
   }
 
@@ -127,10 +127,18 @@ export function InviteForm({ eventSlug }: { eventSlug: string }) {
       </p>
 
       {added && (
-        <p className="text-sm text-foreground">
-          <span className="font-medium">{added}</span> is on the team and has been emailed the
-          sign-in link.
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="text-sm text-foreground">
+            <span className="font-medium">{added.email}</span> is on the team and has been emailed
+            the sign-in link.
+          </p>
+          {added.nameIgnored && (
+            <p className="text-sm text-muted-foreground">
+              Existing accounts keep their profile name - the name entered above wasn&apos;t
+              applied.
+            </p>
+          )}
+        </div>
       )}
 
       <div>

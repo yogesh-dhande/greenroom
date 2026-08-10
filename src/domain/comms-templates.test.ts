@@ -259,6 +259,30 @@ describe("the built-in templates", () => {
     expect(getCommsTemplate("submission_declined").kind).toBe("decision");
     expect(getCommsTemplate("task_digest").kind).toBe("task_digest");
     expect(getCommsTemplate("calendar_invite").kind).toBe("calendar_invite");
+    expect(getCommsTemplate("portal_invite").kind).toBe("portal_invite");
+  });
+
+  it("points the portal invitation at the portal sign-in and nowhere else", () => {
+    const rendered = renderCommsTemplate("portal_invite", FULL);
+    expect(rendered.subject).toBe("Your speaker portal for AI Engineer Summit 2026 is ready");
+    expect(rendered.text).toContain("https://example.test/portal");
+    expect(rendered.text).toContain("magic link");
+    expect(rendered.text).not.toMatch(/\{\{|\}\}/);
+    // The invitation carries no one-time token (decisions.md D-007/D-016,
+    // D-070) — the only link in it is the ordinary portal URL.
+    expect(rendered.text.match(/https?:\/\/\S+/g)).toEqual(["https://example.test/portal"]);
+  });
+
+  it("keeps the portal invitation readable with no outstanding tasks and no dates", () => {
+    const rendered = renderCommsTemplate("portal_invite", {
+      ...FULL,
+      outstandingTasks: undefined,
+      eventDates: undefined,
+    });
+    expect(rendered.text).toContain("https://example.test/portal");
+    expect(rendered.text).not.toContain("Waiting for you there");
+    expect(rendered.text).not.toMatch(/\{\{|\}\}/);
+    expect(rendered.text).not.toContain("undefined");
   });
 
   it("addresses the speaker by first name and signs off as the organizer", () => {
