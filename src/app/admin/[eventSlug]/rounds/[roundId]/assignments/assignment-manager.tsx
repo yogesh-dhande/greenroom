@@ -35,7 +35,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CompletionMeter } from "@/components/completion-meter";
 import { EmptyState } from "@/components/empty-state";
+import {
+  GroupChips,
+  PickerSearch,
+  SelectionSummary,
+} from "@/components/people-picker/people-picker";
+import { buildGroups, filterByQuery, toggleSelection } from "@/components/people-picker/selection";
 import { SubmissionStatusBadge } from "@/components/submission-status-badge";
 import { assignSubmissions, assignTrack, unassignSubmission } from "../../actions";
 import { remindReviewers } from "./actions";
@@ -172,6 +179,52 @@ export function AssignmentManager({
 
   const reviewerName = reviewerById.get(reviewerId)?.name ?? "this reviewer";
 
+  // --- narrowing the pile you're assigning from -----------------------------
+  // The same search-plus-groups pattern the recipient pickers use, over
+  // submissions instead of people: on a hundred-proposal round, "the ones
+  // nobody has yet" and "the ones this reviewer doesn't have" are the two
+  // piles an organizer works from, and both are one click.
+  const [query, setQuery] = useState("");
+
+  const groups = useMemo(
+    () =>
+      buildGroups(submissions, [
+        {
+          id: "unassigned",
+          label: "Nobody yet",
+          matches: (submission) => (bySubmission.get(submission.id) ?? []).length === 0,
+          tone: "warning" as const,
+        },
+        {
+          id: "not-with-reviewer",
+          label: `Not with ${reviewerName}`,
+          matches: (submission) =>
+            !(bySubmission.get(submission.id) ?? []).some((row) => row.reviewerId === reviewerId),
+        },
+        ...tracks.map((track) => ({
+          id: `track:${track.id}`,
+          label: track.name,
+          matches: (submission: SubmissionOption) => submission.trackIds.includes(track.id),
+        })),
+      ]),
+    [submissions, bySubmission, reviewerId, reviewerName, tracks],
+  );
+
+  const shown = useMemo(
+    () =>
+      filterByQuery(submissions, query, (submission) => [
+        submission.title,
+        submission.speakers.join(" "),
+        submission.trackNames.join(" "),
+      ]),
+    [submissions, query],
+  );
+
+  const selectedTitles = useMemo(
+    () => submissions.filter((submission) => selected.includes(submission.id)).map((s) => s.title),
+    [submissions, selected],
+  );
+
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-4 rounded-lg border border-border p-4">
@@ -244,9 +297,17 @@ export function AssignmentManager({
           >
             Assign selected to {reviewerName}
           </Button>
-          <span className="text-sm text-muted-foreground">
-            {selected.length} selected of {submissions.length}
-          </span>
+          {/* What the button is about to do, in titles, one click from the
+              button itself — a mis-ticked row is caught here or not at all. */}
+          <SelectionSummary
+            names={selectedTitles}
+            words={{
+              lead: "Assigning",
+              singular: "submission",
+              plural: "submissions",
+              empty: `Nothing ticked yet — of ${submissions.length}.`,
+            }}
+          />
         </div>
       </section>
 
@@ -256,88 +317,119 @@ export function AssignmentManager({
           description="Once proposals arrive through the CFP, assign them to reviewers here."
         />
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">&nbsp;</TableHead>
-              <TableHead>Submission</TableHead>
-              <TableHead>Tracks</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Assigned to</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {submissions.map((submission) => {
-              const rows = bySubmission.get(submission.id) ?? [];
-              return (
-                <TableRow key={submission.id}>
-                  <TableCell>
-                    <Checkbox
-                      aria-label={`Select ${submission.title}`}
-                      checked={selected.includes(submission.id)}
-                      onCheckedChange={(checked) =>
-                        setSelected((current) =>
-                          checked
-                            ? [...current, submission.id]
-                            : current.filter((id) => id !== submission.id),
-                        )
-                      }
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <p className="font-medium text-foreground">{submission.title}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {submission.speakers.length > 0
-                        ? submission.speakers.join(", ")
-                        : "No speaker on file"}
-                    </p>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {submission.trackNames.join(", ") || "—"}
-                  </TableCell>
-                  <TableCell>
-                    <SubmissionStatusBadge status={submission.status} />
-                  </TableCell>
-                  <TableCell>
-                    {rows.length === 0 ? (
-                      <span className="text-sm text-muted-foreground">Nobody yet</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {rows.map((row) => (
-                          <span
-                            key={row.id}
-                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-foreground"
-                          >
-                            {row.reviewerName}
-                            {row.scored ? (
-                              <Badge variant="secondary">scored</Badge>
-                            ) : row.status === "recused" ? (
-                              <Badge variant="outline">recused</Badge>
-                            ) : null}
-                            <button
-                              type="button"
-                              aria-label={`Unassign ${row.reviewerName} from ${submission.title}`}
-                              className="text-muted-foreground hover:text-foreground"
-                              disabled={isBusy}
-                              onClick={() =>
-                                run(
-                                  () => unassignSubmission(eventSlug, roundId, row.id),
-                                  "Assignment removed",
-                                )
-                              }
-                            >
-                              <XIcon className="size-3" />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </TableCell>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <PickerSearch
+              value={query}
+              onValueChange={setQuery}
+              label="Search submissions"
+              placeholder="Title, speaker, or track"
+              className="w-64"
+            />
+            <GroupChips
+              groups={groups}
+              selected={selected}
+              onSelectedChange={setSelected}
+              label="Submission groups"
+            />
+            {query.trim() ? (
+              <p className="ml-auto text-xs text-muted-foreground" aria-live="polite">
+                Showing {shown.length} of {submissions.length}
+              </p>
+            ) : null}
+          </div>
+
+          {shown.length === 0 ? (
+            <EmptyState
+              variant="inline"
+              title="No submission here matches that."
+              action={
+                <Button variant="ghost" size="sm" onClick={() => setQuery("")}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">&nbsp;</TableHead>
+                  <TableHead>Submission</TableHead>
+                  <TableHead>Tracks</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Assigned to</TableHead>
                 </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+              </TableHeader>
+              <TableBody>
+                {shown.map((submission) => {
+                  const rows = bySubmission.get(submission.id) ?? [];
+                  return (
+                    <TableRow key={submission.id}>
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Select ${submission.title}`}
+                          checked={selected.includes(submission.id)}
+                          onCheckedChange={() =>
+                            setSelected((current) => toggleSelection(current, submission.id))
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <p className="font-medium text-foreground">{submission.title}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {submission.speakers.length > 0
+                            ? submission.speakers.join(", ")
+                            : "No speaker on file"}
+                        </p>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {submission.trackNames.join(", ") || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <SubmissionStatusBadge status={submission.status} />
+                      </TableCell>
+                      <TableCell>
+                        {rows.length === 0 ? (
+                          <span className="text-sm text-muted-foreground">Nobody yet</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {rows.map((row) => (
+                              <span
+                                key={row.id}
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-foreground"
+                              >
+                                {row.reviewerName}
+                                {row.scored ? (
+                                  <Badge variant="secondary">scored</Badge>
+                                ) : row.status === "recused" ? (
+                                  <Badge variant="outline">recused</Badge>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  aria-label={`Unassign ${row.reviewerName} from ${submission.title}`}
+                                  className="text-muted-foreground hover:text-foreground"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    run(
+                                      () => unassignSubmission(eventSlug, roundId, row.id),
+                                      "Assignment removed",
+                                    )
+                                  }
+                                >
+                                  <XIcon className="size-3" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
       )}
 
       <section className="flex flex-col gap-3">
@@ -403,7 +495,14 @@ export function AssignmentManager({
                       {reviewerById.get(row.reviewerId)?.name ?? "Unknown reviewer"}
                     </TableCell>
                     <TableCell className="tabular-nums">{row.assigned}</TableCell>
-                    <TableCell className="tabular-nums">{progressLabel(row)}</TableCell>
+                    <TableCell>
+                      <CompletionMeter
+                        done={row.done}
+                        total={row.required}
+                        label={progressLabel(row)}
+                        emptyLabel="Nothing to score"
+                      />
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {recusals.length === 0
                         ? "—"

@@ -10,12 +10,12 @@ import {
   type MergeData,
   type MergeField,
 } from "@/domain/comms-templates";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { PeoplePicker, SelectionSummary } from "@/components/people-picker/people-picker";
+import type { GroupDefinition } from "@/components/people-picker/selection";
 import { sendComposedEmail } from "./actions";
 import { BlankFieldNote, DraftProblems, MergeFieldPalette, MessagePreview } from "./merge-fields";
 import type { SpeakerOption } from "./types";
@@ -60,11 +60,53 @@ export function ComposeForm({
 
   const ready = selected.length > 0 && check.errors.length === 0;
 
-  function toggle(id: string) {
-    setSelected((current) =>
-      current.includes(id) ? current.filter((other) => other !== id) : [...current, id],
+  /** Rows for the picker: the speaker, plus the badge its list renders. */
+  const rows = useMemo(
+    () =>
+      speakers.map((speaker) => ({
+        ...speaker,
+        note: speaker.confirmed ? "On the program" : null,
+      })),
+    [speakers],
+  );
+
+  /**
+   * The groups an organizer actually writes to, each a predicate over data
+   * already on this page (decisions.md D-068 for confirmation, D-039 for the
+   * task reading). Groups nobody is in never render, so the chip row stays
+   * the shape of *this* event.
+   */
+  const groups = useMemo<Array<GroupDefinition<(typeof rows)[number]>>>(() => {
+    const trackNames = [...new Set(speakers.flatMap((speaker) => speaker.trackNames))].sort(
+      (a, b) => a.localeCompare(b),
     );
-  }
+    return [
+      { id: "all", label: "All speakers", matches: () => true },
+      { id: "confirmed", label: "On the program", matches: (person) => person.confirmed },
+      {
+        id: "unconfirmed",
+        label: "Not confirmed",
+        matches: (person) => !person.confirmed,
+        tone: "warning",
+      },
+      {
+        id: "behind",
+        label: "Behind on tasks",
+        matches: (person) => person.pendingTasks > 0,
+        tone: "warning",
+      },
+      ...trackNames.map((name) => ({
+        id: `track:${name}`,
+        label: name,
+        matches: (person: (typeof rows)[number]) => person.trackNames.includes(name),
+      })),
+    ];
+  }, [speakers]);
+
+  const selectedNames = useMemo(
+    () => rows.filter((person) => selected.includes(person.id)).map((person) => person.name),
+    [rows, selected],
+  );
 
   /** Drops a merge field where the cursor is, so it lands mid-sentence. */
   function insert(field: MergeField) {
@@ -138,73 +180,33 @@ export function ComposeForm({
 
         {subject.trim() || body.trim() ? <MessagePreview preview={check.preview} /> : null}
 
-        <div className="flex items-center gap-3">
+        {/* The count sits next to the button that acts on it, and opens to the
+            names — where a wrong recipient is still catchable. */}
+        <div className="flex flex-wrap items-center gap-3">
           <Button onClick={send} disabled={!ready || sending}>
             <SendIcon />
             {sending
               ? "Sending…"
               : `Send to ${selected.length || "…"} ${selected.length === 1 ? "person" : "people"}`}
           </Button>
-          {selected.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Pick who this goes to.</p>
-          ) : null}
+          <SelectionSummary
+            names={selectedNames}
+            words={{ empty: "Nobody picked yet — tick who this goes to." }}
+          />
         </div>
       </div>
 
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <Label>Recipients</Label>
-          <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelected(speakers.map((speaker) => speaker.id))}
-              disabled={selected.length === speakers.length}
-            >
-              All
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelected([])}
-              disabled={selected.length === 0}
-            >
-              None
-            </Button>
-          </div>
-        </div>
-
-        {speakers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nobody has submitted to this event yet, so there&apos;s nobody to write to.
-          </p>
-        ) : (
-          <ul className="flex max-h-[28rem] flex-col gap-1 overflow-y-auto rounded-md border border-border p-2">
-            {speakers.map((speaker) => (
-              <li key={speaker.id}>
-                <label className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-muted">
-                  <Checkbox
-                    checked={selected.includes(speaker.id)}
-                    onCheckedChange={() => toggle(speaker.id)}
-                    className="mt-0.5"
-                  />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <span className="truncate">{speaker.name}</span>
-                      {speaker.confirmed ? (
-                        <Badge variant="outline" className="shrink-0">
-                          On the program
-                        </Badge>
-                      ) : null}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">{speaker.email}</span>
-                  </span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <PeoplePicker
+        heading="Recipients"
+        people={rows}
+        groups={groups}
+        selected={selected}
+        onSelectedChange={setSelected}
+        searchLabel="Search recipients"
+        searchPlaceholder="Name, email, or company"
+        groupsLabel="Recipient groups"
+        emptyMessage="Nobody has submitted to this event yet, so there's nobody to write to."
+      />
     </div>
   );
 }

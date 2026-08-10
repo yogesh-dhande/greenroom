@@ -55,6 +55,8 @@ export function DirectoryTable({
       name: row.name,
       email: row.email,
       displayName: row.displayName,
+      company: row.company,
+      tags: row.tags,
     }));
 
   function toggle(userId: string, checked: boolean) {
@@ -176,16 +178,21 @@ export function DirectoryTable({
         </TableBody>
       </Table>
 
-      <BulkEmailDialog
-        open={composing}
-        onOpenChange={setComposing}
-        recipients={recipients}
-        orgFields={orgFields}
-        onSent={() => {
-          setSelected([]);
-          router.refresh();
-        }}
-      />
+      {/* Mounted by its opening: the dialog's recipient list is editable in
+          there, and it takes the table's ticks as its starting point at the
+          moment it opens rather than following them afterwards. */}
+      {composing ? (
+        <BulkEmailDialog
+          open
+          onOpenChange={setComposing}
+          recipients={recipients}
+          orgFields={orgFields}
+          onSent={() => {
+            setSelected([]);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

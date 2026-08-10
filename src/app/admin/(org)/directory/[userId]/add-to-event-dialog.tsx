@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { PickerSearch } from "@/components/people-picker/people-picker";
+import { filterByQuery, isLongList } from "@/components/people-picker/selection";
 import { addContactToEvent } from "../actions";
 import type { EventOption } from "../types";
 
@@ -34,6 +36,10 @@ import type { EventOption } from "../types";
  * broken or the contact was already there. Nothing is copied by the write:
  * identity is global by email (decisions.md D-051), so the roster reads the
  * same record this profile shows.
+ *
+ * Most orgs run a handful of events, so the select stands on its own; an org
+ * with a back catalogue past the shared threshold gets the same search box
+ * over the options that the other pickers use.
  */
 export function AddToEventDialog({
   userId,
@@ -45,9 +51,22 @@ export function AddToEventDialog({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [eventId, setEventId] = useState("");
+  const [query, setQuery] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const selectable = events.filter((event) => !event.connected);
+
+  const searchable = isLongList(events.length);
+  const shown = useMemo(() => {
+    if (!searchable) return events;
+    const matched = filterByQuery(events, query, (event) => [event.name, event.dates]);
+    // The picked event survives whatever gets typed afterwards, so the
+    // trigger can't go blank over a value the form still holds.
+    const chosen = events.find((event) => event.id === eventId);
+    return chosen && !matched.some((event) => event.id === eventId)
+      ? [chosen, ...matched]
+      : matched;
+  }, [events, query, searchable, eventId]);
 
   function submit() {
     if (!eventId) return;
@@ -96,19 +115,34 @@ export function AddToEventDialog({
               There are no events yet — create one first.
             </p>
           ) : (
-            <Select value={eventId} onValueChange={setEventId}>
-              <SelectTrigger id="add-to-event" className="w-full">
-                <SelectValue placeholder="Pick an event" />
-              </SelectTrigger>
-              <SelectContent>
-                {events.map((event) => (
-                  <SelectItem key={event.id} value={event.id} disabled={event.connected}>
-                    {event.name} · {event.dates}
-                    {event.connected ? " — already on roster" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <>
+              {searchable ? (
+                <PickerSearch
+                  value={query}
+                  onValueChange={setQuery}
+                  label="Search events"
+                  placeholder="Event name or dates"
+                />
+              ) : null}
+              <Select value={eventId} onValueChange={setEventId}>
+                <SelectTrigger id="add-to-event" className="w-full">
+                  <SelectValue placeholder="Pick an event" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shown.map((event) => (
+                    <SelectItem key={event.id} value={event.id} disabled={event.connected}>
+                      {event.name} · {event.dates}
+                      {event.connected ? " — already on roster" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {searchable && query.trim() ? (
+                <p className="text-xs text-muted-foreground" aria-live="polite">
+                  Showing {shown.length} of {events.length} events
+                </p>
+              ) : null}
+            </>
           )}
           {events.length > 0 && selectable.length === 0 ? (
             <p className="text-sm text-muted-foreground">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -20,6 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { PickerSearch } from "@/components/people-picker/people-picker";
+import { filterByQuery, isLongList } from "@/components/people-picker/selection";
 import {
   ActionTimeoutError,
   withActionTimeout,
@@ -70,16 +72,39 @@ const EMPTY: FormValues = {
  * one-card-per-contact rule shows up as an absent option rather than as an
  * error after submitting. The action still re-checks — the list was rendered
  * at page load, and another organizer may have enrolled someone since.
+ *
+ * One contact is one choice, so it stays a select; but the directory is the
+ * one list here that grows without bound, so past a screenful of names it
+ * gets the same search box the multi-select pickers have, narrowing the
+ * options in place.
  */
 export function EnrollProspectDialog({ candidates }: { candidates: EnrollCandidate[] }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const {
     register,
     handleSubmit,
     reset,
     setError,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: EMPTY });
+
+  const searchable = isLongList(candidates.length);
+  const shown = useMemo(() => {
+    if (!searchable) return candidates;
+    const matched = filterByQuery(candidates, query, (candidate) => [candidate.label]);
+    // The chosen contact stays in the list whatever is typed: a select whose
+    // value has no option shows an empty box over a form that still holds the
+    // id, and the mismatch only surfaces on submit. Read at filter time
+    // (`getValues`, not `watch`) because that's the only moment the option
+    // list is rebuilt — picking never removes options.
+    const picked = getValues("userId");
+    const chosen = candidates.find((candidate) => candidate.userId === picked);
+    return chosen && !matched.some((candidate) => candidate.userId === picked)
+      ? [chosen, ...matched]
+      : matched;
+  }, [candidates, query, searchable, getValues]);
 
   async function onSubmit(values: FormValues) {
     let result;
@@ -117,7 +142,10 @@ export function EnrollProspectDialog({ candidates }: { candidates: EnrollCandida
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) reset(EMPTY);
+        if (!next) {
+          reset(EMPTY);
+          setQuery("");
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -136,18 +164,34 @@ export function EnrollProspectDialog({ candidates }: { candidates: EnrollCandida
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="prospect-contact">Contact</Label>
             {candidates.length > 0 ? (
-              <NativeSelect
-                id="prospect-contact"
-                className="h-9 w-80 max-w-full"
-                {...register("userId")}
-              >
-                <option value="">Select a contact…</option>
-                {candidates.map((candidate) => (
-                  <option key={candidate.userId} value={candidate.userId}>
-                    {candidate.label}
-                  </option>
-                ))}
-              </NativeSelect>
+              <>
+                {searchable ? (
+                  <PickerSearch
+                    value={query}
+                    onValueChange={setQuery}
+                    label="Search contacts"
+                    placeholder="Name or email"
+                    className="w-80 max-w-full"
+                  />
+                ) : null}
+                <NativeSelect
+                  id="prospect-contact"
+                  className="h-9 w-80 max-w-full"
+                  {...register("userId")}
+                >
+                  <option value="">Select a contact…</option>
+                  {shown.map((candidate) => (
+                    <option key={candidate.userId} value={candidate.userId}>
+                      {candidate.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+                {searchable && query.trim() ? (
+                  <p className="text-xs text-muted-foreground" aria-live="polite">
+                    Showing {shown.length} of {candidates.length} contacts
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Every contact in the directory is already on the board. Add someone to the

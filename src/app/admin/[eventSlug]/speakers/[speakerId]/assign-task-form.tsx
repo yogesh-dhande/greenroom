@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PickerSearch } from "@/components/people-picker/people-picker";
+import { filterByQuery, isLongList } from "@/components/people-picker/selection";
 import { assignTaskToSpeaker } from "../actions";
 
 /** One of the event's tasks, as offered on a speaker's record. */
@@ -32,6 +34,10 @@ export interface AssignableTask {
  * same dedupe the all-at-once action uses, so a duplicate is never created
  * and finished work is never reset — and hiding them would leave an
  * organizer wondering where the task went.
+ *
+ * One task is one choice, so the control stays a select; an event with a long
+ * checklist gets the same search box the recipient pickers use over its
+ * options, on the shared threshold.
  */
 export function AssignTaskForm({
   eventSlug,
@@ -43,8 +49,21 @@ export function AssignTaskForm({
   tasks: AssignableTask[];
 }) {
   const [taskId, setTaskId] = useState("");
+  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const searchable = isLongList(tasks.length);
+  const shown = useMemo(() => {
+    if (!searchable) return tasks;
+    const matched = filterByQuery(tasks, query, (task) => [task.title]);
+    // The chosen task never vanishes from under the choice — a select whose
+    // value has no option renders an empty trigger over a live selection.
+    const chosen = tasks.find((task) => task.id === taskId);
+    return chosen && !matched.some((task) => task.id === taskId)
+      ? [chosen, ...matched]
+      : matched;
+  }, [tasks, query, searchable, taskId]);
 
   function assign() {
     if (!taskId) return;
@@ -77,12 +96,20 @@ export function AssignTaskForm({
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="assign-task">Task</Label>
+        {searchable ? (
+          <PickerSearch
+            value={query}
+            onValueChange={setQuery}
+            label="Search tasks"
+            placeholder="Task title"
+          />
+        ) : null}
         <Select value={taskId} onValueChange={setTaskId}>
           <SelectTrigger id="assign-task" className="w-full">
             <SelectValue placeholder="Choose a task…" />
           </SelectTrigger>
           <SelectContent>
-            {tasks.map((task) => (
+            {shown.map((task) => (
               <SelectItem key={task.id} value={task.id}>
                 {task.title}
                 {task.assigned ? " · already assigned" : ""}
@@ -90,6 +117,11 @@ export function AssignTaskForm({
             ))}
           </SelectContent>
         </Select>
+        {searchable && query.trim() ? (
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            Showing {shown.length} of {tasks.length} tasks
+          </p>
+        ) : null}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

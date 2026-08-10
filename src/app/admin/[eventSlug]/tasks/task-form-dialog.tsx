@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Form, Task } from "@/db/entities";
 import { taskTypeSchema } from "@/db/entities";
 import { toZonedInputValue } from "@/domain/forms";
+import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -292,10 +293,11 @@ export function TaskFormDialog({
               render={({ field }) => (
                 <div className="flex max-h-56 flex-col gap-2.5 overflow-y-auto rounded-md border border-border px-3 py-2.5">
                   {speakers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No speakers on this event&apos;s roster yet. Add one from the Speakers page,
-                      or accept a proposal, and they&apos;ll show up here.
-                    </p>
+                    <EmptyState
+                      variant="inline"
+                      title="No speakers on this event's roster yet."
+                      description="Add one from the Speakers page, or accept a proposal, and they'll show up here."
+                    />
                   ) : (
                     speakers.map((speaker) => {
                       const held = alreadyAssigned.has(speaker.id);

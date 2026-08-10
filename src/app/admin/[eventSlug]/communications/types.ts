@@ -26,6 +26,16 @@ export interface SpeakerOption {
    * session, unless the organizer has explicitly marked them Declined — the
    * rest are still just proposers. */
   confirmed: boolean;
+  /** From their profile — searchable in the recipient picker, because "the
+   * two people from Northwind" is how an organizer remembers a pair. */
+  company: string | null;
+  /** Onboarding tasks still open, for the picker's "Behind on tasks" group —
+   * the same reading the roster and the digest take (decisions.md D-039). */
+  pendingTasks: number;
+  /** Tracks they have a submission in, for the picker's per-track groups.
+   * Names rather than ids: the chips are labelled with them, and a track with
+   * nobody in it never earns a chip. */
+  trackNames: string[];
 }
 
 /** One row of the communication log. */

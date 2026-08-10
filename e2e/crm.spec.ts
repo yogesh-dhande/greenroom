@@ -142,7 +142,7 @@ test("pipeline: enroll a prospect, move stages explicitly, history persists", as
   await page.getByRole("button", { name: "Add prospect" }).click();
   const dialog = page.getByRole("dialog");
   await dialog
-    .getByLabel("Contact")
+    .getByLabel("Contact", { exact: true })
     .selectOption({ label: `${NOVA} (${NOVA_EMAIL})` });
   await dialog.getByLabel("Score (optional)").fill("85");
   await dialog

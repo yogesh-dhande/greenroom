@@ -21,6 +21,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { PeoplePicker, SelectionSummary } from "@/components/people-picker/people-picker";
+import type { GroupDefinition } from "@/components/people-picker/selection";
 import {
   BlankFieldNote,
   DraftProblems,
@@ -52,6 +54,12 @@ interface SendResult {
  * placeholder data, because "does personalization actually work?" is the
  * question a preview exists to answer.
  *
+ * Who it goes to is editable here rather than fixed by the table's ticks: the
+ * contacts arrive as the starting selection, and the same searchable list,
+ * group chips and "Going to N people" disclosure every other picker uses take
+ * it from there — a bulk send is exactly where the last chance to notice a
+ * wrong name is worth a click.
+ *
  * The dialog stays open after sending to show the result: a bulk send that
  * reached nine of ten people is a normal outcome, and the organizer has to be
  * able to see which one failed.
@@ -65,11 +73,18 @@ export function BulkEmailDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Everyone ticked in the table — the dialog's starting selection. */
   recipients: RecipientOption[];
   /** organizerName/organizerEmail/portalUrl as the send path will fill them. */
   orgFields: MergeData;
   onSent: () => void;
 }) {
+  // The table's ticks are the starting point, read once: the dialog is mounted
+  // by its opening (see DirectoryTable), so edits made in here survive the
+  // table re-rendering underneath instead of being reset by it.
+  const [selected, setSelected] = useState<string[]>(() =>
+    recipients.map((recipient) => recipient.userId),
+  );
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [result, setResult] = useState<SendResult | null>(null);
@@ -77,20 +92,45 @@ export function BulkEmailDialog({
   const [sending, startSend] = useTransition();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
+  const rows = useMemo(
+    () =>
+      recipients.map((recipient) => ({
+        ...recipient,
+        id: recipient.userId,
+        name: recipient.displayName,
+      })),
+    [recipients],
+  );
+
+  /** One chip per tag in use among the ticked contacts, plus "everyone". */
+  const groups = useMemo<Array<GroupDefinition<(typeof rows)[number]>>>(() => {
+    const tags = [...new Set(rows.flatMap((row) => row.tags))].sort((a, b) => a.localeCompare(b));
+    return [
+      { id: "all", label: "Everyone ticked", matches: () => true },
+      ...tags.map((tag) => ({
+        id: `tag:${tag}`,
+        label: tag,
+        matches: (row: (typeof rows)[number]) => row.tags.includes(tag),
+      })),
+    ];
+  }, [rows]);
+
+  const chosen = useMemo(() => rows.filter((row) => selected.includes(row.id)), [rows, selected]);
+
   const previewData = useMemo(() => {
-    const first = recipients[0];
+    const first = chosen[0];
     return templatePreviewData({
       ...orgFields,
       ...(first ? orgSpeakerFields(first) : {}),
     });
-  }, [recipients, orgFields]);
+  }, [chosen, orgFields]);
 
   const check = useMemo(
     () => checkTemplateDraft(subject, body, ORG_MERGE_FIELDS, previewData),
     [subject, body, previewData],
   );
 
-  const ready = recipients.length > 0 && check.errors.length === 0;
+  const ready = chosen.length > 0 && check.errors.length === 0;
 
   /** Drops a merge field where the cursor is, so it lands mid-sentence. */
   function insert(field: MergeField) {
@@ -119,7 +159,7 @@ export function BulkEmailDialog({
     setError(null);
     startSend(async () => {
       const response = await sendDirectoryEmail({
-        recipientIds: recipients.map((recipient) => recipient.userId),
+        recipientIds: selected,
         subject,
         body,
       });
@@ -158,18 +198,18 @@ export function BulkEmailDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="directory-email-recipients">
-              Recipients ({recipients.length})
-            </Label>
-            <p
-              id="directory-email-recipients"
-              className="max-h-24 overflow-y-auto rounded-md border border-border p-2 text-sm text-muted-foreground"
-            >
-              {recipients.map((recipient) => recipient.displayName).join(", ") ||
-                "Nobody selected."}
-            </p>
-          </div>
+          <PeoplePicker
+            heading={`Recipients (${chosen.length})`}
+            people={rows}
+            groups={groups}
+            selected={selected}
+            onSelectedChange={setSelected}
+            searchLabel="Search recipients"
+            searchPlaceholder="Name, email, or company"
+            groupsLabel="Recipient groups"
+            emptyMessage="Nobody is ticked in the directory — close this and pick some contacts."
+            listClassName="max-h-56"
+          />
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="directory-email-subject">Subject</Label>
@@ -223,6 +263,12 @@ export function BulkEmailDialog({
               </p>
             </div>
           )}
+
+          {/* The last read before the button underneath it acts. */}
+          <SelectionSummary
+            names={chosen.map((row) => row.displayName)}
+            words={{ empty: "Nobody picked yet." }}
+          />
         </div>
 
         <DialogFooter>
@@ -235,7 +281,7 @@ export function BulkEmailDialog({
             <SendIcon />
             {sending
               ? "Sending…"
-              : `Send to ${recipients.length} ${recipients.length === 1 ? "person" : "people"}`}
+              : `Send to ${chosen.length} ${chosen.length === 1 ? "person" : "people"}`}
           </Button>
         </DialogFooter>
       </DialogContent>

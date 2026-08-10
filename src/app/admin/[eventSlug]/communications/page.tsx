@@ -44,13 +44,17 @@ export default async function CommunicationsPage({
   const { user, event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const [sessions, rooms, submissions, assignments, overrides, rounds, eventSpeakers] = await Promise.all([
+  const [sessions, rooms, submissions, assignments, overrides, rounds, tracks, eventSpeakers] = await Promise.all([
     repos.sessions.listByEvent(event.id),
     repos.rooms.listByEvent(event.id),
     repos.submissions.listByEvent(event.id),
     repos.taskAssignments.listByEvent(event.id),
     repos.emailTemplates.listByEvent(event.id),
     repos.reviewRounds.listByEvent(event.id),
+    // Track names for the recipient picker's per-track groups — "everyone in
+    // Agents" is a thing an organizer writes to, and the composer already has
+    // every other half of the join in hand.
+    repos.tracks.listByEvent(event.id),
     // The organizer's stored confirmation overrides (decisions.md D-068) —
     // needed alongside the session-attachment derivation below so the
     // recipient picker's "confirmed" badge can't call a speaker confirmed
@@ -64,10 +68,11 @@ export default async function CommunicationsPage({
   // review — they get confirmations and change requests too. Reviewers join
   // the list too: the round assignments page can mail them a completion
   // nudge (D-050), and its sends belong in the same log as everyone else's.
-  const [sessionLinks, submissionLinks, roundAssignments] = await Promise.all([
+  const [sessionLinks, submissionLinks, roundAssignments, submissionTracks] = await Promise.all([
     repos.sessions.listSpeakersBySessionIds(sessions.map((session) => session.id)),
     repos.submissions.listSpeakersBySubmissionIds(submissions.map((submission) => submission.id)),
     repos.reviewRounds.listAssignmentsByRounds(rounds.map((round) => round.id)),
+    repos.submissions.listTracksBySubmissionIds(submissions.map((submission) => submission.id)),
   ]);
   // *Derived* confirmation only (decisions.md D-017) — attached to one of
   // this event's sessions. Used as-is for `personIds` (anyone with a session
@@ -112,11 +117,48 @@ export default async function CommunicationsPage({
     toLogRow(entry, peopleByEmail, contextFor, stamp),
   );
 
+  // --- what the recipient picker's groups are made of -----------------------
+  // Both rollups are counted from lists already loaded above, so a chip's
+  // tally can't drift from what the rest of the page says. Tracks reach a
+  // person through their submissions: an organizer thinks "the Agents
+  // speakers", and the join that answers that is submission → track.
+  const trackNameById = new Map(tracks.map((track) => [track.id, track.name]));
+  const trackNamesBySubmission = new Map<string, string[]>();
+  for (const link of submissionTracks) {
+    const name = trackNameById.get(link.trackId);
+    if (!name) continue;
+    trackNamesBySubmission.set(link.submissionId, [
+      ...(trackNamesBySubmission.get(link.submissionId) ?? []),
+      name,
+    ]);
+  }
+  const trackNamesBySpeaker = new Map<string, Set<string>>();
+  for (const link of submissionLinks) {
+    const names = trackNamesBySubmission.get(link.submissionId);
+    if (!names) continue;
+    const collected = trackNamesBySpeaker.get(link.userId) ?? new Set<string>();
+    for (const name of names) collected.add(name);
+    trackNamesBySpeaker.set(link.userId, collected);
+  }
+  const pendingTasksBySpeaker = new Map<string, number>();
+  for (const assignment of assignments) {
+    if (assignment.status === "completed") continue;
+    pendingTasksBySpeaker.set(
+      assignment.speakerId,
+      (pendingTasksBySpeaker.get(assignment.speakerId) ?? 0) + 1,
+    );
+  }
+
   const speakers: SpeakerOption[] = people
     .map((person) => ({
       id: person.id,
       name: person.name?.trim() || person.email,
       email: person.email,
+      company: person.company,
+      pendingTasks: pendingTasksBySpeaker.get(person.id) ?? 0,
+      trackNames: [...(trackNamesBySpeaker.get(person.id) ?? [])].sort((a, b) =>
+        a.localeCompare(b),
+      ),
       // Effective confirmation (decisions.md D-068): the organizer's stored
       // answer wins when there is one, so a speaker marked Declined doesn't
       // carry the "On the program" badge just because their session is

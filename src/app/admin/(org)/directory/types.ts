@@ -45,12 +45,17 @@ export interface SegmentRow {
   memberCount: number;
 }
 
-/** A recipient of a bulk send. */
+/** A candidate recipient of a bulk send — everyone ticked in the table. */
 export interface RecipientOption {
   userId: string;
   name: string | null;
   email: string;
   displayName: string;
+  /** Searchable in the send dialog's picker, like the table's own filter. */
+  company: string | null;
+  /** The org's segmentation vocabulary (D-077) — one chip per tag in the
+   * dialog, so "just the VIPs of the twelve I ticked" is one click. */
+  tags: string[];
 }
 
 /** An event the "Add to event" picker can target. */
