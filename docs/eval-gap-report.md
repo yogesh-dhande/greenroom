@@ -39,7 +39,7 @@ Acceptance criteria:
 
 ### F2. Eliminate recurring authenticated-route stalls
 
-**Status:** reproduced with a definitive post-D-082 Worker trace. The preload-only fix still bundled OpenNext's request-time handler import. Source now replaces the generated dispatcher with an equivalent local, statically bound route; deployment and sustained soak remain pending.
+**Status:** fixed and clean under sustained production validation. Worker `969537a9-f2e0-4611-9d85-2d584a5530d0` replaces OpenNext's generated dispatcher with an equivalent local, statically bound route. Its final Wrangler bundle excludes the generated dispatcher, a 15-minute mixed-persona soak completed 370/370 requests with no warning, failure, error, 5xx, or response over five seconds, and a separate 20-way burst completed 200/200 requests (1.27-second maximum).
 
 **Affected:** all required areas; explicitly observed on `/`, `/admin`,
 `/portal`, event navigation, and Agenda
@@ -74,7 +74,8 @@ Why these are known deployment stalls:
   requests, while a sibling isolate returned 200. The custom entry now copies
   OpenNext's context/skew/image/middleware routing and calls the statically
   imported handler itself; a dry-run bundle check rejects the generated
-  dispatcher. Deployment and a sustained soak are still required.
+  dispatcher. The deployed 370-request soak and 200-request concurrent burst
+  both completed without the stall signature.
 
 Acceptance criteria:
 
