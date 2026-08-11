@@ -12,7 +12,6 @@ import {
   acceptOnArrival,
   canAssignReviewer,
   canRecordDecision,
-  canRecordReview,
   canViewSubmission,
   eligibleReviewers,
   isRoutedToReviewer,
@@ -294,12 +293,6 @@ describe("who may decide", () => {
     expect(canRecordDecision("admin")).toBe(true);
     expect(canRecordDecision("reviewer")).toBe(false);
     expect(canRecordDecision("speaker")).toBe(false);
-  });
-
-  it("lets reviewers and admins record a recommendation", () => {
-    expect(canRecordReview("reviewer")).toBe(true);
-    expect(canRecordReview("admin")).toBe(true);
-    expect(canRecordReview("speaker")).toBe(false);
   });
 });
 

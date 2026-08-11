@@ -3,9 +3,10 @@
  *
  * Three jobs live here:
  *
- * 1. **Routing** — who is allowed to see and vote on a submission. Routing is
- *    the track join and nothing else (spec.md §4: "reviewers own tracks,
- *    submissions pick tracks. No routing engine").
+ * 1. **Routing** — who is allowed to see a submission. Routing is the track
+ *    join and nothing else (spec.md §4: "reviewers own tracks, submissions
+ *    pick tracks. No routing engine"); reviewers evaluate only through round
+ *    assignments and scorecards.
  * 2. **The decision state machine** — what an accept / waitlist / decline does
  *    to a submission, and what else has to happen as a consequence. Status
  *    transitions belong exclusively to this flow (decisions.md D-022: a
@@ -236,22 +237,14 @@ export function resolveQueueView(
 // ---------------------------------------------------------------------------
 
 /**
- * Reviewers vote; only an admin records the binding decision.
- *
- * spec.md §4's minimum flow says a decision is "decidable by reviewer or
- * admin", but accepting is no longer only a status change here — it creates
- * the session and hands the speaker their onboarding tasks (spec.md §5) and
- * sends them a promise in writing. That is a programme-owner action, so the
- * reviewer's approve/maybe/deny lives on their `reviews` row as the non-binding
- * recommendation the schema already describes it as.
+ * Reviewers evaluate assigned work through scorecards; only an admin records
+ * the binding decision. Accepting creates the session, hands the speaker their
+ * onboarding tasks, and sends a promise in writing, so it remains a
+ * programme-owner action. Existing flat recommendations are readable history,
+ * not another write path (D-089).
  */
 export function canRecordDecision(role: Role): boolean {
   return role === "admin";
-}
-
-/** Reviewers and admins both vote — an admin's own read counts too. */
-export function canRecordReview(role: Role): boolean {
-  return role === "admin" || role === "reviewer";
 }
 
 // ---------------------------------------------------------------------------
@@ -699,35 +692,4 @@ export async function acceptOnArrival(
     notify: false,
     now: input.now,
   });
-}
-
-// ---------------------------------------------------------------------------
-// Reviewer votes
-// ---------------------------------------------------------------------------
-
-export interface SaveReviewInput {
-  submissionId: string;
-  reviewerId: string;
-  recommendation: ReviewRecommendation | null;
-  comment?: string | null;
-  score?: number | null;
-}
-
-/**
- * Records (or replaces) one reviewer's vote. One row per reviewer per
- * submission — the schema's unique constraint — so voting again is an edit,
- * not a second opinion.
- */
-export async function saveReview(ctx: ReviewContext, input: SaveReviewInput): Promise<Review> {
-  const existing = await ctx.repos.reviews.getByReviewer(input.submissionId, input.reviewerId);
-  const values = {
-    submissionId: input.submissionId,
-    reviewerId: input.reviewerId,
-    recommendation: input.recommendation,
-    comment: input.comment?.trim() || null,
-    score: input.score ?? existing?.score ?? null,
-  };
-  return existing
-    ? ctx.repos.reviews.update(existing.id, values)
-    : ctx.repos.reviews.create(values);
 }

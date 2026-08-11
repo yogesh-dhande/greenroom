@@ -71,7 +71,7 @@ stdin — nothing lands in your shell history or the repo):
 | `SENDGRID_API_KEY` | for real email | SendGrid API key. Without it, no email (including sign-in links) can be delivered in production. |
 | `EMAIL_FROM_ADDRESS` | for real email | Must be a [SendGrid-verified sender](https://www.twilio.com/docs/sendgrid/ui/sending-email/sender-verification). Also becomes the `ORGANIZER` on calendar invites, so deliverability and RSVP replies both depend on it. |
 | `EMAIL_FROM_NAME` | no | Display name on outgoing email. Defaults to "Greenroom". |
-| `AIRTABLE_API_KEY` | for Airtable sync | Personal access token with `data.records:write` + `schema.bases:read` + `schema.bases:write` scoped to your base. |
+| `AIRTABLE_API_KEY` | for Airtable sync | Personal access token with `data.records:read` + `data.records:write` + `schema.bases:read` + `schema.bases:write` scoped to your base. Read access is required for full-sync deletion reconciliation (D-090). |
 | `AIRTABLE_BASE_ID` | for Airtable sync | The `appXXXXXXXXXXXXXX` id from your base's URL. With either Airtable value missing the sync no-ops with a log line — everything else works. |
 
 See `.env.example` for the same list with local-development notes
@@ -153,23 +153,37 @@ A successful deploy prints the new Worker version ID. Keep that ID with any
 evaluation or incident notes so results can be tied to the exact deployment.
 For a first deployment, continue with the initial-admin setup below.
 
-### Known Worker request-path stalls
+### Known OpenNext-on-Cloudflare-Workers request-path stalls
 
 We have seen rare production requests spend 45–210 seconds in wall time while
 using only 6–77 ms of Worker CPU, throwing no exception, and eventually ending
 as `outcome=canceled`. Same-second authenticated D1 reads completed normally,
 and cookieless requests could also stall, so this signature is a hanging
 request-path promise rather than database latency or CPU exhaustion.
+The evidence is specific to the current OpenNext 1.20.2 deployment on
+Cloudflare Workers. We have not reproduced it in Greenroom's local Next.js
+runtime, and it does not establish a defect in Greenroom's product logic or a
+limitation of other deployment targets.
 
-The demonstrated mechanism is OpenNext 1.20.2's generated default dispatcher:
-it dynamically imports the generated Next handler inside every request, which
-can expose a module-loader promise owned by one request context to a sibling.
-Affected isolates then appear to remain poisoned. The original D-082 fix
-preloaded the handler but continued to call that dispatcher; Wrangler's actual
-minified bundle still contained its reachable dynamic-import branch. The
-deployed preload-only version then reproduced the signature on `/`: 50,081 ms
-wall, 23 ms CPU, `outcome=canceled`, no exception, with two active requests in
-that isolate while a sibling isolate returned 200.
+The clearest correlation is overlapping requests inside one Worker isolate,
+not a particular route or a proven high-traffic threshold. Captures include
+two and five active requests in the affected isolate; several earlier stalls
+started alongside a sibling doing cold-isolate initialization. The same
+signature has appeared on cookieless `/` and authenticated `/admin`, `/portal`,
+event-navigation, and Agenda requests, so no page-specific query or auth path
+explains it. Synthetic concurrency can increase the chance of overlap, but a
+later recurrence followed successful burst and soak tests and did not require
+sustained high external load. The exact promise that first becomes pending is
+still unknown.
+
+OpenNext 1.20.2's generated default dispatcher dynamically imported the
+generated Next handler inside every request, a risky branch under Cloudflare's
+request-context rules. The original D-082 fix preloaded the handler but
+continued to call that dispatcher; Wrangler's actual minified bundle still
+contained its reachable dynamic-import branch. The deployed preload-only
+version then reproduced the signature on `/`: 50,081 ms wall, 23 ms CPU,
+`outcome=canceled`, no exception, with two active requests in that isolate
+while a sibling isolate returned 200.
 
 Greenroom's custom entry now preserves OpenNext's request-context, skew,
 image, and middleware routing locally and statically calls the generated Next
@@ -177,10 +191,20 @@ handler. `npm run deploy` now runs `npm run check:worker-bundle` between the
 OpenNext build and upload; the check creates a temporary Wrangler dry run and
 verifies its source map contains those routing pieces but not
 `.open-next/worker.js`.
-A same-code redeploy replaces poisoned isolates and has restored service
-immediately without changing D1 or R2, but that recovery can be temporary if
-the deployed bundle still contains the trigger. A sustained deployed soak is
-therefore required before considering the structural fix validated.
+That is a useful release invariant, but it is not the incident's root-cause
+proof. Static-dispatch version `969537a9-f2e0-4611-9d85-2d584a5530d0`
+subsequently reproduced the same signature on dynamic `/`: 93,946 ms wall,
+20 ms CPU, `outcome=canceled`, no exception, sequence 6 with two active
+requests. Its final bundle excluded the generated dispatcher, so the
+request-time handler import was not a sufficient cause. The deeper trigger is
+unresolved. Keep the lifecycle diagnostics and capture a recurrence before
+adding more framework-level mitigations. Greenroom intentionally does not
+carry private patches to OpenNext or Next.js for this unproven trigger.
+A same-code redeploy has cleared the affected Worker state and restored service
+immediately without changing D1 or R2, but that recovery can be temporary while
+the deployed bundle still contains an unknown trigger. Treat a sustained deployed
+soak as evidence for a particular version, not proof that the structural cause
+has been removed.
 
 For routine confidence, run the one-round probe above. Before a long evaluator
 run, use a sustained matrix instead:

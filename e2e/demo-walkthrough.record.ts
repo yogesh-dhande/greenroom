@@ -69,7 +69,7 @@ const BIO =
 const CHANGE_REQUEST =
   "Great topic. Two things before we decide: trim the abstract to 100 words, and add one " +
   "concrete before/after number from the regression you caught.";
-const REVIEW_COMMENT =
+const SCORECARD_COMMENT =
   "Yes. This is the talk our attendees keep asking for, and she has the production numbers to " +
   "back it. Ask her to keep the tooling vendor-neutral.";
 const DECISION_NOTE =
@@ -308,7 +308,17 @@ function trayCard(page: Page, title: string): Locator {
 }
 
 function taskRegion(page: Page, title: string): Locator {
-  return page.getByRole("region", { name: title });
+  return page.getByRole("group", { name: title });
+}
+
+/** Tasks are disclosures and only the next-due item starts open. */
+async function openTask(page: Page, title: string): Promise<Locator> {
+  const task = taskRegion(page, title);
+  const trigger = task.locator('button[aria-expanded]').first();
+  if ((await trigger.getAttribute("aria-expanded")) === "false") {
+    await trigger.click();
+  }
+  return task;
 }
 
 /** Picks an option in a shadcn/Radix select by its visible label. */
@@ -469,7 +479,12 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "Most conference talks have two people on stage.",
         "Sessionboard treats the second one as an afterthought.",
       );
-      await coSpeakers.click();
+      // The seed may already carry this value from the current product
+      // default. The walkthrough demonstrates the enabled capability, so do
+      // not accidentally toggle it off when the starting state is already on.
+      if ((await coSpeakers.getAttribute("aria-checked")) !== "true") {
+        await coSpeakers.click();
+      }
       await point(
         page,
         coSpeakers,
@@ -503,7 +518,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
 
       await page.getByRole("button", { name: "Save", exact: true }).click();
       await expect(page.getByText("Form saved")).toBeVisible({ timeout: 15_000 });
-      await say(page, "Save. Nothing was deployed. The form just changed.");
+      await say(page, "Save. Nothing was deployed. The form is ready for speakers.");
 
       endAct(testInfo);
     });
@@ -574,7 +589,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       await point(
         page,
         coSpeaker,
-        "And because we switched co-speakers on a minute ago, Nadia can bring Owen with her.",
+        "And because co-speakers are enabled, Nadia can bring Owen with her.",
       );
 
       await page.getByRole("button", { name: "Submit proposal" }).click();
@@ -631,14 +646,13 @@ test.describe.serial("Greenroom demo walkthrough", () => {
 
       await page.goto(SUBMISSIONS);
       // Grabbed while the whole queue is on screen — act 4 tries this URL as Dana.
-      forbiddenUrl =
-        (await page.getByRole("link", { name: TOOL_SCHEMAS }).getAttribute("href").catch(() => null)) ??
-        "";
+      const forbiddenHref = await page.getByRole("link", { name: TOOL_SCHEMAS }).getAttribute("href");
+      expect(forbiddenHref).toBeTruthy();
+      forbiddenUrl = forbiddenHref!;
 
       await say(page, "Back in the organizer's seat. Every proposal, one queue, statuses in organizer language.");
 
-      await page.getByLabel("Filter by status").click();
-      await page.getByRole("option", { name: "Unreviewed" }).click();
+      await page.getByRole("button", { name: /^Unreviewed \d+$/ }).click();
       await point(
         page,
         page.getByText(/of \d+ submissions/),
@@ -656,7 +670,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
 
       await point(
         page,
-        page.getByText("The proposal"),
+        page.getByRole("heading", { name: "The rest of the proposal" }),
         "Every answer exactly as she gave it —",
       );
       await point(
@@ -709,6 +723,33 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "Asking for a fix isn't a decision, so it doesn't pretend to be one.",
       );
 
+      // Evaluation is assignment-only (D-089): route the live proposal into
+      // the open seeded round before handing the story to Dana. This is an
+      // individual assignment rather than a track-wide shortcut so the
+      // recording shows the exact authorization the reviewer receives.
+      await page.goto(`/admin/${EVENT}/rounds`);
+      const firstPass = page.getByRole("row", { name: /First-pass review/ });
+      await firstPass.getByRole("link", { name: "Assign" }).click();
+      await page.getByLabel("Reviewer").click();
+      await page.getByRole("option", { name: /Dana Okoye/ }).click();
+      await page.getByLabel("Search submissions").fill(TALK);
+      await page.getByLabel(`Select ${TALK}`).click();
+      await point(
+        page,
+        page.getByText("Assigning 1 submission", { exact: true }),
+        "One named round, one explicit proposal, one reviewer.",
+        "That assignment — not broad track access — is what authorizes Dana to score it.",
+      );
+      await page.getByRole("button", { name: "Assign selected to Dana Okoye" }).click();
+      await expect(page.getByText("Assigned to Dana Okoye")).toBeVisible({ timeout: 20_000 });
+      const assignedRow = page.getByRole("row", { name: TALK });
+      await expect(assignedRow).toContainText("Dana Okoye");
+      await point(
+        page,
+        assignedRow,
+        "Catching silent regressions is now in Dana's First-pass review queue.",
+      );
+
       endAct(testInfo);
     });
   });
@@ -733,8 +774,8 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       );
       await point(
         page,
-        page.getByText("the tracks you review"),
-        "The talks proposed in the tracks you review. Open one to record your recommendation.",
+        page.getByText("Browse these for context"),
+        "Her wider track list is readable context, but only assigned talks can be scored.",
       );
       await point(page, page.getByRole("link", { name: TALK }), "The new Evals talk is in her list.");
       await say(
@@ -743,33 +784,66 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "Here's the hard version: paste that talk's URL straight into Dana's browser.",
       );
 
-      if (forbiddenUrl) {
-        await page.goto(forbiddenUrl);
-        await say(
-          page,
-          "Not access denied, not greyed out. For Dana, that talk does not exist.",
-        );
-        await page.goto(`${SUBMISSIONS}?view=all`);
-      }
+      const forbiddenResponse = await page.goto(forbiddenUrl);
+      expect(forbiddenResponse?.status()).toBe(404);
+      await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+      await say(
+        page,
+        "Not access denied, not greyed out. For Dana, that talk does not exist.",
+      );
+      await page.goto(`${SUBMISSIONS}?view=all`);
 
       await page.getByRole("link", { name: TALK }).click();
       await expect(page.getByRole("heading", { name: TALK })).toBeVisible();
-      await page.getByRole("button", { name: "Approve" }).click();
-      await page.locator("#review-comment").fill(REVIEW_COMMENT);
-      await say(page, "Her recommendation, and why — in her own words.");
-      await page.getByRole("button", { name: "Save review" }).click();
-      await expect(page.getByText("Review saved")).toBeVisible({ timeout: 20_000 });
-
-      await page.reload();
       await point(
         page,
-        page.getByTestId("review-tally"),
-        "One review: one approve.",
+        page.getByRole("link", { name: "Score this submission" }),
+        "First-pass review is the named assignment on this record.",
+        "Because the round is blind, its scorecard opens without the speaker's identity.",
+      );
+      await page.getByRole("link", { name: "Score this submission" }).click();
+      await expect(page.getByText("Your scorecard", { exact: true })).toBeVisible();
+      await point(
+        page,
+        page.getByText("Speaker identity hidden for blind review"),
+        "Dana judges the proposal, not the name behind it.",
+      );
+      await page
+        .getByRole("group", { name: /Originality/ })
+        .getByRole("radio", { name: "5" })
+        .check();
+      await page
+        .getByRole("group", { name: /Relevance/ })
+        .getByRole("radio", { name: "5" })
+        .check();
+      await page.getByLabel("Recommendation").click();
+      await page.getByRole("option", { name: "Accept", exact: true }).click();
+      await page.getByLabel("Comments").fill(SCORECARD_COMMENT);
+      await say(
+        page,
+        "Two ratings, the round's own recommendation vocabulary, and Dana's reasoning.",
+        "Every answer belongs to this assignment and this scorecard.",
+      );
+      await page.getByRole("button", { name: "Submit scorecard" }).click();
+      await expect(page.getByText("Scorecard submitted")).toBeVisible({ timeout: 20_000 });
+      const submittedRow = page.getByRole("row", { name: TALK });
+      await expect(submittedRow).toContainText("Submitted");
+      await point(
+        page,
+        submittedRow,
+        "Submitted. Her round queue records the work as complete.",
+      );
+
+      await page.goto(submissionAdminUrl);
+      await point(
+        page,
+        page.getByText("First-pass review", { exact: true }),
+        "The proposal now carries Dana's filed First-pass scorecard.",
       );
       await point(
         page,
         page.getByText("An event admin records the final decision"),
-        "An event admin records the final decision. Your recommendation is what feeds it.",
+        "An event admin records the final decision. Dana's assigned scorecard feeds it.",
         "Dana can't accept it. Accepting creates a session, assigns onboarding tasks,",
         "and emails a promise to a human being — so that's the organizer's signature.",
       );
@@ -789,11 +863,12 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       const startedAt = Date.now();
 
       await page.goto(submissionAdminUrl);
+      await expect(page.getByText(SCORECARD_COMMENT)).toBeVisible();
       await point(
         page,
-        page.getByText("Reviewer notes"),
-        "Back in the organizer's seat, Dana's recommendation is on the page —",
-        "her name, an Approve badge, and her comment.",
+        page.getByText(SCORECARD_COMMENT),
+        "Back in the organizer's seat, Dana's filed scorecard is on the record —",
+        "her ratings, the round's Accept answer, and her reasoning.",
       );
 
       await page.locator("#decision-note").fill(DECISION_NOTE);
@@ -846,7 +921,11 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         startedAt,
         ".txt",
         (body) => body.includes(TALK) && body.includes("has been accepted"),
+        2,
       );
+      const acceptedBodies = accepted.map((item) => item.body).join("\n");
+      expect(acceptedBodies).toContain(NADIA);
+      expect(acceptedBodies).toContain(OWEN);
       await showTranscripts(
         page,
         "the acceptance email",
@@ -881,7 +960,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       await expect(page.getByText("Check", { exact: false })).toBeVisible({ timeout: 20_000 });
       await say(
         page,
-        "In production that's a Resend email.",
+        "In production that's a SendGrid email.",
         "In this demo the dev transport writes it to a file so you can watch it happen.",
       );
 
@@ -912,7 +991,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "They exist because the talk was accepted. Nobody created them.",
       );
 
-      const hotel = taskRegion(page, "Hotel stay requirement form");
+      const hotel = await openTask(page, "Hotel stay requirement form");
       await hotel.scrollIntoViewIfNeeded();
       await hotel.getByLabel("Do you need us to book your hotel room?").click();
       await page.getByRole("option", { name: "Yes, book me a room" }).click();
@@ -922,8 +1001,8 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "Say yes, and two date fields and a room preference appear.",
         "Same conditional-form engine as the CFP. One form system, used everywhere.",
       );
-      await hotel.getByLabel("Check-in date (YYYY-MM-DD)").fill("2026-09-22");
-      await hotel.getByLabel("Check-out date (YYYY-MM-DD)").fill("2026-09-26");
+      await hotel.getByLabel("Check-in date (YYYY-MM-DD)").fill(isoDaysFromNow(44));
+      await hotel.getByLabel("Check-out date (YYYY-MM-DD)").fill(isoDaysFromNow(48));
       await hotel.getByLabel("Room preference").click();
       await page.getByRole("option", { name: "One queen bed" }).click();
       await hotel
@@ -993,7 +1072,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       await point(
         page,
         trayCard(page, TALK),
-        "The unscheduled tray holds four cards, including the new talk,",
+        "The unscheduled tray holds two cards, including the new talk,",
         "with Nadia Farouk and Owen Diallo on it.",
       );
       await point(
@@ -1004,16 +1083,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
 
       // dnd-kit needs a real pointer path (e2e/agenda.spec.ts).
       await page.evaluate(() => window.scrollTo(0, 0));
-      const columns = await page.evaluate(() => [
-        ...new Set(
-          [...document.querySelectorAll<HTMLElement>("[data-slot-id]")].map(
-            (el) => el.dataset.slotId!.split("|")[1],
-          ),
-        ),
-      ]);
-      // Rooms are listed alphabetically: Community Hall, Main Stage, … — and
-      // 10:00 is minute 600 of the day.
-      const target = page.locator(`[data-slot-id="slot|${columns[1]}|600"]`);
+      const target = page.getByLabel("Main Stage at 10:00 AM");
       const source = await trayCard(page, TALK).boundingBox();
       const drop = await target.boundingBox();
 
@@ -1044,7 +1114,14 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       // worth filming, but the point of the act is the *conflict* — so if the
       // card didn't land on top of Priya's talk, put it there with the dialog
       // and carry on.
-      if ((await page.getByTestId("conflict-summary").count()) === 0) {
+      const talkConflict = card(page, TALK).first();
+      const retrievalConflict = card(page, RETRIEVAL).first();
+      const summary = page.getByTestId("conflict-summary");
+      const landedOnExpectedConflict =
+        (await talkConflict.getAttribute("data-conflict")) === "blocking" &&
+        (await retrievalConflict.getAttribute("data-conflict")) === "blocking" &&
+        /1 conflict/.test((await summary.textContent().catch(() => null)) ?? "");
+      if (!landedOnExpectedConflict) {
         const stillUnscheduled = (await trayCard(page, TALK).count()) > 0;
         await card(page, TALK).first().click();
         const dialog = page.getByRole("dialog");
@@ -1056,6 +1133,10 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         await dialog.getByRole("button", { name: "Save time" }).click();
         await expect(dialog).toHaveCount(0);
       }
+
+      await expect(card(page, TALK).first()).toHaveAttribute("data-conflict", "blocking");
+      await expect(card(page, RETRIEVAL).first()).toHaveAttribute("data-conflict", "blocking");
+      await expect(summary).toContainText("1 conflict");
 
       await say(
         page,
@@ -1069,7 +1150,6 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         card(page, TALK),
         "Both cards are outlined in red. The new one reads: room double-booked.",
       );
-      const summary = page.getByTestId("conflict-summary");
       await point(page, summary, "And top right, the summary button reads one conflict.");
       await summary.click();
       const popover = page.locator('[data-slot="popover-content"]');
@@ -1135,7 +1215,10 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       // (a) reminders that don't spam ----------------------------------------
       await say(page, "First: task reminders that don't spam.");
       await page.getByRole("button", { name: "Send task digest now" }).click();
-      const firstRun = page.getByText(/Sent \d+ email|Nothing to send/);
+      const digestDialog = page.getByRole("alertdialog");
+      await expect(digestDialog).toBeVisible();
+      await digestDialog.getByRole("button", { name: "Send digest" }).click();
+      const firstRun = page.getByText(/Sent \d+ emails?/);
       await expect(firstRun).toBeVisible({ timeout: 60_000 });
       await say(
         page,
@@ -1146,13 +1229,13 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "and one you turn off.",
       );
 
-      await page.getByRole("button", { name: "Send task digest now" }).click();
-      await expect(page.getByText("Nothing to send")).toBeVisible({ timeout: 60_000 });
+      await page.reload();
+      await expect(page.getByRole("button", { name: "Send task digest now" })).toBeDisabled();
+      await expect(page.getByText(/Nobody is eligible right now.*24 hours/)).toBeVisible();
       await say(
         page,
-        "Press it again: nothing to send.",
-        "Everyone was just emailed. Press the button as often as you like;",
-        "nobody gets nagged twice.",
+        "Reload: the button is disabled because nobody is eligible right now.",
+        "Everyone was just emailed, and the 24-hour guard prevents a second nag.",
       );
 
       // (b) the wording is yours ---------------------------------------------
@@ -1161,10 +1244,10 @@ test.describe.serial("Greenroom demo walkthrough", () => {
       await point(
         page,
         page.getByRole("navigation", { name: "Message templates" }),
-        "Nine built-in messages, from Submission received to Calendar invitation.",
+        "Twelve built-in messages, from Submission received to Calendar invitation.",
       );
       await page.getByRole("button", { name: "Weekly task digest" }).click();
-      const body = page.locator("textarea[id^='body-']");
+      const body = page.getByRole("textbox", { name: "Message", exact: true });
       const original = await body.inputValue();
 
       await body.fill(`${original}\n\n${BAD_TEMPLATE_LINE}`);
@@ -1298,8 +1381,11 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "Embed this page. Paste this into any HTML page to show it there, chrome-less.",
         "One iframe. That's the whole integration.",
       );
-      await popover.getByRole("button", { name: "Copy code" }).click();
-      await expect(page.getByText("Embed code copied")).toBeVisible({ timeout: 15_000 }).catch(() => {});
+      await popover
+        .getByRole("group", { name: "Iframe" })
+        .getByRole("button", { name: "Copy code" })
+        .click();
+      await expect(page.getByText("Iframe code copied")).toBeVisible({ timeout: 15_000 });
       await say(page, "Copy code.");
 
       await page.goto(EMBED_SCHEDULE);
@@ -1324,7 +1410,7 @@ test.describe.serial("Greenroom demo walkthrough", () => {
         "and published to a public page you can embed anywhere.",
         "Greenroom is open source, it deploys to Cloudflare Workers,",
         "and the whole data layer sits behind a storage-agnostic repository interface —",
-        "so this same product runs on D1, Postgres, or anything else you point it at.",
+        "so another datastore can be supported by implementing its adapter.",
         "Thanks for watching.",
       );
 

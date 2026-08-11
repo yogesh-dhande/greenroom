@@ -62,6 +62,16 @@ test("directory search composes with the company filter and clears in one action
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(page).not.toHaveURL(/q=|company=/);
   await expect(page.getByRole("link", { name: "Hannah Kim" })).toBeVisible();
+
+  // Clearing a select-only filter must not leave the debounce guard armed and
+  // swallow the next real search.
+  await page.getByLabel("Filter by company").click();
+  await page.getByRole("option", { name: "Northwind Labs" }).click();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page).not.toHaveURL(/company=/);
+  await page.getByLabel("Search contacts").fill("Hannah");
+  await expect(page).toHaveURL(/q=Hannah/);
+  await expect(page.getByRole("link", { name: "Hannah Kim" })).toBeVisible();
 });
 
 test("bulk outreach personalizes and logs a separate message for every selected contact", async ({
@@ -146,6 +156,9 @@ test("an isolated contact runs through profile, segment, pipeline, roster, outre
   await segmentDialog.getByLabel("Segment name").fill("VIP Prospects");
   await segmentDialog.getByRole("button", { name: "Save segment" }).click();
   await expect(page.getByText('Saved the segment "VIP Prospects"')).toBeVisible();
+  // The toast can appear just before router.refresh replaces the directory.
+  // Wait for the saved row so the next dialog is not detached by that refresh.
+  await expect(page.getByRole("link", { name: "VIP Prospects" })).toBeVisible();
 
   // A case/whitespace variant is the same organizer-facing name. Refuse it
   // before writing so two unrelated dynamic filters cannot become

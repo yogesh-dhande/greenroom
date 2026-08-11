@@ -222,6 +222,7 @@ export function AgendaBoard({
       applyPatch({ id: session.id, changes: placement });
       const result = await placeSession(eventSlug, session.id, placement);
       if (!result.ok) toast.error(result.error);
+      else toast.success("Session time saved");
     });
   }
 
@@ -523,6 +524,7 @@ export function AgendaBoard({
                       <Slot
                         key={minute}
                         id={slotId(column.id, minute)}
+                        label={`${column.name} at ${formatTime(timeOfMinutes(minute))}`}
                         minute={minute}
                         top={(minute - timeWindow.startMinute) * PX_PER_MINUTE}
                         disabled={!canEdit}
@@ -617,11 +619,13 @@ export function AgendaBoard({
  * grid and the drop zones can never disagree. */
 function Slot({
   id,
+  label,
   minute,
   top,
   disabled,
 }: {
   id: string;
+  label: string;
   minute: number;
   top: number;
   disabled: boolean;
@@ -631,6 +635,7 @@ function Slot({
     <div
       ref={setNodeRef}
       data-slot-id={id}
+      aria-label={label}
       style={{ top, height: SLOT_HEIGHT }}
       className={cn(
         "absolute inset-x-0",

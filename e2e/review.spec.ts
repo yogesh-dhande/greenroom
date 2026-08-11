@@ -5,13 +5,13 @@ import { devEmailsSince, signIn } from "./helpers";
 /**
  * Key flow: review, decide, and the acceptance conversion (spec.md §4, §5).
  *
- * A reviewer sees only the tracks they own and records a recommendation; an
- * admin turns a proposal into a session plus onboarding tasks with one click
- * and the speaker really gets told; a decline sends its own notice. Runs
- * against the seeded demo database.
+ * A reviewer sees only the tracks they own and evaluates explicit assignments
+ * through scorecards; an admin turns a proposal into a session plus onboarding
+ * tasks with one click and the speaker really gets told; a decline sends its
+ * own notice. Runs against the seeded demo database.
  *
- * Stateful recommendation/decision sequences live in a single test. No test
- * consumes a recommendation or binding decision written by another test.
+ * Stateful decision sequences live in a single test. No test consumes a
+ * binding decision written by another test.
  */
 
 const EVENT_SLUG = "ai-engineer-summit-2026";
@@ -22,6 +22,8 @@ const SUBMISSIONS = `/admin/${EVENT_SLUG}/submissions`;
  * onboarding assignment from scratch. */
 const PROMPT_LIBRARY = "What we learned rewriting our prompt library as code";
 const PROMPT_LIBRARY_SPEAKER = "jw.park@example.com";
+/** AI Engineering, assigned to Dana in the open first-pass round. */
+const PRACTICAL_EVALS = "Evals you'll actually keep running";
 /** Also AI Engineering, and the one we decline. */
 const STREAMING = "Streaming UIs that don't lie to the user";
 const STREAMING_SPEAKER = "l.fernandez@example.com";
@@ -114,54 +116,44 @@ test("a reviewer only sees the tracks they own", async ({ page }) => {
   expect(response?.status()).toBe(404);
 });
 
-test("a recommendation informs an admin decision that converts exactly once", async ({ page }) => {
+test("reviewers use assigned scorecards and cannot flat-review unassigned talks", async ({
+  page,
+}) => {
   await signIn(page, "dana@greenroom.dev");
   await openSubmission(page, PROMPT_LIBRARY);
 
-  // The full proposal is here, rendered from the form's own fields.
+  // Track routing still makes an unassigned proposal readable, but joining the
+  // event's review plan removes the legacy recommendation controls.
   await expect(page.getByRole("heading", { name: PROMPT_LIBRARY })).toBeVisible();
   await expect(page.getByText("Prompts drifted across six teams")).toBeVisible();
-  await expect(page.getByTestId("review-tally")).toContainText("No reviews yet");
+  await expect(page.getByText("Your review", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Comment", { exact: true })).toHaveCount(0);
+  for (const recommendation of ["Approve", "Maybe", "Deny"]) {
+    await expect(page.getByRole("button", { name: recommendation, exact: true })).toHaveCount(0);
+  }
 
-  await page.getByRole("button", { name: "Approve" }).click();
-  await page.locator("#review-comment").fill("Exactly the migration story our audience asks for.");
-  await page.getByRole("button", { name: "Save review" }).click();
-  await expect(page.getByText("Review saved")).toBeVisible();
-
-  await page.reload();
-  await expect(page.getByTestId("review-tally")).toContainText("1 review: 1 approve");
-  await expect(page.getByRole("button", { name: "Approve" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  // It reads as a note from a named person, not an anonymous number. (The
-  // comment is also still in the textarea, hence the paragraph filter.)
-  await expect(page.getByText("Dana Okoye")).toBeVisible();
-  await expect(
-    page.getByRole("paragraph").filter({ hasText: "Exactly the migration story" }),
-  ).toBeVisible();
-
-  // The queue shows the same tally (widened past the D-066 assigned default).
-  await page.goto(`${SUBMISSIONS}?view=all`);
-  await expect(page.getByRole("row", { name: PROMPT_LIBRARY })).toContainText("1 approve");
-  // The same reviewer can advise but cannot bind the event.
-  await signIn(page, "dana@greenroom.dev");
-  await openSubmission(page, PROMPT_LIBRARY);
-
+  // Review authorization is separate from the binding decision: this
+  // submitted, unassigned proposal has neither kind of reviewer control.
   await expect(page.getByText("An event admin records the final decision")).toBeVisible();
   for (const action of ["Accept", "Waitlist", "Decline"]) {
     await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
   }
-  await expect(page.locator("#decision-note")).toHaveCount(0);
+  await expect(page.getByLabel("Note to the speakers", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Request changes" })).toHaveCount(0);
   await expect(page.getByTestId("decision-summary")).toContainText("No decision recorded yet");
+
+  // Assigned work uses its round scorecard instead of the flat vocabulary.
+  // This seeded proposal is already approved, so the assertions deliberately
+  // cover only assignment authorization rather than assuming decision state.
+  await openSubmission(page, PRACTICAL_EVALS);
+  await expect(page.getByText("First-pass review", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Score this submission" })).toBeVisible();
+  await expect(page.getByText("Your review", { exact: true })).toHaveCount(0);
+
   const acceptanceAt = Date.now();
 
   await signIn(page, "admin@greenroom.dev");
   await openSubmission(page, PROMPT_LIBRARY);
-
-  // The reviewer's recommendation is what the admin is deciding on top of.
-  await expect(page.getByTestId("review-tally")).toContainText("1 approve");
 
   await decide(page, "Accept", "The committee loved the versioning section.");
   // The toast says what the accept actually did, not just that it happened.

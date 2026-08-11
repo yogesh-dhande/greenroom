@@ -245,6 +245,10 @@ test("a real room change re-sends the same calendar event with a higher sequence
   await page.getByRole("option", { name: firstRoom, exact: true }).click();
   await page.locator("#session-start").fill("11:00");
   await page.getByRole("dialog").getByRole("button", { name: "Save time" }).click();
+  // The dialog closes on the optimistic board update. Wait for the action's
+  // success boundary before navigating away so the test cannot cancel the
+  // revalidated response stream while the durable write is still settling.
+  await expect(page.getByText("Session time saved")).toBeVisible({ timeout: 15_000 });
   const startedAt = Date.now();
 
   await page.goto(`/admin/${isolatedEvent.slug}/communications`);
@@ -274,6 +278,7 @@ test("a real room change re-sends the same calendar event with a higher sequence
   await page.locator("#session-room").click();
   await page.getByRole("option", { name: secondRoom, exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Save time" }).click();
+  await expect(page.getByText("Session time saved")).toBeVisible({ timeout: 15_000 });
 
   // Same UID, higher SEQUENCE and new LOCATION: calendar clients update the
   // existing entry instead of creating a duplicate.

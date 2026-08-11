@@ -180,11 +180,18 @@ export async function createDirectSession(
     await page.getByRole("option", { name: options.track, exact: true }).click();
   }
   await dialog.locator("#new-speaker-name").fill(speakerName);
-  await dialog.locator("#new-speaker-email").fill(speakerEmail);
+  await dialog.getByLabel("Email", { exact: true }).fill(speakerEmail);
   await dialog.getByRole("button", { name: "Add", exact: true }).click();
   await expect(dialog.getByText(speakerName)).toBeVisible();
   await dialog.getByRole("button", { name: "Create session" }).click();
-  await expect(page.getByText("Session added to the unscheduled tray")).toBeVisible();
+  // The first direct-session action in a dev-server run can spend more than
+  // Playwright's default five seconds compiling and streaming the revalidated
+  // agenda. The product keeps this action pending for up to 15 seconds before
+  // showing its explicit timeout recovery, so let the success assertion use
+  // that same bound instead of declaring a completed write failed early.
+  await expect(page.getByText("Session added to the unscheduled tray")).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.getByTestId("unscheduled-tray").getByText(title)).toBeVisible();
 
   return { title, speakerName, speakerEmail };

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -54,6 +54,11 @@ export function DirectoryFilters({
   // box has to follow a change it didn't cause, and a remount says that
   // without an effect that writes state on every render.
   const [query, setQuery] = useState(filter.q);
+  // Clearing sets the controlled search box and replaces the whole URL in the
+  // same click. Without this guard, that state change schedules the debounce
+  // once against the previous server-resolved filter and can put company/tag
+  // back into the URL before the clear navigation finishes.
+  const clearNavigationPending = useRef(false);
 
   function push(params: URLSearchParams) {
     const search = params.toString();
@@ -71,6 +76,11 @@ export function DirectoryFilters({
   }
 
   useEffect(() => {
+    if (clearNavigationPending.current) {
+      const filtersCleared = !filter.q && !filter.company && !filter.tag;
+      if (!filtersCleared) return;
+      clearNavigationPending.current = false;
+    }
     if (query === filter.q) return;
     const timer = setTimeout(() => apply("q", query.trim()), 250);
     return () => clearTimeout(timer);
@@ -129,6 +139,7 @@ export function DirectoryFilters({
           variant="ghost"
           size="sm"
           onClick={() => {
+            clearNavigationPending.current = true;
             setQuery("");
             push(new URLSearchParams());
           }}

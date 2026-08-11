@@ -4,7 +4,7 @@ import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { createsSessionsDirectly, RESERVED_FIELD_IDS, type FormField } from "@/db/entities";
 import { DIRECT_TO_SESSION_LABEL, prefillValues, publicFields } from "@/domain/forms";
 import { loadSubmissionDetail, queuePosition, type QueuePosition } from "@/domain/submissions";
-import { canRecordDecision, canViewSubmission, tallyReviews } from "@/domain/review";
+import { canRecordDecision, canViewSubmission } from "@/domain/review";
 import {
   BLIND_REVIEW_NOTICE,
   hidesSpeakerIdentity,
@@ -40,7 +40,6 @@ import {
 } from "../queue";
 import { DecisionBar } from "./decision-panel";
 import { DecisionOutcome } from "./decision-outcome";
-import { ReviewPanel } from "./review-panel";
 import { TracksCard } from "./tracks-card";
 
 /**
@@ -91,8 +90,6 @@ export default async function SubmissionDetailPage({
   const pager = queuePosition(queueOrder, id);
   const reviewers = await repos.users.listByIds([...new Set(reviews.map((r) => r.reviewerId))]);
   const reviewerById = new Map(reviewers.map((person) => [person.id, person]));
-  const tally = tallyReviews(reviews);
-  const myReview = reviews.find((review) => review.reviewerId === viewer.id) ?? null;
 
   // What acceptance already produced, so the outcome is visible on the page
   // that caused it rather than only on the agenda and task screens.
@@ -397,24 +394,6 @@ export default async function SubmissionDetailPage({
               </CardContent>
             </Card>
           ))}
-
-          {/* Nothing to recommend on a talk the form already accepted (D-041),
-              and nothing to recommend in the flat §4 vocabulary once a round
-              has asked this viewer its own questions: the round is the
-              authoritative scoring system where one is configured (D-048), so
-              the two forms never sit on the page together. */}
-          {isDirectToSession || myScorecards.length > 0 ? null : (
-            <ReviewPanel
-              eventSlug={eventSlug}
-              submissionId={submission.id}
-              tally={tally}
-              myReview={
-                myReview
-                  ? { recommendation: myReview.recommendation, comment: myReview.comment }
-                  : null
-              }
-            />
-          )}
 
           {/* What the decision already set off (spec.md section 5): reference
               material, so it stays on the page with the rest of the record

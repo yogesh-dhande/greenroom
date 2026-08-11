@@ -207,7 +207,9 @@ export default async function EventOverviewPage({
               <Link className="text-foreground underline underline-offset-4" href={`/admin/${eventSlug}/submissions`}>
                 Review submissions
               </Link>{" "}
-              — the queue, recommendations, and decisions.
+              — {user.role === "admin"
+                ? "scorecards, historical recommendations, and decisions."
+                : "your assigned scorecards and read-only track context."}
             </li>
             {user.role === "admin" ? (
               <li>

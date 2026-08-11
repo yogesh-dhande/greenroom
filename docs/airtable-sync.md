@@ -65,6 +65,13 @@ to Airtable now" button on admin Settings, so the button and the cron call
 the identical function; the button additionally scopes the run to the event
 whose screen it sits on.
 
+Only the scheduled, complete projection reconciles deletions. It paginates
+each canonical table after upserting, compares nonempty `greenroom_id` values
+with the complete source-ID set, and batch-deletes managed rows whose source
+is gone. The Settings button has only one event's snapshot, so it never lists
+or deletes Airtable rows. Rows without a `greenroom_id` are human-owned and
+untouched in both modes (D-090).
+
 The two jobs share the tick but nothing else: each gets its own
 `ctx.waitUntil` and its own `catch`, and `runAirtableSync` never throws —
 missing credentials, a rate limit, or an Airtable outage all come back as a
@@ -131,6 +138,12 @@ current table list — not a "have I provisioned this?" flag — decides what to
 create, so a table a previous run (or a human) made is adopted rather than
 forked into "Events 2".
 
+Deletion/recreation deliberately creates a new Airtable row: the removed
+source ID is deleted during a complete sync, and the recreated Greenroom
+record has a new ID that fires the organizer's existing new-row automation.
+Ordinary reruns and redeploys keep the same source IDs and therefore update
+in place.
+
 ## Rate limits
 
 Airtable enforces 5 requests/second per base (429 + a 30-second penalty
@@ -141,21 +154,20 @@ request per row. Because the job runs from a cron rather than a
 user-facing request, there's no latency budget to protect — it can simply
 run slower than the rate limit rather than needing a queue.
 
-As built: batches of 10, and a fixed ~250 ms gap between *every* request
-(~4 req/s). A 429 still happens if something else is writing to the base, so
-each request gets exactly one retry after Airtable's 30-second penalty; a
-second 429 fails that batch and is counted in the run's summary rather than
-retried in a loop against an already-limited base.
+As built: upserts and deletes use batches of 10, record listing uses Airtable's
+100-row pages, and a fixed ~250 ms gap separates *every* request (~4 req/s). A
+429 still happens if something else is writing to the base, so each request
+gets exactly one retry after Airtable's 30-second penalty; a second 429 fails
+that batch and is counted in the run's summary rather than retried in a loop
+against an already-limited base.
 
 ## Accepted limitations
 
-Both follow from this being a projection rather than a mirror, and both are
-noted in the module's header comment:
-
-- **Stale rows.** A record deleted in D1 keeps its Airtable row: a projection
-  only writes rows it can see, and a delete leaves nothing behind to project.
-  Reconciling deletions would mean listing every Airtable record on every run
-  purely to diff it — far more requests than the reporting value is worth.
+- **Duplicate live merge IDs are not guessed away.** The normal upsert does
+  not create two rows for one current `greenroom_id`, and reconciliation
+  removes IDs absent from Greenroom. If a human edit or prior external process
+  has already produced two Airtable rows with the same still-current ID, there
+  is no safe automatic choice about which row's human fields to preserve.
 - **Schema drift.** Missing fields are added to an existing table via the
   create-field endpoint, but an existing field whose *type* differs from the
   spec is left alone; Airtable field conversions are lossy and not worth

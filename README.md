@@ -17,8 +17,9 @@ rationale.
   onboarding, agenda placement, and a publishable public program.
 - **Airtable sync is implemented** — Greenroom provisions an owner-provided
   base and pushes events, speakers, submissions, sessions, and task assignments
-  every 15 minutes (or on demand), preserving Airtable row automations while
-  Greenroom remains the source of truth.
+  every 15 minutes (or on demand). The complete scheduled sync also removes
+  managed Airtable rows after their Greenroom source is deleted, preserving
+  new-row automations while Greenroom remains the source of truth.
 - **REST API + remote MCP** — event-scoped `gr_` API keys or OAuth 2.1 bearer
   tokens unlock the same read/write organizer workflows at `/api/v1` and
   `/mcp`. OpenAPI 3.1 lives at `/api/v1/openapi.json`, with an interactive
@@ -40,9 +41,9 @@ rationale.
   confirmed sessions on arrival.
 - **Review & decisions** — track ownership scopes each reviewer's queue;
   organizers can also run named, date-bounded review rounds with explicit
-  assignments and weighted scorecards. Reviewers record recommendations while
-  admins make binding accept/waitlist/decline decisions, request changes, and
-  attach feedback to decision email.
+  assignments and weighted scorecards. Reviewers score only their explicit
+  assignments, while admins make binding accept/waitlist/decline decisions,
+  request changes, and attach feedback to decision email.
 - **Automatic acceptance conversion** — accepting a submission creates the
   speaker record(s), an unscheduled session, and the event's standard
   onboarding tasks, with no manual re-entry (`planAcceptanceConversion` in
@@ -73,8 +74,10 @@ rationale.
   wired in `custom-worker.ts`).
 - **Airtable automation** — a storage-agnostic projection job creates and
   maintains the required Airtable tables, then upserts Greenroom records in
-  rate-limited batches. It runs on the cron and from an event's Settings page;
-  resume tokens and private answer blobs never leave Greenroom
+  rate-limited batches. The full cron run reconciles source deletions; the
+  event-scoped Settings action only upserts its partial view. Resume tokens,
+  private answer blobs, and human-owned Airtable rows never leave or get
+  overwritten by Greenroom
   (`src/domain/airtable-sync.ts`).
 - **Core API and remote MCP** — authenticated clients can read event
   configuration, sessions, speakers, and submissions, then perform bounded
@@ -230,8 +233,9 @@ plan's 3 MiB Worker limit is no longer sufficient. The first-deploy version:
 3. Set secrets (`npx wrangler secret put <NAME>`): `BETTER_AUTH_SECRET` and
    `BETTER_AUTH_URL` always; `ADMIN_EMAILS` for hands-off first-admin
    bootstrap; `SENDGRID_API_KEY` + `EMAIL_FROM_ADDRESS` for real email
-   (nobody can sign in without it); `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID`
-   to connect the implemented Airtable sync. Full table in
+   (nobody can sign in without it); `AIRTABLE_API_KEY` (records read/write and
+   schema read/write) + `AIRTABLE_BASE_ID` to connect the implemented Airtable
+   sync. Full table in
    [docs/deploying.md](docs/deploying.md).
 4. Point `wrangler.jsonc`'s `routes` at your own domain (or switch to
    `workers_dev`).
@@ -278,8 +282,8 @@ harness (destructive to local dev data, like the e2e suite), and
 
 - [docs/airtable-sync.md](docs/airtable-sync.md) — architecture and operating
   boundaries of the implemented one-way Airtable sync. Enable it with the two
-  `AIRTABLE_*` secrets; Greenroom creates the tables and supplies both periodic
-  and on-demand sync.
+  `AIRTABLE_*` secrets; Greenroom creates the tables, supplies periodic and
+  on-demand sync, and reconciles deleted managed rows during complete cron runs.
 
 ## License
 

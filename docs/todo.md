@@ -4,6 +4,7 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 ## Airtable sync (owner decision 2026-08-09: build against a real base)
 
+- [ ] **Update/verify the production Airtable PAT includes `data.records:read`** as well as `data.records:write`, `schema.bases:read`, and `schema.bases:write`, scoped to the existing base; then replace `AIRTABLE_API_KEY` with `npx wrangler secret put AIRTABLE_API_KEY` if the current token lacks it. D-090's deletion reconciliation needs record reads. Do not paste the token into chat or shell history.
 - [ ] **(Optional, for local dev only)** add `AIRTABLE_API_KEY=…` to `.dev.vars` yourself in an editor — don't paste the token into chat or a terminal command. Not needed for the deployed sync (the secret is already set in the worker); it only lets a local dev server hit the base.
 
 ## Blocking

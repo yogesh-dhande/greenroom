@@ -37,9 +37,11 @@ Acceptance criteria:
   `Sent` log row and a usable `.ics` attachment. Do not retry the four existing
   failed sends automatically.
 
-### F2. Eliminate recurring authenticated-route stalls
+### F2. Eliminate recurring Worker request-path stalls
 
-**Status:** fixed and clean under sustained production validation. Worker `969537a9-f2e0-4611-9d85-2d584a5530d0` replaces OpenNext's generated dispatcher with an equivalent local, statically bound route. Its final Wrangler bundle excludes the generated dispatcher, a 15-minute mixed-persona soak completed 370/370 requests with no warning, failure, error, 5xx, or response over five seconds, and a separate 20-way burst completed 200/200 requests (1.27-second maximum).
+**Status:** reopened; request-time dispatcher import is eliminated but the production stall recurred. Worker `969537a9-f2e0-4611-9d85-2d584a5530d0` replaces OpenNext's generated dispatcher with an equivalent local, statically bound route. Its final Wrangler bundle excludes the generated dispatcher, and a 15-minute mixed-persona soak completed 370/370 requests followed by a 200/200 concurrent burst. A later request on that same deployed version nevertheless reproduced the incident on dynamic `/`: 93,946 ms wall, 20 ms CPU, `outcome=canceled`, no exception, sequence 6 with two active requests. The underlying cross-request trigger remains open.
+
+**Current posture:** treat this as a known unresolved production incident in the current OpenNext 1.20.2-on-Cloudflare-Workers deployment. It has not reproduced in the local Next.js runtime and does not establish a Greenroom product-logic defect, an inherent framework/platform limitation, or a limitation of other deployment targets. Retain the low-risk lifecycle diagnostics and static-dispatch release invariant, but do not carry private OpenNext/Next patches without a trace that identifies the failing promise or exception. F2 remains open; evaluator navigation timeouts and Worker start-without-finish traces must be correlated rather than treated as one clock.
 
 **Affected:** all required areas; explicitly observed on `/`, `/admin`,
 `/portal`, event navigation, and Agenda
@@ -58,11 +60,10 @@ Why these are known deployment stalls:
   This rules out CPU exhaustion and strongly rules out D1 as the cause:
   same-second requests performing the same authenticated D1 reads completed in
   118–167 ms, and a cookieless request could stall too.
-- The stalls correlated with concurrent cold-isolate initialization. OpenNext
-  1.20.2 dynamically imported the generated Next handler inside the first
-  request; sibling requests could then encounter a module-loader/I/O promise
-  owned by another request context, a pattern Cloudflare Workers cannot safely
-  carry between request contexts.
+- Several stalls correlated with concurrent cold-isolate initialization, and
+  OpenNext 1.20.2 dynamically imported the generated Next handler inside each
+  request. That was a valid request-context risk to remove, but the recurrence
+  from a bundle without the dispatcher proves it was not a sufficient cause.
 - Affected isolates appeared to remain poisoned and consume later requests.
   A same-code redeploy creates a new Worker version and replaces those isolates,
   which explains the immediate recovery without any database or code change.
@@ -75,7 +76,9 @@ Why these are known deployment stalls:
   OpenNext's context/skew/image/middleware routing and calls the statically
   imported handler itself; a dry-run bundle check rejects the generated
   dispatcher. The deployed 370-request soak and 200-request concurrent burst
-  both completed without the stall signature.
+  both completed without the stall signature, but the same version later
+  reproduced it on dynamic `/` at 93,946 ms wall / 20 ms CPU. The bundle check
+  remains a valid invariant, not a root-cause claim.
 
 Acceptance criteria:
 
@@ -130,9 +133,10 @@ Acceptance criteria:
 - “Remind reviewers” reports how many reminders were sent or skipped and adds
   an observable timestamp/log entry.
 
-Track-wide read access and the “All talks in your tracks” view are accepted in
-D-061/D-066. Tightening all reviewer access to assignment-only would be a
-product-decision change, not a bug fix in this backlog.
+Track-wide read access and the “All talks in your tracks” view remain accepted
+under D-061/D-066. D-089 makes that wider view read-only for reviewers: only
+explicit round assignments authorize evaluation; the old flat-recommendation
+panel and write action are removed rather than maintained as a parallel path.
 
 ### F5. Make the public speaker gallery discoverable as a gallery
 
@@ -204,10 +208,12 @@ Acceptance criteria:
 - **F11 — Duplicate-prevention timing (implemented):** manual contact creation
   shows a possible same-display-name match before submission while preserving
   authoritative email identity deduplication.
-- **F12 — Navigation/action responsiveness (verified):** coordinated portal,
-  rounds, program, and navigation E2E flows passed, and the sustained deployed
-  matrix had no stalled RSC requests. No separate client-navigation defect was
-  reproduced; keep monitoring through F2's lifecycle diagnostics.
+- **F12 — Navigation/action responsiveness (verified in bounded tests):**
+  coordinated portal, rounds, program, and navigation E2E flows passed, and
+  the sustained deployed matrix had no stalled RSC requests during that
+  matrix. No separate client-navigation defect was reproduced, but F2's later
+  same-version recurrence means this is not production-reliability closure;
+  keep monitoring through F2's lifecycle diagnostics.
 
 ## Not product fixes from this run
 

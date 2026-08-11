@@ -637,7 +637,7 @@ async function seed(repos: Repos): Promise<void> {
     // The review pipeline: proposals here queue for the committee (D-041).
     type: "abstract",
     welcomeCopy:
-      "We're looking for practitioner talks: things you built, shipped, measured, and would do differently. Submissions close on 1 March. You can edit your proposal until then.",
+      "We're looking for practitioner talks: things you built, shipped, measured, and would do differently. You can edit your proposal any time before the deadline shown below.",
     fields: cfpFields(TRACK_SEEDS.map((t) => t.name)),
     opensAt: daysFromNow(-30),
     closesAt: daysFromNow(30),
@@ -647,7 +647,7 @@ async function seed(repos: Repos): Promise<void> {
     // src/domain/comms-templates.ts (MERGE_FIELDS).
     confirmationEmailSubject: "We received your talk proposal — {{submissionTitle}}",
     confirmationEmailBody:
-      'Hi {{speakerFirstName}},\n\nThanks for proposing "{{submissionTitle}}" for {{eventName}}. Our program committee reviews submissions by track, and you\'ll hear from us by 15 April.\n\nYou can edit your proposal any time before submissions close:\n\n{{portalUrl}}\n\n— The AI Engineer Summit team',
+      'Hi {{speakerFirstName}},\n\nThanks for proposing "{{submissionTitle}}" for {{eventName}}. Our program committee reviews submissions by track, and we\'ll follow up after the call closes.\n\nYou can edit your proposal any time before submissions close:\n\n{{portalUrl}}\n\n— The AI Engineer Summit team',
     // Five proposals per speaker (D-034, D-038, D-046) — enough headroom that
     // a demo visitor can actually submit and still see the cap in action,
     // rather than tripping over it on their first try.

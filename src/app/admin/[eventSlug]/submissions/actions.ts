@@ -2,14 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { reviewRecommendationSchema, submissionDecisionSchema } from "@/db/entities";
+import { submissionDecisionSchema } from "@/db/entities";
 import { decideSubmission as decideAdminSubmission } from "@/domain/admin-api";
 import { sendChangeRequest } from "@/domain/comms";
-import {
-  canRecordDecision,
-  canViewSubmission,
-  saveReview,
-} from "@/domain/review";
+import { canRecordDecision, canViewSubmission } from "@/domain/review";
 import { updateSubmissionTracks } from "@/domain/submissions";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
@@ -19,10 +15,10 @@ import { reviewerTrackIdsFor } from "./queue";
 /**
  * Review-flow writes (spec.md §4, §5).
  *
- * Two doors, deliberately different: any reviewer routed to the submission can
- * record a recommendation, but only an admin can record the binding decision —
- * accepting creates the session and the speaker's onboarding tasks and puts a
- * promise in writing (see canRecordDecision in src/domain/review.ts).
+ * Reviewers evaluate explicit round assignments through scorecards; only an
+ * admin records the binding decision. Accepting creates the session and the
+ * speaker's onboarding tasks and puts a promise in writing (see
+ * canRecordDecision in src/domain/review.ts).
  *
  * Every write re-checks the viewer here rather than trusting the page that
  * rendered the button: a server action is a public endpoint.
@@ -75,50 +71,6 @@ async function authorize(eventSlug: string, submissionId: string) {
   }
 
   return { ok: true as const, repos, event, submission, viewer: viewer as SessionUser };
-}
-
-// ---------------------------------------------------------------------------
-// Reviewer votes
-// ---------------------------------------------------------------------------
-
-const reviewInputSchema = z.object({
-  /** "" clears the recommendation back to a comment-only review. */
-  recommendation: z.union([reviewRecommendationSchema, z.literal("")]),
-  comment: z.string().trim().max(4000, "That comment is too long").optional(),
-});
-export type ReviewInput = z.infer<typeof reviewInputSchema>;
-
-export async function saveMyReview(
-  eventSlug: string,
-  submissionId: string,
-  input: ReviewInput,
-) {
-  const auth = await authorize(eventSlug, submissionId);
-  if (!auth.ok) return fail(auth.error);
-
-  const parsed = reviewInputSchema.safeParse(input);
-  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid review");
-
-  if (!parsed.data.recommendation && !parsed.data.comment) {
-    return fail("Pick a recommendation or leave a comment.");
-  }
-
-  try {
-    await saveReview(
-      { repos: auth.repos },
-      {
-        submissionId,
-        reviewerId: auth.viewer.id,
-        recommendation: parsed.data.recommendation || null,
-        comment: parsed.data.comment ?? null,
-      },
-    );
-    revalidatePath(`/admin/${eventSlug}/submissions`);
-    revalidatePath(`/admin/${eventSlug}/submissions/${submissionId}`);
-    return { ok: true as const };
-  } catch {
-    return fail("Couldn't save your review — try again");
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -164,7 +164,7 @@ export function DecisionBar({
 
         {!canDecide ? (
           <p className="text-sm text-muted-foreground">
-            An event admin records the final decision. Your recommendation is what feeds it.
+            An event admin records the final decision. Your assigned scorecards feed it.
           </p>
         ) : (
           <div className="flex flex-1 flex-wrap items-center justify-end gap-2">

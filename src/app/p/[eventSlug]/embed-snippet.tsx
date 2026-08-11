@@ -83,7 +83,7 @@ function EmbedCodeOption({
   snippet: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5" role="group" aria-label={label}>
       <div>
         <p className="text-xs font-semibold text-foreground">{label}</p>
         <p className="text-xs text-muted-foreground">{hint}</p>

@@ -97,8 +97,8 @@ export default async function SubmissionsPage({
         description={
           isReviewer
             ? onAssigned
-              ? "The talks you were assigned to score in the rounds open now. Open one to record your recommendation."
-              : "The talks proposed in the tracks you review. Open one to record your recommendation."
+              ? "The talks assigned to you in open review rounds. Open one to complete its scorecard."
+              : "All submitted talks in the tracks you review. Browse these for context; only assigned talks can be scored."
             : "Every talk proposed to this event. Open one to see the full proposal and decide."
         }
         action={

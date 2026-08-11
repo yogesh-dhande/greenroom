@@ -272,8 +272,14 @@ function fullSeed(): Seed {
 interface Call {
   method: string;
   path: string;
+  query: Record<string, string[]>;
   body: Record<string, unknown> | null;
   at: number;
+}
+
+interface FakeAirtableRecord {
+  id: string;
+  fields: Record<string, unknown>;
 }
 
 function allFieldsOf(table: AirtableTableName) {
@@ -281,8 +287,9 @@ function allFieldsOf(table: AirtableTableName) {
 }
 
 /**
- * Stands in for the Airtable REST API: the Metadata endpoints keep a table
- * list in memory, and the upsert endpoint reports everything as created.
+ * Stands in for the Airtable REST API: metadata and data records both persist
+ * across calls, so a second sync exercises Airtable's real ID-upsert behavior
+ * instead of pretending every PATCH created another row.
  * `rateLimit` makes the next N matching upserts answer 429 so the retry path
  * is exercised against the same code every other test runs.
  */
@@ -293,8 +300,15 @@ function fakeAirtable(options: {
   /** Reject every create-field call, as a base on a plan that forbids it would. */
   refuseFieldCreates?: boolean;
   rateLimit?: number;
+  existingRecords?: Partial<
+    Record<AirtableTableName, Array<{ id?: string; fields: Record<string, unknown> }>>
+  >;
+  /** Force short data pages so pagination is observable in focused tests. */
+  pageSize?: number;
 } = {}) {
   const tables = new Map<string, { id: string; name: string; fields: { name: string }[] }>();
+  const records = new Map<AirtableTableName, FakeAirtableRecord[]>();
+  let nextRecordId = 1;
   for (const name of options.existingTables ?? []) {
     const only = options.existingFields?.[name];
     tables.set(name, {
@@ -302,6 +316,13 @@ function fakeAirtable(options: {
       name,
       fields: only ? only.map((field) => ({ name: field })) : allFieldsOf(name),
     });
+    records.set(
+      name,
+      (options.existingRecords?.[name] ?? []).map((record) => ({
+        id: record.id ?? `recSeed${nextRecordId++}`,
+        fields: { ...record.fields },
+      })),
+    );
   }
 
   const calls: Call[] = [];
@@ -311,10 +332,14 @@ function fakeAirtable(options: {
     new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json" } });
 
   const fetchImpl = (async (input: string, init?: { method?: string; body?: string }) => {
-    const path = new URL(input).pathname;
+    const url = new URL(input);
+    const path = url.pathname;
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(init.body) as Record<string, unknown>) : null;
-    calls.push({ method, path, body, at: Date.now() });
+    const query = Object.fromEntries(
+      [...new Set(url.searchParams.keys())].map((key) => [key, url.searchParams.getAll(key)]),
+    );
+    calls.push({ method, path, query, body, at: Date.now() });
 
     if (method === "GET" && path === `/v0/meta/bases/${BASE_ID}/tables`) {
       return json({ tables: [...tables.values()] });
@@ -325,6 +350,7 @@ function fakeAirtable(options: {
       const fields = (body?.fields as { name: string }[]) ?? [];
       const created = { id: `tbl${name}`, name, fields };
       tables.set(name, created);
+      records.set(name as AirtableTableName, []);
       return json(created);
     }
 
@@ -339,17 +365,80 @@ function fakeAirtable(options: {
       return json(field);
     }
 
-    if (method === "PATCH" && path.startsWith(`/v0/${BASE_ID}/`)) {
+    const dataMatch = path.match(new RegExp(`^/v0/${BASE_ID}/([^/]+)$`));
+    const table = dataMatch
+      ? ([...tables.values()].find((row) => row.id === dataMatch[1]) ?? null)
+      : null;
+
+    if (method === "GET" && table) {
+      const tableRecords = records.get(table.name as AirtableTableName) ?? [];
+      const start = Number(url.searchParams.get("offset") ?? "0");
+      const requestedPageSize = Number(url.searchParams.get("pageSize") ?? "100");
+      const pageSize = Math.min(options.pageSize ?? requestedPageSize, requestedPageSize);
+      const page = tableRecords.slice(start, start + pageSize);
+      const selectedFields = url.searchParams.getAll("fields[]");
+      return json({
+        records: page.map((record) => ({
+          id: record.id,
+          fields:
+            selectedFields.length === 0
+              ? { ...record.fields }
+              : Object.fromEntries(
+                  Object.entries(record.fields).filter(([field]) => selectedFields.includes(field)),
+                ),
+        })),
+        ...(start + pageSize < tableRecords.length ? { offset: String(start + pageSize) } : {}),
+      });
+    }
+
+    if (method === "PATCH" && table) {
       if (remainingRateLimits > 0) {
         remainingRateLimits -= 1;
         return json({ error: "RATE_LIMIT_REACHED" }, 429);
       }
-      const records = (body?.records as unknown[]) ?? [];
+      const payloads =
+        (body?.records as Array<{ fields: Record<string, unknown> }> | undefined) ?? [];
+      const tableRecords = records.get(table.name as AirtableTableName) ?? [];
+      const createdRecords: string[] = [];
+      const updatedRecords: string[] = [];
+      const responseRecords: FakeAirtableRecord[] = [];
+
+      for (const payload of payloads) {
+        const sourceId = payload.fields[GREENROOM_ID_FIELD];
+        const existing = tableRecords.find(
+          (record) => record.fields[GREENROOM_ID_FIELD] === sourceId,
+        );
+        if (existing) {
+          existing.fields = { ...existing.fields, ...payload.fields };
+          updatedRecords.push(existing.id);
+          responseRecords.push({ id: existing.id, fields: { ...existing.fields } });
+        } else {
+          const created = { id: `recGenerated${nextRecordId++}`, fields: { ...payload.fields } };
+          tableRecords.push(created);
+          createdRecords.push(created.id);
+          responseRecords.push({ id: created.id, fields: { ...created.fields } });
+        }
+      }
+      records.set(table.name as AirtableTableName, tableRecords);
       return json({
-        records,
-        createdRecords: records.map((_, index) => `rec${index}`),
-        updatedRecords: [],
+        records: responseRecords,
+        createdRecords,
+        updatedRecords,
       });
+    }
+
+    if (method === "DELETE" && table) {
+      const ids = new Set(url.searchParams.getAll("records[]"));
+      const tableName = table.name as AirtableTableName;
+      const tableRecords = records.get(tableName) ?? [];
+      const deleted = tableRecords
+        .filter((record) => ids.has(record.id))
+        .map((record) => ({ id: record.id, deleted: true }));
+      records.set(
+        tableName,
+        tableRecords.filter((record) => !ids.has(record.id)),
+      );
+      return json({ records: deleted });
     }
 
     return json({ error: { type: "NOT_FOUND" } }, 404);
@@ -363,13 +452,19 @@ function fakeAirtable(options: {
       calls.filter((call) => call.method === "POST" && call.path.endsWith("/tables")),
     fieldCreates: () =>
       calls.filter((call) => call.method === "POST" && call.path.endsWith("/fields")),
+    deletes: () => calls.filter((call) => call.method === "DELETE"),
+    records: (table: AirtableTableName) =>
+      (records.get(table) ?? []).map((record) => ({
+        id: record.id,
+        fields: { ...record.fields },
+      })),
   };
 }
 
 function context(
   seed: Seed,
   airtable: ReturnType<typeof fakeAirtable>,
-  overrides: { appUrl?: string } = {},
+  overrides: { appUrl?: string; eventId?: string } = {},
 ) {
   return {
     repos: fakeRepos(seed),
@@ -580,7 +675,7 @@ describe("runAirtableSync — projection", () => {
     expect(upsertedFields(airtable)).toEqual([
       { Name: "AI Engineer Summit 2026", [GREENROOM_ID_FIELD]: "event-1" },
     ]);
-    expect(summary.tables.Events).toEqual({ created: 1, updated: 0, failed: 0 });
+    expect(summary.tables.Events).toEqual({ created: 1, updated: 0, deleted: 0, failed: 0 });
     expect(summary.errors.join(" ")).toContain("couldn't add field");
   });
 
@@ -662,6 +757,139 @@ describe("runAirtableSync — projection", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Deletion reconciliation
+// ---------------------------------------------------------------------------
+
+describe("runAirtableSync — deletion reconciliation", () => {
+  it("is idempotent across repeated full syncs", async () => {
+    const airtable = fakeAirtable({ existingTables: [...AIRTABLE_TABLES] });
+
+    const first = await runAirtableSync(context(fullSeed(), airtable));
+    const second = await runAirtableSync(context(fullSeed(), airtable));
+
+    expect(first.created).toBe(5);
+    expect(first.updated).toBe(0);
+    expect(second.created).toBe(0);
+    expect(second.updated).toBe(5);
+    expect(second.deleted).toBe(0);
+    for (const table of AIRTABLE_TABLES) {
+      expect(airtable.records(table)).toHaveLength(1);
+    }
+  });
+
+  it("deletes an Airtable-managed row after its source record is deleted", async () => {
+    const airtable = fakeAirtable({ existingTables: [...AIRTABLE_TABLES] });
+    await runAirtableSync(context(fullSeed(), airtable));
+
+    const withoutSession = fullSeed();
+    withoutSession.sessions = [];
+    withoutSession.sessionSpeakers = [];
+    const summary = await runAirtableSync(context(withoutSession, airtable));
+
+    expect(summary.tables.Sessions.deleted).toBe(1);
+    expect(summary.deleted).toBe(1);
+    expect(airtable.records("Sessions")).toEqual([]);
+  });
+
+  it("creates a fresh Airtable row when a deleted source id is recreated", async () => {
+    const airtable = fakeAirtable({ existingTables: [...AIRTABLE_TABLES] });
+    const populated: Seed = {
+      events: [event()],
+      forms: [form()],
+      submissions: [submission()],
+    };
+    await runAirtableSync(context(populated, airtable));
+    const originalRecordId = airtable.records("Submissions")[0].id;
+
+    const deletion = await runAirtableSync(
+      context({ events: [event()], forms: [form()], submissions: [] }, airtable),
+    );
+    expect(deletion.tables.Submissions.deleted).toBe(1);
+
+    const recreation = await runAirtableSync(context(populated, airtable));
+    expect(recreation.tables.Submissions.created).toBe(1);
+    expect(airtable.records("Submissions")).toHaveLength(1);
+    expect(airtable.records("Submissions")[0].id).not.toBe(originalRecordId);
+    expect(airtable.records("Submissions")[0].fields[GREENROOM_ID_FIELD]).toBe("submission-1");
+  });
+
+  it("preserves human Airtable rows with a missing or empty Greenroom id while paginating", async () => {
+    const airtable = fakeAirtable({
+      existingTables: [...AIRTABLE_TABLES],
+      pageSize: 2,
+      existingRecords: {
+        Events: [
+          { id: "recManualMissing", fields: { Name: "Human row" } },
+          { id: "recManualEmpty", fields: { Name: "Blank key", [GREENROOM_ID_FIELD]: "" } },
+          { id: "recManualSpace", fields: { Name: "Space key", [GREENROOM_ID_FIELD]: "   " } },
+          { id: "recStaleOne", fields: { Name: "Old event", [GREENROOM_ID_FIELD]: "event-old-1" } },
+          { id: "recStaleTwo", fields: { Name: "Older event", [GREENROOM_ID_FIELD]: "event-old-2" } },
+        ],
+      },
+    });
+
+    const summary = await runAirtableSync(context({ events: [event()] }, airtable));
+
+    expect(summary.tables.Events.deleted).toBe(2);
+    expect(airtable.records("Events").map((record) => record.id)).toEqual([
+      "recManualMissing",
+      "recManualEmpty",
+      "recManualSpace",
+      expect.stringMatching(/^recGenerated/),
+    ]);
+    const listCalls = airtable.calls.filter(
+      (call) => call.method === "GET" && call.path === `/v0/${BASE_ID}/tblEvents`,
+    );
+    expect(listCalls).toHaveLength(3);
+    expect(listCalls.every((call) => call.query["fields[]"]?.[0] === GREENROOM_ID_FIELD)).toBe(true);
+  });
+
+  it("never reconciles deletions during an event-scoped Settings sync", async () => {
+    const airtable = fakeAirtable({
+      existingTables: [...AIRTABLE_TABLES],
+      existingRecords: {
+        Sessions: [
+          {
+            id: "recOtherEventSession",
+            fields: { Title: "Other event talk", [GREENROOM_ID_FIELD]: "session-other-event" },
+          },
+        ],
+      },
+    });
+
+    const summary = await runAirtableSync(
+      context({ events: [event()] }, airtable, { eventId: "event-1" }),
+    );
+
+    expect(summary.deleted).toBe(0);
+    expect(airtable.deletes()).toHaveLength(0);
+    expect(airtable.records("Sessions")).toHaveLength(1);
+    expect(
+      airtable.calls.some(
+        (call) => call.method === "GET" && call.path === `/v0/${BASE_ID}/tblSessions`,
+      ),
+    ).toBe(false);
+  });
+
+  it("deletes stale records in Airtable batches of at most 10", async () => {
+    const airtable = fakeAirtable({
+      existingTables: [...AIRTABLE_TABLES],
+      existingRecords: {
+        Events: Array.from({ length: 23 }, (_, index) => ({
+          id: `recStale${index}`,
+          fields: { Name: `Old event ${index}`, [GREENROOM_ID_FIELD]: `event-old-${index}` },
+        })),
+      },
+    });
+
+    const summary = await runAirtableSync(context({}, airtable));
+
+    expect(summary.tables.Events.deleted).toBe(23);
+    expect(airtable.deletes().map((call) => call.query["records[]"].length)).toEqual([10, 10, 3]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Batching
 // ---------------------------------------------------------------------------
 
@@ -714,7 +942,7 @@ describe("runAirtableSync — rate limits", () => {
     // Airtable's own penalty window, per D-002's investigation.
     expect(upserts[1].at - upserts[0].at).toBe(30_000);
     expect(upserts[0].body).toEqual(upserts[1].body);
-    expect(summary.tables.Events).toEqual({ created: 1, updated: 0, failed: 0 });
+    expect(summary.tables.Events).toEqual({ created: 1, updated: 0, deleted: 0, failed: 0 });
     expect(summary.errors).toEqual([]);
   });
 
@@ -728,7 +956,7 @@ describe("runAirtableSync — rate limits", () => {
 
     // Exactly one retry — not a loop that keeps hammering a limited base.
     expect(airtable.upserts()).toHaveLength(2);
-    expect(summary.tables.Events).toEqual({ created: 0, updated: 0, failed: 1 });
+    expect(summary.tables.Events).toEqual({ created: 0, updated: 0, deleted: 0, failed: 1 });
     expect(summary.failed).toBe(1);
     expect(summary.errors[0]).toContain("Events");
     expect(summary.errors[0]).toContain("429");

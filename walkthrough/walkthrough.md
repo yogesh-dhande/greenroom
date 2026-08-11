@@ -48,7 +48,7 @@ Run these once, in order, from the repo root:
 1. Go to `http://localhost:3000/admin/ai-engineer-summit-2026/forms`. Point at the row **Call for Speakers 2026**, status **Open**. Click it.
 2. On the **Questions** tab, scroll to the row labelled **Workshop requirements** — note its **Conditional** badge. Click the row to expand it and read out the condition: **When** *Session format* — **Comparison** *is* — **This answer** *90-minute workshop*. Collapse it again.
    > "That question only exists if you pick 'workshop'. The organizer built that rule in the UI. Nobody deployed anything."
-3. Find the **Allow co-speakers** switch and turn it **on**.
+3. Find the **Allow co-speakers** switch and make sure it is **on**.
    > "Most conference talks have two people on stage. Sessionboard treats the second one as an afterthought — here they're a first-class part of the proposal, and every email we send goes to both."
 4. Click the **Welcome & confirmation** tab. Point at **Confirmation email** — Subject and Body — and at the **Available merge fields** list and the **Preview**.
 5. Click the **Window & link** tab. Point at **Public link** (`/submit/ai-engineer-summit-2026`), **Opens**, **Closes**.
@@ -87,16 +87,16 @@ Point at the terminal split: two `>> EMAIL (dev transport)` blocks, `Subject: We
 ---
 
 ## Act 3 — It's in the queue, and the organizer can ask for a fix without deciding anything
-*(~1:15)*
+*(~1:35)*
 
 **Say:**
 > "Back in the organizer's seat. Every proposal, one queue, statuses in organizer language."
 
 **Do** — **Window A**, `http://localhost:3000/admin/ai-engineer-summit-2026/submissions`:
 
-1. Set **Filter by status** to **Unreviewed**. The count line updates to *N of 16 submissions*. The new talk is at the top, showing **Nadia Farouk, Owen Diallo** and the track **Evals & Reliability**.
+1. Set **Filter by status** to **Unreviewed**. The count line updates to *N of all submissions*. The new talk is at the top, showing **Nadia Farouk, Owen Diallo** and the track **Evals & Reliability**.
 2. Click **Catching silent regressions before your users do**.
-3. Scroll the **The proposal** card — every answer as she gave it, including the co-speaker row *Owen Diallo — owen.diallo@example.com — Staff Engineer, Waypoint*.
+3. Scroll to **The rest of the proposal** — every answer as she gave it, including the co-speaker row *Owen Diallo — owen.diallo@example.com — Staff Engineer, Waypoint*.
 
 **Say:**
 > "Now the thing every program chair does forty times a CFP and no tool supports: the abstract is nearly right. I don't want to accept it, I don't want to reject it, I want to ask for one change — and I want that ask to be an email, not a note to myself."
@@ -112,23 +112,29 @@ Point at the terminal split: two `>> EMAIL (dev transport)` blocks, `Subject: We
 
 Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Unreviewed** badge.
 
+8. Open **Review rounds**, find **First-pass review**, and click **Assign**.
+9. Choose **Dana Okoye**, search for **Catching silent regressions before your users do**, tick that proposal, and click **Assign selected to Dana Okoye**.
+10. Point at the assigned row.
+   > "One named round, one explicit proposal, one reviewer. That assignment — not broad track access — is what authorizes Dana to score it."
+
 ---
 
 ## Act 4 — The right reviewer sees it, and only the right reviewer
-*(~0:50)*
+*(~1:15)*
 
 **Say:**
 > "Dana Okoye reviews the Evals & Reliability and AI Engineering tracks. Marco Silva reviews Agents & Tool Use. Routing by track is table stakes, and it has to work in both directions."
 
 **Do** — switch to **Window B** (Dana), `http://localhost:3000/admin/ai-engineer-summit-2026/submissions`:
 
-1. Header reads *"The talks proposed in the tracks you review. Open one to record your recommendation."* The new Evals talk is in her list.
+1. Open **All talks in your tracks**. The header explains that this wider list is readable context and only assigned talks can be scored. The new Evals talk is in her list.
 2. Scroll the list and point out that **Tool schemas are your real prompt** — an Agents & Tool Use talk — **is not there**. If you want the hard version: paste that submission's URL from Window A into Window B and show it **404s**.
    > "Not 'access denied', not greyed out. For Dana, that talk does not exist."
-3. Open the Evals talk. In **Your review**, click **Approve** and type in the comment box:
+3. Open the Evals talk. Point at its **First-pass review** assignment and click **Score this submission**. The blind-round page shows **Speaker identity hidden for blind review**.
+4. Give **Originality** and **Relevance** a 5, choose **Accept** from the round's Recommendation dropdown, and enter:
    `Yes. This is the talk our attendees keep asking for, and she has the production numbers to back it. Ask her to keep the tooling vendor-neutral.`
-4. Click **Save review**. The tally under it becomes **1 review: 1 approve.**
-5. Point at the panel below it: *"An event admin records the final decision. Your recommendation above is what feeds it."*
+5. Click **Submit scorecard**. The round queue marks the proposal **Submitted**.
+6. Return to the proposal and point at the panel: *"An event admin records the final decision. Your assigned scorecards feed it."*
    > "Dana can't accept it. Accepting creates a session, assigns onboarding tasks, and emails a promise to a human being — so that's the organizer's signature, not a reviewer's."
 
 ---
@@ -138,7 +144,7 @@ Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Un
 
 **Do** — back to **Window A**, same submission page (reload it):
 
-1. Dana's recommendation is now on the page under **Reviewer notes**, with her name, an **Approve** badge, and her comment.
+1. Dana's filed **First-pass review** scorecard is now on the record, with her ratings, the round's **Accept** answer, and her comment.
 2. In the **Decision** card, type the note:
    `Congratulations — we'd love this on the Evals & Reliability track. Aim for 45 minutes with 10 for questions, and please keep the production numbers in.`
    *(The confirm dialog repeats this field, so typing it there instead also works.)*
@@ -168,7 +174,7 @@ Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Un
 1. Go to `http://localhost:3000/login`. Read the line: *"Admins, reviewers, and speakers all sign in with a magic link — no password."*
 2. **Email:** `nadia.farouk@example.com` → **Send magic link**.
 3. In the terminal, run `tail -n 1 .dev-magic-links.log`, copy the URL (third column), paste it into Window C.
-   > "In production that's a Resend email. In this demo the dev transport writes it to a file so you can watch it happen."
+   > "In production that's a SendGrid email. In this demo the dev transport writes it to a file so you can watch it happen."
 4. You land on **Your speaker home**. Walk it top to bottom:
    - **Your submissions** — her talk, badged **Approved**.
    - **Your sessions** — her session, **Not yet scheduled**. *"Honest about the state of the world."*
@@ -177,7 +183,7 @@ Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Un
 5. Do one, inline — no navigation, no separate portal:
    - On **Hotel stay requirement form**, **Do you need us to book your hotel room?** → **Yes, book me a room**. Two date fields and a room preference appear.
      > "Same conditional-form engine as the CFP. One form system, used everywhere."
-   - **Check-in date (YYYY-MM-DD):** `2026-09-22` — **Check-out date (YYYY-MM-DD):** `2026-09-26`
+   - **Check-in date (YYYY-MM-DD):** the day before the event — **Check-out date (YYYY-MM-DD):** the day after it ends
    - **Room preference:** **One queen bed**
    - **Anything else about your stay?** `Arriving late Tuesday — a quiet floor would be great.`
    - Click **Submit**. The task flips to **Complete**.
@@ -196,7 +202,7 @@ Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Un
 **Do** — **Window A**, `http://localhost:3000/admin/ai-engineer-summit-2026/agenda`:
 
 1. Read the page line: *"Drag sessions from the tray onto a room and time. Conflicts are flagged, never blocked."* Point at **No scheduling conflicts** in the top right.
-2. The **Unscheduled** tray on the right holds four cards, including **Catching silent regressions before your users do** with *Nadia Farouk, Owen Diallo* on it. Day 1 is selected; **Retrieval that survives production traffic** sits on **Main Stage** at **10:00 AM – 10:45 AM**. (Room columns are alphabetical: Community Hall, Main Stage, Workshop A, Workshop B.)
+2. The **Unscheduled** tray on the right holds two cards, including **Catching silent regressions before your users do** with *Nadia Farouk, Owen Diallo* on it. Day 1 is selected; **Retrieval that survives production traffic** sits on **Main Stage** at **10:00 AM – 10:45 AM**.
 3. **Drag the new card out of the tray and drop it on Main Stage at 10:00** — straight on top of Priya's talk. The slot highlights as you cross it.
 
 **Say:**
@@ -224,14 +230,14 @@ Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Un
 
 **(a) Deadline reminders that don't spam.**
 
-2. Click **Send task digest now**. The toast reports what it did *and what it deliberately didn't* — e.g. **Sent 5 emails**, *"Skipped 3: nothing outstanding, already emailed recently."*
+2. Click **Send task digest now**, then confirm **Send digest**. The toast reports what it did *and what it deliberately didn't* — e.g. **Sent 5 emails**, *"Skipped 3: nothing outstanding, already emailed recently."*
    > "One email per speaker, listing everything still open on their checklist — not one email per task. Every skip has a reason, and that breakdown is the difference between a cron job you trust and one you turn off."
-3. Click it again. **Nothing to send** — *"No digest was due: … already emailed recently."*
-   > "It goes out on its own every Monday morning, and nobody gets two in a day. Press the button as often as you like."
+3. Reload. **Send task digest now** is disabled and the page explains that nobody is eligible during the 24-hour cooldown.
+   > "It goes out on its own every Monday morning, and nobody gets two in a day. The button itself won't let you nag them twice."
 
 **(b) The wording is yours.**
 
-4. Open the **Templates** tab — seven built-in messages, from **Submission received** to **Calendar invitation**. Click **Weekly task digest**.
+4. Open the **Templates** tab — twelve built-in messages, from **Submission received** to **Calendar invitation**. Click **Weekly task digest**.
 5. Type `See you in {{sessionRoom}}.` at the end of the body. It's refused: the merge field is real but a reminder can't fill it, and **Save wording** goes disabled.
    > "It would have arrived as a blank space in someone's inbox. Nobody re-reads sent mail, so we catch it here."
 6. Replace it with `Our team is around all week if you're stuck, {{speakerFirstName}}.` and click **Save wording**. Toast: **Saved "Weekly task digest"**. An **Edited** badge appears next to it.
@@ -262,14 +268,14 @@ Point at the terminal for the third `>> EMAIL` block, then at the unchanged **Un
    ```html
    <iframe src="http://localhost:3000/embed/ai-engineer-summit-2026/schedule" title="Event program" width="100%" height="720" style="border:0;" loading="lazy"></iframe>
    ```
-5. Click **Copy code** (toast: **Embed code copied**), then open `http://localhost:3000/embed/ai-engineer-summit-2026/schedule` directly — same schedule, no navigation, no branding.
+5. In the **Iframe** option, click **Copy code** (toast: **Iframe code copied**), then open `http://localhost:3000/embed/ai-engineer-summit-2026/schedule` directly — same schedule, no navigation, no branding.
    > "Every conference wants the schedule on its own marketing site. This is the whole integration: one iframe, and it stays live."
 
 ---
 
 ## Close
 
-> "One talk, ten minutes: proposed by someone with no account, routed to the right reviewer and hidden from the wrong one, sent back for a fix, accepted with feedback that reached the speaker's inbox, turned into a session and twelve onboarding tasks nobody typed, scheduled through a conflict and out the other side, invited to the calendar, and published to a public page you can embed anywhere. Greenroom is open source, it deploys to Cloudflare Workers, and the whole data layer sits behind a storage-agnostic repository interface — so this same product runs on D1, Postgres, or anything else you point it at. Thanks for watching."
+> "One talk, ten minutes: proposed by someone with no account, routed to the right reviewer and hidden from the wrong one, sent back for a fix, accepted with feedback that reached the speaker's inbox, turned into a session and twelve onboarding tasks nobody typed, scheduled through a conflict and out the other side, invited to the calendar, and published to a public page you can embed anywhere. Greenroom is open source, it deploys to Cloudflare Workers, and the whole data layer sits behind a storage-agnostic repository interface — so another datastore can be supported by implementing its adapter. Thanks for watching."
 
 ---
 
@@ -324,6 +330,6 @@ Congratulations — we'd love this on the Evals & Reliability track. Aim for 45 
 **If something goes sideways mid-take:**
 
 - *The drag doesn't stick* — dnd-kit needs a real pointer path. Press and hold, move ~20px first, then travel to the target; drop only once the slot is highlighted. Fallback: click the tray card and set day/room/time in the dialog instead.
-- *"Send task digest now" says "Nothing to send" on the first press* — a previous run is inside the 24-hour manual cooldown. Re-seed.
+- *"Send task digest now" is disabled on the first visit* — the local data was not freshly seeded and a previous run is inside the 24-hour manual cooldown. Re-seed.
 - *Numbers in the reminder toast differ from the script* — expected; they depend on the exact hour you seeded. Only the shape matters: a sent count plus a per-reason skip breakdown.
 - *Accept reports 6 tasks across 1 speaker, not 12 across 2* — you skipped the co-speaker in Act 2. Harmless; adjust the line you say.

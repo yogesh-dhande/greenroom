@@ -9,15 +9,13 @@
  * the app's own behaviour — see the "why not two-way" section of the design
  * note.
  *
- * Two deliberate limitations, both from the design note:
+ * Two deliberate constraints, both from the design note:
  *
- * 1. **Stale rows.** A record deleted in D1 keeps its Airtable row: a
- *    projection only ever writes rows it can see, and a delete leaves nothing
- *    behind to project. Reconciling deletions would mean listing every
- *    Airtable record on every run purely to diff it, which costs far more
- *    requests (against a 5 req/s base limit) than the reporting value is
- *    worth. Organizers delete the stale row, or filter on the sync's
- *    `Updated At`.
+ * 1. **Deletion reconciliation is full-sync only.** A complete scheduled
+ *    projection lists each canonical Airtable table and removes rows whose
+ *    non-empty `greenroom_id` no longer exists in D1. Event-scoped admin
+ *    syncs cannot know whether another event still owns a row, so they only
+ *    upsert. Rows without a Greenroom id are human-owned and never deleted.
  * 2. **Schema drift on existing tables.** Missing fields are added via the
  *    create-field endpoint, but an existing field whose *type* differs from
  *    the spec below is left alone (Airtable field conversions are lossy and
@@ -205,6 +203,7 @@ export interface AirtableSyncContext {
 export interface AirtableTableCounts {
   created: number;
   updated: number;
+  deleted: number;
   failed: number;
 }
 
@@ -220,6 +219,7 @@ export interface AirtableSyncSummary {
   /** Totals across every table. */
   created: number;
   updated: number;
+  deleted: number;
   failed: number;
   /** Anything that went wrong, already stringified for a log line. */
   errors: string[];
@@ -736,6 +736,16 @@ interface UpsertResponse {
   updatedRecords?: string[];
 }
 
+interface ListedRecord {
+  id: string;
+  fields?: Record<string, unknown>;
+}
+
+interface ListRecordsResponse {
+  records?: ListedRecord[];
+  offset?: string;
+}
+
 /**
  * Writes one table's rows with Airtable's batch upsert.
  *
@@ -783,6 +793,86 @@ async function upsertTable(
   }
 }
 
+/**
+ * Lists every record in a canonical table, following Airtable's opaque
+ * pagination cursor. Only the ownership field is requested: reconciliation
+ * must not read or make decisions from human-maintained Airtable columns.
+ */
+async function listManagedRecords(
+  client: AirtableClient,
+  table: ResolvedTable,
+): Promise<ListedRecord[]> {
+  const records: ListedRecord[] = [];
+  let offset: string | undefined;
+
+  do {
+    const query = new URLSearchParams({ pageSize: "100" });
+    query.append("fields[]", GREENROOM_ID_FIELD);
+    if (offset) query.set("offset", offset);
+
+    const response = await client.request<ListRecordsResponse>(
+      "GET",
+      `/v0/${client.baseId}/${table.id}?${query.toString()}`,
+    );
+    records.push(...(response.records ?? []));
+    offset = response.offset?.trim() || undefined;
+  } while (offset);
+
+  return records;
+}
+
+/**
+ * Removes projection-owned rows that disappeared from the complete source
+ * projection. A blank/missing `greenroom_id` is the ownership boundary: such
+ * rows came from a human or another automation and Greenroom leaves them
+ * untouched.
+ */
+async function reconcileDeletedRecords(
+  client: AirtableClient,
+  name: AirtableTableName,
+  table: ResolvedTable,
+  currentRows: AirtableFields[],
+  summary: AirtableSyncSummary,
+): Promise<void> {
+  if (!table.fields.has(GREENROOM_ID_FIELD)) return;
+
+  let listed: ListedRecord[];
+  try {
+    listed = await listManagedRecords(client, table);
+  } catch (error) {
+    summary.errors.push(`${name}: couldn't list records for deletion reconciliation — ${describe(error)}`);
+    return;
+  }
+
+  const currentIds = new Set(
+    currentRows
+      .map((row) => row[GREENROOM_ID_FIELD]?.trim())
+      .filter((id): id is string => Boolean(id)),
+  );
+  const staleRecordIds = listed.flatMap((record) => {
+    const value = record.fields?.[GREENROOM_ID_FIELD];
+    const sourceId = typeof value === "string" ? value.trim() : "";
+    return sourceId && !currentIds.has(sourceId) ? [record.id] : [];
+  });
+
+  const counts = summary.tables[name];
+  for (const batch of chunk(staleRecordIds, AIRTABLE_BATCH_SIZE)) {
+    const query = new URLSearchParams();
+    for (const recordId of batch) query.append("records[]", recordId);
+
+    try {
+      const response = await client.request<{ records?: unknown[] }>(
+        "DELETE",
+        `/v0/${client.baseId}/${table.id}?${query.toString()}`,
+      );
+      counts.deleted += response.records?.length ?? batch.length;
+    } catch (error) {
+      counts.failed += batch.length;
+      summary.errors.push(`${name}: ${batch.length} stale record(s) failed to delete — ${describe(error)}`);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -793,14 +883,15 @@ function emptySummary(): AirtableSyncSummary {
     skippedReason: null,
     tablesCreated: [],
     tables: {
-      Events: { created: 0, updated: 0, failed: 0 },
-      Speakers: { created: 0, updated: 0, failed: 0 },
-      Submissions: { created: 0, updated: 0, failed: 0 },
-      Sessions: { created: 0, updated: 0, failed: 0 },
-      Tasks: { created: 0, updated: 0, failed: 0 },
+      Events: { created: 0, updated: 0, deleted: 0, failed: 0 },
+      Speakers: { created: 0, updated: 0, deleted: 0, failed: 0 },
+      Submissions: { created: 0, updated: 0, deleted: 0, failed: 0 },
+      Sessions: { created: 0, updated: 0, deleted: 0, failed: 0 },
+      Tasks: { created: 0, updated: 0, deleted: 0, failed: 0 },
     },
     created: 0,
     updated: 0,
+    deleted: 0,
     failed: 0,
     errors: [],
   };
@@ -852,12 +943,19 @@ export async function runAirtableSync(ctx: AirtableSyncContext): Promise<Airtabl
     for (const name of AIRTABLE_TABLES) {
       const table = tables.get(name);
       const tableRows = rows[name];
-      if (tableRows.length === 0) continue;
       if (!table) {
         summary.tables[name].failed += tableRows.length;
         continue;
       }
-      await upsertTable(client, name, table, tableRows, summary);
+      if (tableRows.length > 0) {
+        await upsertTable(client, name, table, tableRows, summary);
+      }
+      // An event-scoped projection is intentionally incomplete. Only the
+      // scheduled/full run can distinguish a globally deleted row from one
+      // that simply belongs to another event.
+      if (!ctx.eventId) {
+        await reconcileDeletedRecords(client, name, table, tableRows, summary);
+      }
     }
   } catch (error) {
     summary.errors.push(describe(error));
@@ -866,6 +964,7 @@ export async function runAirtableSync(ctx: AirtableSyncContext): Promise<Airtabl
   for (const counts of Object.values(summary.tables)) {
     summary.created += counts.created;
     summary.updated += counts.updated;
+    summary.deleted += counts.deleted;
     summary.failed += counts.failed;
   }
 
@@ -882,11 +981,11 @@ export function formatAirtableSummary(summary: AirtableSyncSummary): string {
 
   const perTable = AIRTABLE_TABLES.map((name) => {
     const counts = summary.tables[name];
-    return `${name} +${counts.created}/~${counts.updated}${counts.failed > 0 ? `/!${counts.failed}` : ""}`;
+    return `${name} +${counts.created}/~${counts.updated}/-${counts.deleted}${counts.failed > 0 ? `/!${counts.failed}` : ""}`;
   }).join(", ");
 
   return [
-    `airtable sync: ${summary.created} created, ${summary.updated} updated, ${summary.failed} failed`,
+    `airtable sync: ${summary.created} created, ${summary.updated} updated, ${summary.deleted} deleted, ${summary.failed} failed`,
     `(${perTable})`,
     summary.tablesCreated.length > 0 ? `tables created: ${summary.tablesCreated.join(", ")}` : null,
     summary.errors.length > 0 ? `errors: ${summary.errors.join(" | ")}` : null,
