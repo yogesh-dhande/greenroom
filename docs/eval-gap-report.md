@@ -1,8 +1,8 @@
 # Evaluator fix backlog
 
-**Source:** evaluator run 7, `killmysaas-evals/runs/2026-08-11T00-41-30`
+**Source:** evaluator run 8, `killmysaas-evals/runs/2026-08-11T11-46-40`
 
-**Result:** 93.0% required score, 98.1% weighted coverage
+**Result:** 95.5% required score, 97.6% weighted coverage
 
 **Prepared:** 2026-08-11
 
@@ -39,15 +39,19 @@ Acceptance criteria:
 
 ### F2. Eliminate recurring Worker request-path stalls
 
-**Status:** reopened; request-time dispatcher import is eliminated but the production stall recurred. Worker `969537a9-f2e0-4611-9d85-2d584a5530d0` replaces OpenNext's generated dispatcher with an equivalent local, statically bound route. Its final Wrangler bundle excludes the generated dispatcher, and a 15-minute mixed-persona soak completed 370/370 requests followed by a 200/200 concurrent burst. A later request on that same deployed version nevertheless reproduced the incident on dynamic `/`: 93,946 ms wall, 20 ms CPU, `outcome=canceled`, no exception, sequence 6 with two active requests. The underlying cross-request trigger remains open.
+**Status:** open. Run 8 recorded 23 full-navigation gaps of 28–33 seconds across 17 incident episodes and 17 of 20 scenarios. Eighteen exact-same-code recovery deploys were used; most restored the next navigation, while one episode required a second redeploy. The run did not preserve a matching Cloudflare tail for each timeout, so the per-request attribution is not proven, but the pattern matches the previously captured Worker start-without-finish incident. The underlying trigger remains unknown.
 
 **Current posture:** treat this as a known unresolved production incident in the current OpenNext 1.20.2-on-Cloudflare-Workers deployment. It has not reproduced in the local Next.js runtime and does not establish a Greenroom product-logic defect, an inherent framework/platform limitation, or a limitation of other deployment targets. Retain the low-risk lifecycle diagnostics and static-dispatch release invariant, but do not carry private OpenNext/Next patches without a trace that identifies the failing promise or exception. F2 remains open; evaluator navigation timeouts and Worker start-without-finish traces must be correlated rather than treated as one clock.
 
 **Affected:** all required areas; explicitly observed on `/`, `/admin`,
 `/portal`, event navigation, and Agenda
 
-**Evidence:** repeated 30-second navigation timeouts and blank `Loading…`
-states; same-code redeploys restored service during the run.
+**Evidence:** repeated 30-second navigation timeouts on `/`, `/admin`, `/portal`,
+event pages, and Agenda. Some occurred at fresh scenario/browser boundaries and
+one occurred during an ordinary mid-scenario transition. The evaluator ran
+mostly serially, so the evidence does not support a sustained-load threshold,
+a particular page, authentication, D1, or application feature as the trigger.
+Same-code redeploy usually restored service, but not deterministically.
 
 This recurred after D-082's preload-only implementation, proving the prior fix
 did not remove the production trigger from the final bundle.
@@ -64,9 +68,9 @@ Why these are known deployment stalls:
   OpenNext 1.20.2 dynamically imported the generated Next handler inside each
   request. That was a valid request-context risk to remove, but the recurrence
   from a bundle without the dispatcher proves it was not a sufficient cause.
-- Affected isolates appeared to remain poisoned and consume later requests.
-  A same-code redeploy creates a new Worker version and replaces those isolates,
-  which explains the immediate recovery without any database or code change.
+- Affected Worker state can continue to stall later requests. Same-code
+  redeploys have repeatedly cleared that state without a database or code
+  change, but the exact state and why a redeploy clears it are still inferences.
 - D-082 preloaded the handler and removed cron-only modules from the fetch
   startup graph, but still imported the generated dispatcher. Wrangler's
   minified bundle retained its per-request dynamic-import branch. Production
@@ -94,7 +98,7 @@ Acceptance criteria:
 
 ### F3. Stop repeated-run duplicates from corrupting workflow state
 
-**Status:** signed-in exact-proposal and exact-task replay guards implemented; existing production duplicates intentionally untouched.
+**Status:** signed-in exact-proposal and exact-task replay guards implemented and directly exercised in run 8; existing production duplicates intentionally untouched.
 
 **Affected:** CFP (major), Content (major), Speaker Management, Agenda, CRM
 
@@ -113,6 +117,11 @@ Split this into safe guards rather than one risky global merge:
   cannot leave that same proposal simultaneously denied and scheduled.
 
 Record merge remains excluded by D-065/D-077 and is not part of this item.
+Run 8's CFP flow visibly blocked an exact proposal replay and allowed a changed
+proposal. Its task flow deliberately selected **Create it anyway** before
+creating repeated task definitions. The judge's statements that no proposal
+guard existed and that the task override was preselected contradict the run's
+own screenshot/transcript and the control's default-false implementation.
 
 ### F4. Fix reviewer workspace and assignment controls
 
@@ -235,17 +244,79 @@ accepted scope:
   run data. F3 should prevent new accidental duplicates; cleaning the existing
   production dataset is a separate destructive operation requiring owner
   approval.
-- **Capped SPK-S1/CNT-S3 evidence:** the 120-turn cap lowered coverage; it is not
-  itself an application defect.
+- **Capped SPK-S1 evidence:** the scenario reached the 120-turn evaluator cap
+  after completing most of its flow. That lowered Speaker coverage and left CSV
+  import/filter evidence incomplete; it is not itself an application defect.
+
+## Run 8 product defects, coverage gaps, and evaluator oddities
+
+The run improved the required score from 93.0% to 95.5%. Section scores were
+CFP 93.1, ABS 96.4, SPK 96.7, CNT 96.8, AIA 100, EMB 92.9, and CRM 97.4.
+
+### Confirmed or actionable product gaps
+
+- **Blind-review decision context (highest priority):** speaker identity and the
+  organizer-only decision controls are hidden correctly, but a blind reviewer
+  can still see the current decision status, deciding organizer, and decision
+  outcome copy. Existing rounds E2E verifies identity/note isolation and
+  assignment-only scoring, but does not assert that decision outcome metadata
+  is hidden while the round is blind.
+- **Format facet:** filtering logic and unit tests already support Track, Room,
+  and Format, but the public schedule hides a facet when fewer than two values
+  exist. The current event has one format, so the evaluator could not see a
+  Format control. Public E2E covers Track and Room, not Format.
+- **ZIP export feedback:** the ZIP download is functional. The files E2E waits
+  for the actual download, opens the archive, checks its signature and latest
+  selected content, and excludes old/deselected files. The missing behavior is
+  visible download-start feedback, not export correctness.
+- **Files-table layout:** high-cardinality speaker/session associations can
+  squeeze and overlap the Task and Session scope columns at the evaluator's
+  viewport. Functional file/session navigation and export are covered, but no
+  visual or geometry assertion protects this layout.
+- **Coverage-only gaps:** event-roster CSV import has extensive parser/unit
+  coverage but no direct event import E2E; confirmation filtering has domain
+  tests and public confirmation-state E2E but no roster-filter E2E. The task
+  duplicate policy has domain tests, but no rendered rejection/default-off
+  override E2E. These are missing regression tests, not demonstrated runtime
+  failures.
+
+### Evaluator, deployment, or accumulated-data artifacts
+
+- Radix room selection was driven with a native-select evaluator command. The
+  saved room/day state is covered by Agenda and Program E2E, including reload.
+- The Agenda count of 4, then 2, then 0 represented distinct room/speaker
+  conflict pairs and causes. Unit tests cover simultaneous conflict types and
+  Agenda E2E covers creation and resolution.
+- CRM search succeeded on retry; the focused E2E covers debounced search,
+  filter composition, clearing, and a subsequent search. The first frozen URL
+  is consistent with the Worker/RSC navigation incident, not a search-rule bug.
+- Generic “link did not navigate” claims span unrelated links whose destinations
+  are covered by CRM, event-config, portal, and embed E2E. They are best treated
+  as evaluator timing or Worker-transition symptoms unless locally reproduced.
+- Repeated tasks, proposals, sessions, same-name contacts, public text markers,
+  and duplicated description sentences are accumulated evaluator-authored
+  production data. Current guards prevent only new accidental exact replays;
+  destructive cleanup remains separately approval-gated.
+- `Alex Organizer` is the saved display name of the authenticated evaluator
+  account, not a hard-coded audit actor; review E2E proves actor-derived copy.
+
+### Deliberate scope, not defects
+
+AI review (D-034), CRM record merge/custom fields (D-065/D-077), saved embed
+entities (D-080), and a public event directory are not current product claims.
+Speaker-wide files are intentional under D-079. Same-name people with different
+email identities remain separate, and reviewer access to admin routes remains
+denied by redirect. These should not be implemented solely to satisfy a raw
+evaluator comment without a product decision.
 
 ## Verification and next-run order
 
-1. Fix F1 and exercise a real controlled invitation.
-2. Fix/investigate F2 and complete a sustained deployed soak.
-3. Land F3–F8 with unit tests for domain/lib changes and E2E coverage for each
-   changed key flow.
-4. Run `npm run test`, `npm run typecheck`, `npm run lint`, production build,
-   and the relevant Playwright suites.
-5. Deploy once, record the Worker version, and run the deployed smoke.
-6. Request approval before any production evaluator-data cleanup or reset.
-7. Rerun the evaluator, then complete its latest manual checklist.
+1. Await owner prioritization of the confirmed run-8 product gaps; do not turn
+   deployment/evaluator oddities into speculative framework patches.
+2. Add the missing E2E assertions alongside any selected product changes.
+3. Run unit, type, lint, build, and the full Playwright suite before deployment.
+4. Request approval before any production evaluator-data cleanup or reset.
+5. Deploy once, record the Worker version, and run the deployed smoke. Preserve
+   Worker traces before any recovery redeploy if F2 recurs.
+6. Do not start another multi-hour evaluator run while product or test work is
+   pending. After the next run, complete its newest manual checklist.

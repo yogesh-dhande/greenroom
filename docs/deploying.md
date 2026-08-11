@@ -200,9 +200,13 @@ request-time handler import was not a sufficient cause. The deeper trigger is
 unresolved. Keep the lifecycle diagnostics and capture a recurrence before
 adding more framework-level mitigations. Greenroom intentionally does not
 carry private patches to OpenNext or Next.js for this unproven trigger.
-A same-code redeploy has cleared the affected Worker state and restored service
-immediately without changing D1 or R2, but that recovery can be temporary while
-the deployed bundle still contains an unknown trigger. Treat a sustained deployed
+Same-code redeploys have repeatedly cleared the affected Worker state and
+restored service without changing D1 or R2, but recovery is not deterministic:
+evaluator run 8 needed 18 recovery deploys across 17 incident episodes, and one
+episode required a second redeploy. The run recorded 23 28–33s full-navigation
+gaps across public `/`, `/admin`, `/portal`, event pages, and Agenda while
+traffic was mostly serial. This does not establish a sustained-load threshold,
+a specific route, or authentication as the trigger. Treat a sustained deployed
 soak as evidence for a particular version, not proof that the structural cause
 has been removed.
 
