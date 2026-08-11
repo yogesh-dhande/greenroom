@@ -55,6 +55,7 @@ const formSchema = z
     autoAssignOnAccept: z.boolean(),
     assigneeMode: z.enum(["all_confirmed", "selected"]),
     assigneeSpeakerIds: z.array(z.string()),
+    allowDuplicate: z.boolean(),
   })
   .refine((v) => v.type !== "form" || Boolean(v.formId), {
     message: "Choose which form this task collects",
@@ -87,6 +88,7 @@ function defaultsFor(
     // dialog can add assignees, never remove them (their rows may already
     // carry submitted work).
     assigneeSpeakerIds: assignedSpeakerIds,
+    allowDuplicate: false,
   };
 }
 
@@ -385,6 +387,31 @@ export function TaskFormDialog({
               )}
             />
           </div>
+
+          {!task ? (
+            <div className="flex items-start gap-2.5 rounded-md border border-border px-3 py-2.5">
+              <Controller
+                control={control}
+                name="allowDuplicate"
+                render={({ field }) => (
+                  <Checkbox
+                    id="task-allow-duplicate"
+                    checked={field.value}
+                    onCheckedChange={(checked) => field.onChange(checked === true)}
+                  />
+                )}
+              />
+              <div className="flex flex-col gap-0.5">
+                <Label htmlFor="task-allow-duplicate" className="font-normal">
+                  Create it anyway
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Allow a second task with the same title, type, and due date when the duplicate
+                  is intentional.
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           {errors.root && <p className="text-sm text-destructive">{errors.root.message}</p>}
           <DialogFooter>

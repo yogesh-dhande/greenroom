@@ -272,6 +272,8 @@ async function fire(client, route, klass, persona, round) {
   const isAuthed = klass.startsWith("authed:");
   const timeoutMs = isAuthed ? TERMINAL_TIMEOUT_MS : NORMAL_TIMEOUT_MS;
   const startedAt = Date.now();
+  const startedAtIso = new Date(startedAt).toISOString();
+  const probeId = `r${round}:${klass}:${route}`;
   try {
     const res = await client.get(route, {
       timeout: timeoutMs,
@@ -280,14 +282,16 @@ async function fire(client, route, klass, persona, round) {
       headers: {
         // Correlation handles for `wrangler tail` / Workers Logs.
         "x-greenroom-smoke": RUN_ID,
-        "x-greenroom-smoke-probe": `r${round}:${klass}:${route}`,
+        "x-greenroom-smoke-probe": probeId,
       },
     });
     const body = await res.body();
     const headers = res.headers();
     return {
       ts: new Date().toISOString(),
+      started_at: startedAtIso,
       run_id: RUN_ID,
+      probe_id: probeId,
       round,
       route,
       class: klass,
@@ -308,7 +312,9 @@ async function fire(client, route, klass, persona, round) {
     const timedOut = /timed?\s*out|timeout/i.test(message);
     return {
       ts: new Date().toISOString(),
+      started_at: startedAtIso,
       run_id: RUN_ID,
+      probe_id: probeId,
       round,
       route,
       class: klass,

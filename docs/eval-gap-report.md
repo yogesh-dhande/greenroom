@@ -15,6 +15,8 @@ raw defect array as an implementation plan without this triage.
 
 ### F1. Repair calendar-invite delivery and prove it through the real sender
 
+**Status:** implemented and unit-tested; deployment and controlled live send pending.
+
 **Affected:** Speaker Management (major), Speaker CRM activity feed
 
 **Evidence:** four calendar-invite deliveries failed while ordinary SendGrid
@@ -36,6 +38,8 @@ Acceptance criteria:
   failed sends automatically.
 
 ### F2. Eliminate recurring authenticated-route stalls
+
+**Status:** unresolved; privacy-preserving per-isolate/request lifecycle diagnostics added for the next occurrence.
 
 **Affected:** all required areas; explicitly observed on `/`, `/admin`,
 `/portal`, event navigation, and Agenda
@@ -87,6 +91,8 @@ Acceptance criteria:
 
 ### F3. Stop repeated-run duplicates from corrupting workflow state
 
+**Status:** signed-in exact-proposal and exact-task replay guards implemented; existing production duplicates intentionally untouched.
+
 **Affected:** CFP (major), Content (major), Speaker Management, Agenda, CRM
 
 **Evidence:** identical submissions, sessions, tasks, and same-name contacts
@@ -128,6 +134,8 @@ product-decision change, not a bug fix in this backlog.
 
 ### F5. Make the public speaker gallery discoverable as a gallery
 
+**Status:** implemented with public and embedded `/gallery` aliases and route coverage.
+
 **Affected:** Public Widgets (major)
 
 **Evidence:** the real gallery is implemented at `/p/<slug>/speakers` and the
@@ -144,6 +152,8 @@ Acceptance criteria:
   gallery.
 
 ### F6. Fix public detail-modal dismissal
+
+**Status:** implemented by unmounting controlled dialog content as soon as selection clears.
 
 **Affected:** Public Widgets
 
@@ -171,6 +181,8 @@ Acceptance criteria:
   skipped, and sent counts instead of silently narrowing recipients.
 
 ### F8. Tighten speaker-portal feedback
+
+**Status:** implemented for confirm-task convergence and direct file/headshot replacement controls.
 
 **Affected:** Speaker Management
 

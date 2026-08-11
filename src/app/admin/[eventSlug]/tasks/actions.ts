@@ -13,6 +13,7 @@ import {
   resolveAssigneeSpeakerIds,
   TASK_ASSIGNEE_MODES,
 } from "@/domain/task-assign";
+import { findDuplicateTask } from "@/domain/tasks";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
 import { requireAdmin, type SessionUser } from "@/lib/session";
@@ -40,6 +41,8 @@ const taskInputSchema = z
     assigneeMode: z.enum(TASK_ASSIGNEE_MODES).optional(),
     /** Ticked speakers; only read when `assigneeMode` is "selected". */
     assigneeSpeakerIds: z.array(z.string()).optional(),
+    /** Explicit escape hatch when two task templates really are intentional. */
+    allowDuplicate: z.boolean().optional(),
   })
   .refine((v) => v.type !== "form" || Boolean(v.formId), {
     message: "Choose which form this task collects",
@@ -156,6 +159,21 @@ export async function createTask(eventSlug: string, input: TaskInput) {
     if (!form || form.eventId !== event.id) return fail("Choose a form that belongs to this event");
   }
 
+  const dueAt = fromZonedInputValue(v.dueAt ?? "", event.timezone);
+  if (!v.allowDuplicate) {
+    const duplicate = findDuplicateTask(await repos.tasks.listByEvent(event.id), {
+      eventId: event.id,
+      title: v.title,
+      type: v.type,
+      dueAt,
+    });
+    if (duplicate) {
+      return fail(
+        "A task with this title, type, and due date already exists. Tick ‘Create it anyway’ if a second copy is intentional.",
+      );
+    }
+  }
+
   let task;
   try {
     task = await repos.tasks.create({
@@ -164,7 +182,7 @@ export async function createTask(eventSlug: string, input: TaskInput) {
       instructions: v.instructions?.trim() || null,
       type: v.type,
       formId: v.type === "form" ? (v.formId ?? null) : null,
-      dueAt: fromZonedInputValue(v.dueAt ?? "", event.timezone),
+      dueAt,
       autoAssignOnAccept: v.autoAssignOnAccept,
     });
   } catch {

@@ -45,6 +45,11 @@ describe("embed configuration", () => {
     expect(embedOutput("https://greenroom.test", "summit", "iframe", config)).toContain("<iframe");
     expect(embedOutput("https://greenroom.test", "summit", "ical", config)).toContain("feed.ics");
   });
+
+  it("gives the speaker gallery its own discoverable embed route", () => {
+    const config = { ...DEFAULT_EMBED_CONFIG, widget: "gallery" as const };
+    expect(embedSurfacePath("summit", config)).toBe("/embed/summit/gallery?widget=gallery");
+  });
 });
 
 describe("configured program data", () => {

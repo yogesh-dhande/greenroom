@@ -56,6 +56,13 @@ export interface SaveSubmissionInput {
    * the committee doesn't change state through the answer-saving path.
    */
   status?: SubmissionStatus;
+  /**
+   * Refuse a new, already-submitted proposal only when the caller has proved
+   * which speaker is signed in. Public CFP intake supplies the authenticated
+   * user's id; anonymous intake and organizer-on-behalf entry deliberately do
+   * not, because an email typed into a public form is not proof of identity.
+   */
+  duplicateGuardSpeakerId?: string;
 }
 
 export type SaveSubmissionResult =
@@ -95,6 +102,40 @@ export async function speakerLimitState(
 function text(values: FormValues, id: string): string {
   const value = values[id];
   return typeof value === "string" ? value.trim() : "";
+}
+
+/** JSON values stored in `answers` have object-key-insensitive identity. */
+function canonicalAnswer(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalAnswer);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalAnswer(child)]),
+    );
+  }
+  return value;
+}
+
+/**
+ * Exact proposal-content identity for the signed-in repeat-submit guard.
+ * Workflow state and timestamps are intentionally absent: a prior acceptance
+ * is still the same proposal, while a changed answer remains a legitimate new
+ * proposal. Drafts and withdrawn proposals are inactive (withdrawal explicitly
+ * frees a submission slot), and edits carry a submission id, so none of those
+ * can be mistaken for a repeated create.
+ */
+export function isIdenticalSubmittedProposal(
+  existing: Pick<Submission, "title" | "description" | "answers" | "status">,
+  candidate: Pick<NewSubmission, "title" | "description" | "answers">,
+): boolean {
+  if (existing.status === "draft" || existing.status === "withdrawn") return false;
+  return (
+    existing.title === candidate.title &&
+    existing.description === candidate.description &&
+    JSON.stringify(canonicalAnswer(existing.answers)) ===
+      JSON.stringify(canonicalAnswer(candidate.answers))
+  );
 }
 
 /**
@@ -339,6 +380,30 @@ export async function saveSubmission(
     decidedAt: null,
     decisionNote: null,
   };
+
+  // A signed-in speaker can accidentally replay the public create action (or
+  // an evaluator can run the same setup twice). Once identity and content both
+  // match, inserting again would fan out into a second review item and, after
+  // acceptance, a second session. Keep this deliberately narrower than email
+  // deduplication: anonymous submissions have no authenticated identity, and
+  // drafts/edits are legitimate records with their own ids.
+  if (
+    !input.submissionId &&
+    !isDraft &&
+    input.duplicateGuardSpeakerId === primary.id
+  ) {
+    const existing = await ctx.repos.submissions.listByFormAndSpeaker(
+      input.form.id,
+      primary.id,
+    );
+    if (existing.some((row) => isIdenticalSubmittedProposal(row, payload))) {
+      return {
+        ok: false,
+        error:
+          "You've already submitted this proposal on this form. Open your speaker portal to update it instead.",
+      };
+    }
+  }
 
   let submission: Submission;
   let created: boolean;

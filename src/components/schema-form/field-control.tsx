@@ -66,6 +66,32 @@ function FileControl({
       name={field.id}
       render={({ field: controlled }) => {
         const key = typeof controlled.value === "string" ? controlled.value : "";
+        async function pickFile(event: React.ChangeEvent<HTMLInputElement>) {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          setProblem(null);
+          const invalid = checkUpload(file, kind);
+          if (invalid) {
+            setProblem(uploadProblemMessage(invalid, kind));
+            event.target.value = "";
+            return;
+          }
+          setBusy(true);
+          try {
+            const data = new FormData();
+            data.set("file", file);
+            data.set("scope", uploadScope);
+            const result = await uploadAction(data);
+            if (result.ok) controlled.onChange(result.key);
+            else setProblem(result.error);
+          } catch {
+            setProblem("That upload didn't go through — try again.");
+          } finally {
+            setBusy(false);
+            event.target.value = "";
+          }
+        }
+
         return (
           <div className="flex flex-col gap-2">
             {key ? (
@@ -92,6 +118,11 @@ function FileControl({
                 >
                   {filenameFromKey(key)}
                 </a>
+                <Button type="button" size="sm" variant="outline" asChild>
+                  <label htmlFor={field.id} className="cursor-pointer">
+                    Replace
+                  </label>
+                </Button>
                 <Button
                   type="button"
                   size="icon-sm"
@@ -103,48 +134,23 @@ function FileControl({
                   <XIcon />
                 </Button>
               </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Input
-                  id={field.id}
-                  type="file"
-                  accept={acceptAttributeForKind(kind)}
-                  disabled={busy}
-                  className="file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs file:font-medium file:text-secondary-foreground"
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    if (!file) return;
-                    setProblem(null);
-                    const invalid = checkUpload(file, kind);
-                    if (invalid) {
-                      setProblem(uploadProblemMessage(invalid, kind));
-                      event.target.value = "";
-                      return;
-                    }
-                    setBusy(true);
-                    try {
-                      const data = new FormData();
-                      data.set("file", file);
-                      data.set("scope", uploadScope);
-                      const result = await uploadAction(data);
-                      if (result.ok) controlled.onChange(result.key);
-                      else setProblem(result.error);
-                    } catch {
-                      setProblem("That upload didn't go through — try again.");
-                    } finally {
-                      setBusy(false);
-                      event.target.value = "";
-                    }
-                  }}
-                />
-                {busy ? (
-                  <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <LoaderCircleIcon className="size-4 animate-spin" />
-                    Uploading…
-                  </span>
-                ) : null}
-              </div>
-            )}
+            ) : null}
+            <Input
+              id={field.id}
+              type="file"
+              accept={acceptAttributeForKind(kind)}
+              disabled={busy}
+              className={key
+                ? "sr-only"
+                : "file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs file:font-medium file:text-secondary-foreground"}
+              onChange={pickFile}
+            />
+            {busy ? (
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <LoaderCircleIcon className="size-4 animate-spin" />
+                {key ? "Uploading replacement…" : "Uploading…"}
+              </span>
+            ) : null}
             {problem ? <p className="text-sm text-destructive">{problem}</p> : null}
           </div>
         );

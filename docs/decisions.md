@@ -523,6 +523,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** Evaluator run 7 exercised the production sender and all four invite deliveries failed with SendGrid 400: `The attachment type cannot contain ';', or CRLF characters.` Ordinary email through the same sender succeeded and public `.ics` downloads remained valid, isolating the regression to SendGrid's attachment JSON constraint. D-020's parameterized attachment type describes standard MIME behavior but is not representable through SendGrid's v3 Mail Send API; narrowing only at the provider boundary preserves the richer domain/HTTP representation while making delivery work.
 
+## D-087: Prevent exact workflow replays without adding record merge — **accepted** (2026-08-11)
+
+**Decision:** A new public submission is refused as a duplicate only when a signed-in user's proven identity matches the primary speaker and that user already has an exact same-form, same-content non-draft/non-withdrawn proposal. Anonymous and organizer-on-behalf intake are not identity-proof and stay unchanged; drafts, edits, changed proposals, and withdrawn resubmissions remain valid. Task creation similarly refuses an exact event/title/type/due-instant match by default, with an explicit unchecked “Create it anyway” override. These are read-before-create application guards, not database uniqueness constraints, and do not merge existing records.
+
+**Rationale:** Repeated evaluator runs created identical submissions and tasks that fanned out into duplicate reviews, sessions, task checklists, agenda cards, and public program entries. Email or display-name matching alone would block legitimate people and intake, while a global uniqueness constraint would make intentional duplicate tasks impossible and still would not define safe auth-aware record merge. Narrow guards at the creation boundary prevent the demonstrated replay without changing D-065/D-077's no-merge decision or the storage abstraction.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

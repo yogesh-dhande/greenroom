@@ -103,8 +103,9 @@ export function embedConfigQuery(config: EmbedConfig): string {
   return params.toString();
 }
 
-export function embedFamily(widget: EmbedWidget): "schedule" | "speakers" {
-  return widget === "speakers" || widget === "gallery" ? "speakers" : "schedule";
+export function embedFamily(widget: EmbedWidget): "schedule" | "speakers" | "gallery" {
+  if (widget === "gallery") return "gallery";
+  return widget === "speakers" ? "speakers" : "schedule";
 }
 
 export function embedSurfacePath(eventSlug: string, config: EmbedConfig): string {

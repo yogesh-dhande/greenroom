@@ -20,6 +20,7 @@ import type { Repos } from "@/db/repos";
 import { DEFAULT_CFP_FIELDS, publicFields } from "@/domain/forms";
 import {
   countSubmissionsByStatus,
+  isIdenticalSubmittedProposal,
   matchesSubmissionSearch,
   newResumeToken,
   queuePosition,
@@ -299,6 +300,117 @@ function save(repos: Repos, values: Record<string, unknown>, extra: Record<strin
     { form: form(), event: event(), tracks: TRACKS, values, ...extra },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Authenticated repeat-submit guard (eval gap F3)
+// ---------------------------------------------------------------------------
+
+describe("authenticated duplicate submissions", () => {
+  it("refuses the same signed-in speaker's exact proposal even after its status changes", async () => {
+    const state = fakeRepos();
+    const first = await save(state.repos, answers(), {
+      duplicateGuardSpeakerId: "user-1",
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    // A repeated evaluator run commonly encounters the proposal after the
+    // first run accepted it; workflow state must not defeat content identity.
+    state.submissions[0].status = "approved";
+    const repeated = await save(state.repos, answers(), {
+      duplicateGuardSpeakerId: first.primarySpeaker.id,
+    });
+
+    expect(repeated).toEqual({
+      ok: false,
+      error:
+        "You've already submitted this proposal on this form. Open your speaker portal to update it instead.",
+    });
+    expect(state.submissions).toHaveLength(1);
+  });
+
+  it("does not treat an unauthenticated email field as proven identity", async () => {
+    const state = fakeRepos();
+    await save(state.repos, answers());
+    const repeated = await save(state.repos, answers());
+
+    expect(repeated.ok).toBe(true);
+    expect(state.submissions).toHaveLength(2);
+  });
+
+  it("allows drafts and updates to keep their existing semantics", async () => {
+    const state = fakeRepos();
+    const draft = await save(state.repos, answers(), {
+      status: "draft",
+      duplicateGuardSpeakerId: "user-1",
+    });
+    expect(draft.ok).toBe(true);
+    if (!draft.ok) return;
+
+    const promoted = await save(state.repos, answers(), {
+      submissionId: draft.submission.id,
+      status: "submitted",
+      duplicateGuardSpeakerId: draft.primarySpeaker.id,
+    });
+
+    expect(promoted.ok).toBe(true);
+    expect(state.submissions).toHaveLength(1);
+    expect(state.submissions[0].status).toBe("submitted");
+  });
+
+  it("allows a genuinely changed proposal from the same signed-in speaker", async () => {
+    const state = fakeRepos();
+    const first = await save(state.repos, answers(), {
+      duplicateGuardSpeakerId: "user-1",
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const different = await save(
+      state.repos,
+      answers({ description: "A new practitioner story about a different system." }),
+      { duplicateGuardSpeakerId: first.primarySpeaker.id },
+    );
+
+    expect(different.ok).toBe(true);
+    expect(state.submissions).toHaveLength(2);
+  });
+
+  it("allows a withdrawn proposal to be submitted again", async () => {
+    const state = fakeRepos();
+    const first = await save(state.repos, answers(), {
+      duplicateGuardSpeakerId: "user-1",
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    state.submissions[0].status = "withdrawn";
+    const replacement = await save(state.repos, answers(), {
+      duplicateGuardSpeakerId: first.primarySpeaker.id,
+    });
+
+    expect(replacement.ok).toBe(true);
+    expect(state.submissions).toHaveLength(2);
+  });
+
+  it("compares JSON answer objects independent of key insertion order", () => {
+    expect(
+      isIdenticalSubmittedProposal(
+        {
+          title: "Same talk",
+          description: "Same abstract",
+          answers: { speaker: { email: "p@example.test", name: "Priya" }, level: "Advanced" },
+          status: "submitted",
+        },
+        {
+          title: "Same talk",
+          description: "Same abstract",
+          answers: { level: "Advanced", speaker: { name: "Priya", email: "p@example.test" } },
+        },
+      ),
+    ).toBe(true);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Drafts (decisions.md D-034, D-038)

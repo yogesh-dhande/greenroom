@@ -14,6 +14,7 @@ import { acceptOnArrival } from "@/domain/review";
 import { saveSubmission, speakerLimitState } from "@/domain/submissions";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
+import { getSessionUser } from "@/lib/session";
 import type { SchemaFormResult } from "@/components/schema-form/types";
 
 interface SubmitContext {
@@ -110,6 +111,12 @@ export async function submitProposal(
   const refusal = await limitRefusal(ctx, values, submissionId);
   if (refusal) return refusal;
 
+  // Authentication is optional on the public CFP. When it is present, pass
+  // the proven identity into the domain save so an exact replay is refused;
+  // the domain guard itself verifies that it matches the proposal's primary
+  // email before applying.
+  const signedIn = submissionId ? null : await getSessionUser();
+
   const result = await saveSubmission(
     { repos: ctx.repos },
     {
@@ -119,6 +126,7 @@ export async function submitProposal(
       values,
       submissionId: submissionId ?? undefined,
       status: "submitted",
+      duplicateGuardSpeakerId: signedIn?.id,
     },
   );
   if (!result.ok) return result;

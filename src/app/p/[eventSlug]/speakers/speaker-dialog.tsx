@@ -38,8 +38,8 @@ export function SpeakerDialog({
 
   return (
     <Dialog open={speaker !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85vh] gap-4 overflow-y-auto sm:max-w-lg">
-        {speaker && (
+      {speaker && (
+        <DialogContent className="max-h-[85vh] gap-4 overflow-y-auto sm:max-w-lg">
           <>
             <DialogHeader className="flex-row items-center gap-3">
               <SpeakerHeadshot
@@ -97,8 +97,8 @@ export function SpeakerDialog({
               </DialogClose>
             </DialogFooter>
           </>
-        )}
-      </DialogContent>
+        </DialogContent>
+      )}
     </Dialog>
   );
 }

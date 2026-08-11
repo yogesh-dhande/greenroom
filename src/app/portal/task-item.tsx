@@ -196,17 +196,25 @@ export function TaskItem({
   startExpanded: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [confirmedLocally, setConfirmedLocally] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [open, setOpen] = useState(startExpanded);
   const contentId = useId();
-  const done = assignment.status === "completed";
+  const done = assignment.status === "completed" || confirmedLocally;
   const isFileTask = task.type === "file_request";
 
   function markConfirmed() {
     startTransition(async () => {
       const result = await completeConfirmTask(assignment.id);
-      if (result.ok) toast.success(result.message ?? "Done");
-      else toast.error(result.error);
+      if (result.ok) {
+        // The server has committed the transition. Reflect it immediately
+        // rather than leaving the control in a stale "Saving…" state while
+        // the refreshed RSC payload catches up on a slow connection.
+        setConfirmedLocally(true);
+        toast.success(result.message ?? "Done");
+      } else {
+        toast.error(result.error);
+      }
     });
   }
 

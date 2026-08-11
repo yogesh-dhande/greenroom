@@ -26,8 +26,10 @@ import { signIn } from "./helpers";
 const EVENT_SLUG = "ai-engineer-summit-2026";
 const OVERVIEW = `/p/${EVENT_SLUG}`;
 const SPEAKERS = `/p/${EVENT_SLUG}/speakers`;
+const GALLERY = `/p/${EVENT_SLUG}/gallery`;
 const SCHEDULE = `/p/${EVENT_SLUG}/schedule`;
 const EMBED_SPEAKERS = `/embed/${EVENT_SLUG}/speakers`;
+const EMBED_GALLERY = `/embed/${EVENT_SLUG}/gallery?widget=gallery`;
 const EMBED_SCHEDULE = `/embed/${EVENT_SLUG}/schedule`;
 
 // The seeded, accepted-and-scheduled talk (agenda.spec.ts's fixture too): day
@@ -77,6 +79,17 @@ test("the speaker gallery shows every confirmed speaker, scheduled or not", asyn
   // whether — their talk is scheduled.
   await expect(page.getByRole("heading", { name: DAMOLA })).toBeVisible();
   await expect(page.getByText(TOOL_SCHEMAS)).toBeVisible();
+});
+
+test("the gallery has stable public and embedded gallery URLs", async ({ page }) => {
+  const publicResponse = await page.goto(GALLERY);
+  expect(publicResponse?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: PRIYA })).toBeVisible();
+
+  const embedResponse = await page.goto(EMBED_GALLERY);
+  expect(embedResponse?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: PRIYA })).toBeVisible();
+  await expect(page.locator("nav")).toHaveCount(0);
 });
 
 test("the schedule shows only confirmed, scheduled sessions, in time order", async ({ page }) => {

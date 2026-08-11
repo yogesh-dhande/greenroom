@@ -57,8 +57,8 @@ export function SessionDialog({
 }) {
   return (
     <Dialog open={session !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85vh] gap-4 overflow-y-auto sm:max-w-lg">
-        {session && (
+      {session && (
+        <DialogContent className="max-h-[85vh] gap-4 overflow-y-auto sm:max-w-lg">
           <>
             <DialogHeader>
               <DialogTitle>{session.title}</DialogTitle>
@@ -112,8 +112,8 @@ export function SessionDialog({
               </DialogClose>
             </DialogFooter>
           </>
-        )}
-      </DialogContent>
+        </DialogContent>
+      )}
     </Dialog>
   );
 }
