@@ -5,10 +5,22 @@ Open-source speaker & event content management platform — an alternative to
 → acceptance → onboarding → agenda → publishing, in one Cloudflare deployment.
 The organizer UI, authenticated REST API, and remote MCP server all use the
 same workflows, so automations do not bypass validation, email, or scheduling
-rules. See
+rules. A live deployment runs at
+[greenroom.usespaces.dev](https://greenroom.usespaces.dev). See
 [spec.md](docs/spec.md) for the full product requirements and
 [decisions.md](docs/decisions.md) for the key technical decisions and their
 rationale.
+
+## Ten-minute walkthrough
+
+[![Greenroom agenda builder — click to watch the walkthrough](public/walkthrough-poster.jpg)](https://greenroom.usespaces.dev/#walkthrough)
+
+**[▶ Watch the walkthrough](https://greenroom.usespaces.dev/#walkthrough)** —
+one continuous demo on seeded data: build a CFP form, take a public submission
+through blind review to acceptance, finish onboarding in the speaker portal,
+place the talk on a conflict-aware agenda, and publish the program. The
+recording is silent; the narration runs as captions.
+([direct mp4](https://greenroom.usespaces.dev/walkthrough.mp4))
 
 ## Highlights
 
@@ -265,12 +277,18 @@ digest, CFP draft reminders, and the Airtable sync (`src/domain/comms.ts`,
 
 ## Demo walkthrough
 
-[walkthrough.md](walkthrough/walkthrough.md) is a guided demo script that follows the
-acceptance path end to end — create/open the seeded event, submit via the
-public CFP, review and accept, inspect the resulting speaker/session/tasks,
-complete portal work, send a real email and calendar invite, place the
-session on the agenda, trigger and resolve a conflict, and view the public
-program.
+The [ten-minute walkthrough](#ten-minute-walkthrough) above is embedded on the
+[landing page](https://greenroom.usespaces.dev/#walkthrough); the video, its
+caption track, and the poster frame ship as static assets
+(`public/walkthrough.mp4`, `public/walkthrough.vtt`,
+`public/walkthrough-poster.jpg`).
+
+[walkthrough.md](walkthrough/walkthrough.md) is the guided demo script behind
+it — the acceptance path end to end: create/open the seeded event, submit via
+the public CFP, review and accept, inspect the resulting
+speaker/session/tasks, complete portal work, send a real email and calendar
+invite, place the session on the agenda, trigger and resolve a conflict, and
+view the public program.
 
 The script can also record itself: `npx playwright test --config
 playwright.demo.config.ts` drives the whole demo against the seeded test

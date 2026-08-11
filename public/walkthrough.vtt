@@ -1,0 +1,848 @@
+WEBVTT
+
+1
+00:00:00.888 --> 00:00:05.400
+This is Greenroom: open-source speaker
+and session management for conferences.
+
+2
+00:00:06.200 --> 00:00:09.300
+Call for papers, reviews, speaker
+onboarding, agenda, emails,
+
+3
+00:00:09.500 --> 00:00:14.300
+and the public program. One app,
+open source, yours to deploy.
+
+4
+00:00:15.613 --> 00:00:17.600
+Here's a demo.
+
+5
+00:00:17.932 --> 00:00:22.600
+We're running AI Engineer Summit 2026, and
+its call for speakers is open right now.
+
+6
+00:00:22.810 --> 00:00:25.600
+In the next ten minutes,
+one talk goes from unknown
+
+7
+00:00:25.794 --> 00:00:28.500
+to published, with a calendar
+invite in the speaker's inbox.
+
+8
+00:00:28.696 --> 00:00:34.900
+Organizers tweak their CFP forms constantly.
+In most tools, every tweak is a support ticket.
+
+9
+00:00:35.211 --> 00:00:38.700
+Here, the form is data:
+questions, conditions, welcome copy,
+
+10
+00:00:38.868 --> 00:00:41.500
+the confirmation email, and the
+public link, all on one screen.
+
+11
+00:00:41.796 --> 00:00:45.900
+Every call for speakers this event runs.
+Open the main one.
+
+12
+00:00:46.303 --> 00:00:49.800
+Here's a question called Workshop
+requirements, with a Conditional badge.
+
+13
+00:00:49.983 --> 00:00:52.800
+The rule: when Session format
+is a 90-minute workshop.
+
+14
+00:00:52.967 --> 00:00:58.100
+It only appears when a speaker picks
+workshop. Built in the UI, nothing deployed.
+
+15
+00:00:58.384 --> 00:01:02.700
+Most talks have two people on stage, and
+most tools treat the second as an afterthought.
+
+16
+00:01:02.958 --> 00:01:06.900
+Here, co-speakers are part of the
+proposal, and every email goes to both.
+
+17
+00:01:07.232 --> 00:01:10.700
+The confirmation email is the organizer's
+own words: subject and body.
+
+18
+00:01:10.975 --> 00:01:14.300
+Merge fields fill in with
+real values when it sends.
+
+19
+00:01:14.592 --> 00:01:17.300
+And a live preview of what
+the speaker will read.
+
+20
+00:01:17.563 --> 00:01:22.400
+The public link, when it opens, and
+when it closes. Same screen.
+
+21
+00:01:22.600 --> 00:01:25.500
+Save. Nothing deployed.
+The form is live for speakers.
+
+22
+00:01:25.761 --> 00:01:29.000
+Now the speaker's side: no login
+wall, no account to create.
+
+23
+00:01:29.208 --> 00:01:31.600
+That wall is where CFP conversion dies.
+
+24
+00:01:31.767 --> 00:01:34.700
+The intro sets the bar:
+practitioner talks,
+
+25
+00:01:34.877 --> 00:01:38.600
+things you built, shipped, measured,
+and would do differently.
+
+26
+00:01:38.864 --> 00:01:42.400
+A title, an abstract, then the
+organizer's questions, in her order.
+
+27
+00:01:42.666 --> 00:01:46.600
+Tracks are a real question:
+the track decides who reviews it.
+
+28
+00:01:46.912 --> 00:01:49.700
+Pick 90-minute workshop, and
+Workshop requirements appears.
+
+29
+00:01:49.897 --> 00:01:53.900
+That's the conditional rule from a
+minute ago, working on the public form.
+
+30
+00:01:54.224 --> 00:01:58.500
+Switch to a 45-minute talk,
+and it disappears again.
+
+31
+00:02:00.420 --> 00:02:04.400
+Co-speakers are on,
+so Nadia adds Owen.
+
+32
+00:02:04.706 --> 00:02:08.100
+Proposal received, with the
+organizer's own confirmation copy.
+
+33
+00:02:08.306 --> 00:02:10.800
+A confirmation email is
+on its way to Nadia.
+
+34
+00:02:10.970 --> 00:02:13.100
+There it is: two emails,
+one per speaker.
+
+35
+00:02:13.282 --> 00:02:17.900
+The subject the organizer wrote, merge
+fields filled in with the real values.
+
+36
+00:02:18.241 --> 00:02:21.200
+Not a queue to drain later.
+Already sent.
+
+37
+00:02:21.481 --> 00:02:24.800
+Nadia can edit her proposal
+from that email. No password.
+
+38
+00:02:25.017 --> 00:02:29.200
+Back in the organizer's seat: every proposal,
+one queue, statuses in plain language.
+
+39
+00:02:29.392 --> 00:02:32.700
+Filter to Unreviewed:
+the new talk is at the top,
+
+40
+00:02:32.917 --> 00:02:37.500
+Nadia and Owen both on it,
+routed to Evals & Reliability.
+
+41
+00:02:45.024 --> 00:02:46.800
+Every answer, exactly as submitted,
+
+42
+00:02:46.947 --> 00:02:49.700
+including the co-speaker: Owen Diallo,
+Staff Engineer at Waypoint.
+
+43
+00:02:49.892 --> 00:02:53.000
+Now, something every program chair
+needs forty times per CFP.
+
+44
+00:02:53.170 --> 00:02:56.500
+This abstract is nearly right. I don't
+want to accept it or reject it.
+
+45
+00:02:56.700 --> 00:03:00.800
+I want to ask for one change, and
+I want that ask to be an email.
+
+46
+00:03:01.016 --> 00:03:03.700
+Request changes emails the speaker
+what to fix, with an edit link.
+
+47
+00:03:03.832 --> 00:03:05.900
+The submission keeps its current status.
+
+48
+00:03:06.133 --> 00:03:08.400
+A note on what to change,
+and a deadline.
+
+49
+00:03:08.603 --> 00:03:10.100
+Change request sent.
+
+50
+00:03:10.216 --> 00:03:13.500
+A real email: "A quick change
+needed" on her talk,
+
+51
+00:03:13.661 --> 00:03:17.600
+with the deadline, and a link that
+opens her proposal ready to edit.
+
+52
+00:03:17.809 --> 00:03:19.400
+And the status: still Unreviewed.
+
+53
+00:03:19.532 --> 00:03:23.500
+Asking for a fix isn't a decision,
+so it doesn't pretend to be one.
+
+54
+00:03:33.022 --> 00:03:35.100
+Review rounds: assign
+the talk to Dana.
+
+55
+00:03:35.250 --> 00:03:39.800
+That named assignment, not broad track
+access, is what lets her score it.
+
+56
+00:03:40.009 --> 00:03:44.400
+It's now in Dana's
+First-pass review queue.
+
+57
+00:03:44.581 --> 00:03:48.400
+Dana reviews Evals & Reliability.
+Marco reviews Agents & Tool Use.
+
+58
+00:03:48.619 --> 00:03:51.800
+Routing by track has to
+work in both directions.
+
+59
+00:03:51.978 --> 00:03:57.100
+Her track list is readable context, identities
+hidden, but only assigned talks can be scored.
+
+60
+00:03:57.270 --> 00:04:00.100
+One Agents & Tool Use talk
+isn't in her list at all.
+
+61
+00:04:00.253 --> 00:04:03.800
+The hard version: paste that
+talk's URL into Dana's browser.
+
+62
+00:04:04.015 --> 00:04:08.100
+Not "access denied", not greyed out.
+For Dana, the talk does not exist.
+
+63
+00:04:08.298 --> 00:04:10.500
+Her assigned talk:
+Score this submission.
+
+64
+00:04:10.694 --> 00:04:14.700
+The round is blind, so the scorecard
+opens without the speaker's identity.
+
+65
+00:04:14.948 --> 00:04:18.300
+Dana judges the proposal,
+not the name behind it.
+
+66
+00:04:18.631 --> 00:04:21.700
+Two ratings, the round's own
+vocabulary, and her reasoning.
+
+67
+00:04:21.867 --> 00:04:25.500
+Every answer belongs to this
+assignment and this scorecard.
+
+68
+00:04:25.790 --> 00:04:29.000
+Submitted. Her queue records
+the work as complete.
+
+69
+00:04:29.219 --> 00:04:31.800
+The proposal now carries
+her filed scorecard.
+
+70
+00:04:32.029 --> 00:04:35.100
+The final decision belongs to an
+event admin. Scorecards feed it.
+
+71
+00:04:35.306 --> 00:04:38.300
+Dana can't accept it herself.
+
+72
+00:04:38.500 --> 00:04:43.200
+Accepting creates a session and emails a
+promise to a human. That's the organizer's call.
+
+73
+00:04:44.852 --> 00:04:47.700
+Back as the organizer: Dana's
+scorecard is on the record,
+
+74
+00:04:47.836 --> 00:04:50.400
+her ratings, the round's Accept,
+and her reasoning.
+
+75
+00:04:50.588 --> 00:04:53.000
+A note to the speakers,
+which goes into the email.
+
+76
+00:04:53.178 --> 00:04:55.300
+Email the speakers stays ticked.
+
+77
+00:04:55.469 --> 00:05:00.500
+Accept creates the session, assigns the
+checklist, and emails everyone on the talk.
+
+78
+00:05:00.722 --> 00:05:04.000
+Session created: twelve tasks across
+two speakers, automatically.
+
+79
+00:05:04.126 --> 00:05:07.400
+Six each, because the talk has
+a co-speaker. Two emails out.
+
+80
+00:05:07.571 --> 00:05:10.500
+That's the handoff from program
+committee to speaker ops,
+
+81
+00:05:10.723 --> 00:05:15.200
+the part conferences run on a spreadsheet
+and a prayer, collapsed into one click.
+
+82
+00:05:15.422 --> 00:05:18.700
+On the record: accepted by
+Avery Chen, note echoed below.
+
+83
+00:05:18.898 --> 00:05:21.000
+Session created,
+not yet on the agenda.
+
+84
+00:05:21.197 --> 00:05:23.200
+Twelve tasks across two speakers.
+
+85
+00:05:23.426 --> 00:05:25.800
+What it doesn't do:
+guess a room and a time.
+
+86
+00:05:25.989 --> 00:05:28.500
+An accepted talk stays unscheduled
+until a human places it.
+
+87
+00:05:28.693 --> 00:05:31.400
+The email carries the committee's
+note, word for word.
+
+88
+00:05:31.635 --> 00:05:35.100
+And a "Still outstanding" list:
+all six tasks, with due dates.
+
+89
+00:05:35.291 --> 00:05:41.500
+The checklist is in the email itself, so it
+works even for speakers who never open the portal.
+
+90
+00:05:48.113 --> 00:05:52.900
+Everyone signs in the same way:
+a magic link. No passwords anywhere.
+
+91
+00:05:53.073 --> 00:05:54.600
+In production that's an email.
+
+92
+00:05:54.674 --> 00:05:58.500
+In this demo, the dev transport writes
+it to a file. Watch the terminal.
+
+93
+00:05:58.749 --> 00:06:00.500
+And she's in: her speaker home.
+
+94
+00:06:00.680 --> 00:06:02.700
+Her submission, badged Approved.
+
+95
+00:06:02.896 --> 00:06:06.500
+Her session, not yet scheduled.
+Honest about the state of the world.
+
+96
+00:06:06.754 --> 00:06:08.900
+And six tasks from that
+one Accept click.
+
+97
+00:06:09.066 --> 00:06:12.300
+Talk description (already overdue),
+bio and photos, flights,
+
+98
+00:06:12.428 --> 00:06:15.100
+announcements, the speaker
+discount, and the hotel form.
+
+99
+00:06:15.285 --> 00:06:17.900
+The six things every conference
+chases every speaker for.
+
+100
+00:06:18.101 --> 00:06:21.900
+They exist because the talk was
+accepted. Nobody typed them in.
+
+101
+00:06:22.354 --> 00:06:24.600
+The hotel form: say yes,
+and date fields appear.
+
+102
+00:06:24.791 --> 00:06:29.400
+Same conditional-form engine as the
+CFP. One form system, everywhere.
+
+103
+00:06:30.146 --> 00:06:33.700
+Submitted inline. The
+task flips to Complete.
+
+104
+00:06:33.870 --> 00:06:39.700
+The other types are just as blunt: one
+is "Mark as done", one wants a file.
+
+105
+00:06:39.957 --> 00:06:42.500
+The organizer sees that
+submission immediately:
+
+106
+00:06:42.690 --> 00:06:46.100
+Nadia's completion meter, her
+overdue count, a square per task.
+
+107
+00:06:46.333 --> 00:06:49.100
+Other speakers sit anywhere from
+nothing done to all done.
+
+108
+00:06:49.274 --> 00:06:53.700
+This screen replaces the "who still
+hasn't sent a headshot" spreadsheet.
+
+109
+00:06:54.286 --> 00:06:58.100
+The agenda: drag sessions onto a room and
+time. Conflicts are flagged, never blocked.
+
+110
+00:06:58.270 --> 00:07:00.600
+No conflicts so far.
+Let's cause one.
+
+111
+00:07:00.736 --> 00:07:05.100
+The tray holds two unscheduled cards, including
+the new talk with Nadia and Owen on it.
+
+112
+00:07:05.302 --> 00:07:09.700
+Day one already has a talk
+on Main Stage at ten.
+
+113
+00:07:11.554 --> 00:07:13.900
+Drop the new talk
+straight on top of it.
+
+114
+00:07:14.034 --> 00:07:17.000
+Watch what it doesn't do:
+it doesn't refuse the drop.
+
+115
+00:07:17.144 --> 00:07:20.800
+Organizers double-book on purpose. It takes
+the drop, then tells the truth about it.
+
+116
+00:07:20.994 --> 00:07:24.100
+Both cards outline in red:
+room double-booked.
+
+117
+00:07:24.260 --> 00:07:26.900
+And the summary now
+reads "1 conflict".
+
+118
+00:07:27.149 --> 00:07:34.500
+It names both talks, same room, same
+time, with a link straight to the day.
+
+119
+00:07:34.836 --> 00:07:36.300
+Reload: still there.
+
+120
+00:07:36.438 --> 00:07:40.700
+A conflict is never a reason
+to drop your change.
+
+121
+00:07:41.321 --> 00:07:46.200
+Move it to Workshop B at one o'clock:
+the red clears, and the badge goes quiet.
+
+122
+00:07:46.456 --> 00:07:49.100
+Double-booked rooms and speakers
+are hard conflicts.
+
+123
+00:07:49.314 --> 00:07:52.100
+Two same-track talks head-to-head
+is an amber advisory,
+
+124
+00:07:52.340 --> 00:07:56.900
+flagged because attendees hate it,
+but never treated as an error.
+
+125
+00:07:57.673 --> 00:07:59.800
+The Log: every message
+this event has sent.
+
+126
+00:07:59.943 --> 00:08:03.100
+The acceptance and the change
+request are already in it.
+
+127
+00:08:03.264 --> 00:08:04.900
+Filter by speaker or message type.
+
+128
+00:08:05.032 --> 00:08:07.100
+Three things conferences
+actually pay for.
+
+129
+00:08:07.218 --> 00:08:09.400
+First: task reminders
+that don't spam.
+
+130
+00:08:09.547 --> 00:08:15.100
+One digest per speaker per week, listing
+everything still open. Not one email per task.
+
+131
+00:08:15.263 --> 00:08:20.500
+The toast reports what it did and what it
+deliberately skipped, a reason for every skip.
+
+132
+00:08:20.686 --> 00:08:22.800
+That's a cron job you can trust.
+
+133
+00:08:22.966 --> 00:08:25.600
+Reload: the button is disabled.
+
+134
+00:08:25.823 --> 00:08:28.600
+Everyone was just emailed, and a 24-hour
+guard blocks the second nag.
+
+135
+00:08:28.807 --> 00:08:30.900
+Second: the wording is yours.
+
+136
+00:08:31.091 --> 00:08:34.900
+Twelve built-in messages, from Submission
+received to Calendar invitation.
+
+137
+00:08:35.161 --> 00:08:39.400
+Type "See you in session room" and it's refused.
+The field is real, but a reminder can't fill it.
+
+138
+00:08:39.565 --> 00:08:41.000
+Save is disabled.
+
+139
+00:08:41.166 --> 00:08:43.400
+It would arrive as a blank
+space in an inbox.
+
+140
+00:08:43.604 --> 00:08:45.900
+Nobody re-reads sent mail,
+so it's caught here.
+
+141
+00:08:46.207 --> 00:08:48.900
+Replace it with something
+fillable, and it saves.
+
+142
+00:08:49.106 --> 00:08:50.500
+An "Edited" badge appears.
+
+143
+00:08:50.708 --> 00:08:54.800
+That's this event's wording: an override,
+not a fork. Other events keep the default.
+
+144
+00:08:55.071 --> 00:08:57.300
+One click back.
+No painted corners.
+
+145
+00:08:57.549 --> 00:09:00.500
+Third: calendar invites that
+update instead of duplicating.
+
+146
+00:09:00.768 --> 00:09:05.300
+The new talk's row shows its slot,
+Workshop B, and both speakers.
+
+147
+00:09:05.610 --> 00:09:07.000
+Invitation sent to both speakers.
+
+148
+00:09:07.219 --> 00:09:12.800
+A real invite: method REQUEST, sequence zero,
+a stable UID, and the room as the location.
+
+149
+00:09:13.017 --> 00:09:17.100
+It lands in Google Calendar and Outlook
+as an event, not an attachment.
+
+150
+00:09:17.400 --> 00:09:20.300
+Reload: invites sent, with
+a last-sent timestamp.
+
+151
+00:09:20.551 --> 00:09:23.400
+Re-send, and the existing calendar
+entry updates in place.
+
+152
+00:09:23.580 --> 00:09:25.000
+Same UID, now sequence one.
+
+153
+00:09:25.181 --> 00:09:32.800
+Rooms change. When they do, the speaker's
+calendar entry moves. No second invite to delete.
+
+154
+00:09:33.382 --> 00:09:37.500
+The public program: the event,
+the dates, the venue,
+
+155
+00:09:37.723 --> 00:09:40.900
+and every open call for
+speakers, linked right there.
+
+156
+00:09:41.099 --> 00:09:43.400
+Day one: there's the new talk.
+
+157
+00:09:43.536 --> 00:09:46.500
+One to one forty-five, Workshop B,
+Nadia and Owen.
+
+158
+00:09:46.645 --> 00:09:48.300
+Minutes ago, that was a card I dragged.
+
+159
+00:09:48.495 --> 00:09:51.100
+No publish step, no export,
+no second CMS.
+
+160
+00:09:51.311 --> 00:09:53.700
+And she's on the speaker wall.
+
+161
+00:09:53.891 --> 00:09:56.900
+Embed this page: script, iframe,
+JSON, XML, and iCal feeds.
+
+162
+00:09:57.128 --> 00:09:59.000
+Five ways to put this
+schedule anywhere.
+
+163
+00:09:59.176 --> 00:10:01.500
+Copy the iframe. That's
+the whole integration.
+
+164
+00:10:01.774 --> 00:10:07.400
+Paste it into the conference's marketing
+site, and the schedule there stays live.
+
+165
+00:10:07.614 --> 00:10:10.500
+So: one talk, ten minutes.
+
+166
+00:10:10.682 --> 00:10:13.000
+Proposed by someone with no account.
+
+167
+00:10:13.162 --> 00:10:16.300
+Routed to the right reviewer,
+invisible to the wrong one.
+
+168
+00:10:16.523 --> 00:10:18.700
+Sent back for a fix, then
+accepted with feedback.
+
+169
+00:10:18.877 --> 00:10:21.300
+Turned into a session and
+twelve tasks nobody typed.
+
+170
+00:10:21.524 --> 00:10:24.500
+Scheduled through a conflict and
+invited to the calendar.
+
+171
+00:10:24.760 --> 00:10:26.900
+Published to a page you
+can embed anywhere.
+
+172
+00:10:27.030 --> 00:10:29.400
+Greenroom is open source,
+on Cloudflare Workers.
+
+173
+00:10:29.510 --> 00:10:32.600
+The data layer is storage-agnostic:
+
+174
+00:10:32.788 --> 00:10:35.300
+support a new datastore by
+writing one adapter.
+
+175
+00:10:35.561 --> 00:10:37.233
+Thanks for watching.
