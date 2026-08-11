@@ -219,8 +219,10 @@ Both are expected to pass before every commit, alongside `npm run typecheck`,
 ## Deploying
 
 **[docs/deploying.md](docs/deploying.md) is the full walkthrough** — fresh
-clone to live deployment, with every gotcha we hit doing it for real. The
-short version:
+clone to live deployment plus a safe routine-redeploy checklist, with every
+gotcha we hit doing it for real. The current Worker is about 3.75 MiB
+compressed, so deployment requires the Cloudflare Workers Paid plan; the free
+plan's 3 MiB Worker limit is no longer sufficient. The first-deploy version:
 
 1. `npx wrangler d1 create greenroom` and paste the returned `database_id`
    into `wrangler.jsonc`; `npx wrangler r2 bucket create greenroom-files`.
@@ -236,6 +238,13 @@ short version:
 5. `npm run deploy`, then sign in with an address in `ADMIN_EMAILS`. If you
    intentionally left it empty, use the documented `wrangler d1 execute`
    fallback once; subsequent access is managed from the Team UI.
+
+For an existing installation, preserve D1/R2 and secrets: run unit tests,
+typecheck, and lint; apply only newly committed remote migrations; run
+`npm run deploy`; then record the printed Worker version and smoke-test the
+live routes. Never seed or reset the production database as part of a
+redeploy. See the full checklist and probe command in
+[docs/deploying.md](docs/deploying.md#routine-redeploy-of-an-existing-installation).
 
 The cron trigger in `wrangler.jsonc` (every 15 minutes) runs the weekly task
 digest, CFP draft reminders, and the Airtable sync (`src/domain/comms.ts`,

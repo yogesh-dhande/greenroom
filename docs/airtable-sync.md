@@ -1,4 +1,4 @@
-# Airtable sync — design note
+# Airtable sync — implementation note
 
 **Status: implemented (W10, 2026-08-09) — `src/domain/airtable-sync.ts`,
 wired into the cron in `custom-worker.ts` and to a "Sync to Airtable now"
@@ -13,8 +13,8 @@ owner has since chosen to build it for real: they provide a personal access
 token and a base ID (see [todo.md](todo.md)), and Greenroom creates the tables
 itself via Airtable's Metadata API — which resolves the "schema nobody
 defined" problem by making this document the schema definition. The
-architecture below is what gets built, after the CFP-depth wave (both touch
-the cron wiring in `custom-worker.ts`).
+architecture below describes the implementation now wired through
+`custom-worker.ts`.
 
 ## Why the shape below, not a literal two-way mirror
 
@@ -52,13 +52,12 @@ attachments, no transactions). The realistic version doesn't implement
 the existing repos, and write it to Airtable in the shape a reporting base
 wants.
 
-## Where it would run
+## Where it runs
 
 Cloudflare cron triggers already exist for scheduled work
 (`wrangler.jsonc` → `triggers.crons`, currently `*/15 * * * *`, wired through
-the `scheduled` handler in `custom-worker.ts` which today only calls
-`runReminderJob` from `src/domain/comms.ts`). The sync is a second function
-called from that same handler — `runAirtableSync(ctx)` in
+the `scheduled` handler in `custom-worker.ts`). The sync runs alongside the
+reminder and CFP-close jobs through `runAirtableSync(ctx)` in
 `src/domain/airtable-sync.ts` — on the same 15-minute tick (every 15–30
 minutes is more than adequate for reporting; nothing time-sensitive depends
 on it). Like the reminder job it is also triggerable on demand, from a "Sync
@@ -70,10 +69,11 @@ The two jobs share the tick but nothing else: each gets its own
 `ctx.waitUntil` and its own `catch`, and `runAirtableSync` never throws —
 missing credentials, a rate limit, or an Airtable outage all come back as a
 summary the caller logs. A bonus reporting feature must not be able to take
-deadline reminders down with it. Credentials are `AIRTABLE_API_KEY` (a Worker
-secret) and `AIRTABLE_BASE_ID` (a plain `var` in wrangler.jsonc, since a base
-id isn't a secret); local dev reads both from `.dev.vars`. With either
-missing the run is a one-line "skipped" log naming the absent variable.
+deadline reminders down with it. Both `AIRTABLE_API_KEY` and
+`AIRTABLE_BASE_ID` are stored as Worker secrets in production so no
+account-specific value is committed; local dev reads both from `.dev.vars`.
+With either missing the run is a one-line "skipped" log naming the absent
+variable.
 
 ## What maps to what
 

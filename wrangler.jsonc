@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "greenroom",
   // Custom entry that wraps the OpenNext-generated fetch handler with a
-  // `scheduled` handler for cron-triggered reminders (see custom-worker.ts).
+  // `scheduled` handler for reminders and sync jobs (see custom-worker.ts).
   "main": "./custom-worker.ts",
   "compatibility_date": "2026-08-08",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
@@ -31,13 +31,13 @@
   ],
   // We serve on the custom domain only (the workers.dev route stays off).
   "workers_dev": false,
-  // Required to fit the free plan's 3 MiB gzipped Worker cap — the unminified
-  // bundle is 3.38 MiB gzipped and gets rejected (see learnings.md).
+  // Retained on the paid plan to reduce upload size and cold-start work. The
+  // current bundle exceeds the free plan's 3 MiB cap even when minified.
   "minify": true,
   // esbuild's keepNames injects a __name() call at every function/class
   // definition to preserve runtime .name; that overhead alone pushed the
-  // bundle past the 3 MiB cap (3101 KiB gzipped). Nothing here dispatches on
-  // function .name, so trade it away for the headroom.
+  // bundle past the old 3 MiB cap. Nothing here dispatches on function .name,
+  // so keep the smaller and cheaper runtime representation.
   "keep_names": false,
   // Primary datastore (decisions.md D-002), created in region WNAM (D-033).
   "d1_databases": [
