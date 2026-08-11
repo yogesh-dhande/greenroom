@@ -47,6 +47,14 @@ describe("Worker request diagnostics", () => {
     });
   });
 
+  it("does not generate random values while the Worker module initializes", () => {
+    const randomUUID = vi
+      .spyOn(crypto, "randomUUID")
+      .mockReturnValue("00000000-0000-4000-8000-000000000000");
+    createWorkerRequestDiagnostics();
+    expect(randomUUID).not.toHaveBeenCalled();
+  });
+
   it("records overlapping requests on the same isolate", async () => {
     const diagnostics = createWorkerRequestDiagnostics();
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);

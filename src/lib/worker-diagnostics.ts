@@ -28,7 +28,10 @@ export interface WorkerRequestDiagnostics {
  * cookie values, query strings, request/response bodies, or error messages.
  */
 export function createWorkerRequestDiagnostics(): WorkerRequestDiagnostics {
-  const workerInstanceId = crypto.randomUUID();
+  // Cloudflare evaluates this factory in global scope and rejects random-value
+  // generation there (error 10021). Initialize the isolate identity lazily
+  // inside the first traced request, where runtime APIs are allowed.
+  let workerInstanceId: string | null = null;
   const workerStartedAt = Date.now();
   let requestSequence = 0;
   let activeRequests = 0;
@@ -45,6 +48,7 @@ export function createWorkerRequestDiagnostics(): WorkerRequestDiagnostics {
       if (!isDiagnosticRequest(request, pathname)) return handle();
 
       const startedAt = Date.now();
+      workerInstanceId ??= crypto.randomUUID();
       const activeAtStart = ++activeRequests;
       const common = {
         requestId: crypto.randomUUID(),
