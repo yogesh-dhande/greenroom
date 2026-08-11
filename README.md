@@ -25,7 +25,7 @@ recording is silent; the narration runs as captions.
 - **A complete CFP-to-program workflow** — configurable forms and drafts,
   scored review rounds, decisions, automatic speaker/session/task creation,
   onboarding, agenda placement, and a publishable public program.
-- **Airtable sync is implemented** — Greenroom provisions an owner-provided
+- **Airtable sync** — Greenroom provisions an owner-provided
   base and pushes events, speakers, submissions, sessions, and task assignments
   every 15 minutes (or on demand). The complete scheduled sync also removes
   managed Airtable rows after their Greenroom source is deleted, preserving
@@ -40,7 +40,7 @@ recording is silent; the narration runs as captions.
   JSON/XML/iCal feeds, plus a cross-event speaker CRM with tags, segments, and
   a sourcing pipeline.
 
-## What it does
+## Features
 
 - **Public CFP forms** — a form builder (`src/domain/forms.ts`) with
   short/long text, choice, file, and co-speaker fields, plus **basic
