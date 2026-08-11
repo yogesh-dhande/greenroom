@@ -123,7 +123,7 @@ describe("createSendGridEmailSender — request shape", () => {
 });
 
 describe("createSendGridEmailSender — attachments and the calendar part", () => {
-  it("puts the calendar part first, carrying its exact method content type and base64 content", async () => {
+  it("puts the calendar part first with SendGrid's required bare MIME type", async () => {
     const fetchImpl = stubFetch({ status: 202, headers: { "x-message-id": "sg-1" } });
     const icsContent = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n";
     await makeSender(fetchImpl).send(
@@ -148,7 +148,7 @@ describe("createSendGridEmailSender — attachments and the calendar part", () =
     expect(attachments).toHaveLength(2);
     expect(attachments[0]).toEqual({
       content: toBase64(icsContent),
-      type: "text/calendar; charset=utf-8; method=REQUEST",
+      type: "text/calendar",
       filename: "invite.ics",
       disposition: "attachment",
     });
@@ -158,6 +158,46 @@ describe("createSendGridEmailSender — attachments and the calendar part", () =
       filename: "notes.txt",
       disposition: "attachment",
     });
+  });
+
+  it("normalizes MIME parameters for ordinary attachments too", async () => {
+    const fetchImpl = stubFetch({ status: 202, headers: { "x-message-id": "sg-1" } });
+    await makeSender(fetchImpl).send(
+      baseMessage({
+        attachments: [
+          { filename: "notes.txt", content: "some notes", contentType: "text/plain; charset=utf-8" },
+        ],
+      }),
+    );
+
+    const body = sentBody(fetchImpl);
+    expect(body.attachments).toEqual([
+      {
+        content: toBase64("some notes"),
+        type: "text/plain",
+        filename: "notes.txt",
+        disposition: "attachment",
+      },
+    ]);
+  });
+
+  it("rejects attachment content types containing CRLF before calling SendGrid", async () => {
+    const fetchImpl = stubFetch({ status: 202 });
+
+    await expect(
+      makeSender(fetchImpl).send(
+        baseMessage({
+          attachments: [
+            {
+              filename: "notes.txt",
+              content: "some notes",
+              contentType: "text/plain\r\nX-Injected: true",
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow(/cannot contain CR or LF/);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("omits attachments entirely when there are none", async () => {

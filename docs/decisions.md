@@ -517,6 +517,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** The prior hand-written serializer was a bundle-budget exception: `ics` and its validation dependency were removed to stay under the free Workers plan's 3 MiB deployment cap. The paid plan raises that cap to 10 MiB, removing the reason for the exception and letting D-008's library-over-hand-rolling rule apply again. Existing unit and E2E coverage preserves the Gmail/Outlook/Apple-compatible behavior—UTC times, organizer/attendees, RSVP state, cancellation, stable updates, feeds, and itinerary downloads—while the package owns escaping and calendar component assembly.
 
+## D-086: SendGrid calendar attachment types are bare MIME types — **accepted** (2026-08-11)
+
+**Decision:** Greenroom keeps the full calendar media type (`text/calendar; charset=utf-8; method=REQUEST|CANCEL`) inside its transport-neutral calendar object and on HTTP calendar responses, but the SendGrid adapter sends the attachment `type` as bare `text/calendar`. The adapter strips parameters from every attachment type and rejects CR/LF or an invalid bare media type before calling the provider. Calendar method semantics remain in the iCalendar object's `METHOD` property.
+
+**Rationale:** Evaluator run 7 exercised the production sender and all four invite deliveries failed with SendGrid 400: `The attachment type cannot contain ';', or CRLF characters.` Ordinary email through the same sender succeeded and public `.ics` downloads remained valid, isolating the regression to SendGrid's attachment JSON constraint. D-020's parameterized attachment type describes standard MIME behavior but is not representable through SendGrid's v3 Mail Send API; narrowing only at the provider boundary preserves the richer domain/HTTP representation while making delivery work.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

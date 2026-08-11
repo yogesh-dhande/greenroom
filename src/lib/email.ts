@@ -35,7 +35,7 @@ export interface EmailAttachment {
   filename: string;
   /** UTF-8 text (we only ever attach text right now; R2 files are linked). */
   content: string;
-  /** Full MIME type including parameters. */
+  /** Full MIME type; transports may have to encode parameters separately. */
   contentType: string;
 }
 
@@ -120,6 +120,25 @@ function allAttachments(message: EmailMessage): EmailAttachment[] {
   return attachments;
 }
 
+/**
+ * SendGrid's attachment `type` field accepts only a bare media type. Unlike an
+ * HTTP Content-Type header it rejects parameters (and CR/LF) with a 400. Keep
+ * the richer type on Greenroom's message so the dev transcript and HTTP
+ * calendar paths retain their method/charset metadata, but narrow the value at
+ * the provider boundary. The METHOD property inside the iCalendar object still
+ * carries REQUEST/CANCEL semantics.
+ */
+function sendGridAttachmentType(contentType: string): string {
+  if (/\r|\n/.test(contentType)) {
+    throw new Error("SendGrid attachment content type cannot contain CR or LF characters");
+  }
+  const bareType = contentType.split(";", 1)[0]?.trim();
+  if (!bareType || !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(bareType)) {
+    throw new Error(`Invalid SendGrid attachment content type: ${contentType}`);
+  }
+  return bareType;
+}
+
 // ---------------------------------------------------------------------------
 // SendGrid transport
 // ---------------------------------------------------------------------------
@@ -139,8 +158,10 @@ interface SendGridErrorBody {
 /**
  * Production transport (D-030 — replaces Resend, D-001).
  *
- * Calendar invites go out as a single attachment carrying
- * `text/calendar; charset=utf-8; method=REQUEST` (decisions.md D-020).
+ * Calendar invites go out as a single `text/calendar` attachment. Greenroom's
+ * internal calendar part retains `charset` and `method` parameters, but
+ * SendGrid rejects semicolons in attachment `type`, so the adapter strips MIME
+ * parameters at this provider boundary (decisions.md D-086).
  * SendGrid's v3 `mail/send` builds the MIME tree itself from `content`/
  * `attachments` — there is no raw-MIME endpoint — and exposes no way to add
  * a `text/calendar` sibling inside `multipart/alternative`, so this is the
@@ -157,6 +178,7 @@ interface SendGridErrorBody {
  *    rejects the request otherwise (Mail Send API reference, `content`).
  *  - each attachment's `content` is Base64 text — there is no separate
  *    encoding field, unlike a Buffer-accepting SDK.
+ *  - each attachment's `type` must be a bare MIME type with no parameters.
  *
  * A 202 response has an empty body; the provider message id comes back in
  * the `x-message-id` response header (falls back to `""` if absent). Any
@@ -186,7 +208,7 @@ export function createSendGridEmailSender({
         attachments: attachments.length
           ? attachments.map((attachment) => ({
               content: toBase64(attachment.content),
-              type: attachment.contentType,
+              type: sendGridAttachmentType(attachment.contentType),
               filename: attachment.filename,
               disposition: "attachment",
             }))
