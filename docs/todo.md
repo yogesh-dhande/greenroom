@@ -4,7 +4,6 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 ## Airtable sync (owner decision 2026-08-09: build against a real base)
 
-- [ ] **Update/verify the production Airtable PAT includes `data.records:read`** as well as `data.records:write`, `schema.bases:read`, and `schema.bases:write`, scoped to the existing base; then replace `AIRTABLE_API_KEY` with `npx wrangler secret put AIRTABLE_API_KEY` if the current token lacks it. D-090's deletion reconciliation needs record reads. Do not paste the token into chat or shell history.
 - [ ] **(Optional, for local dev only)** add `AIRTABLE_API_KEY=…` to `.dev.vars` yourself in an editor — don't paste the token into chat or a terminal command. Not needed for the deployed sync (the secret is already set in the worker); it only lets a local dev server hit the base.
 
 ## Blocking
@@ -20,6 +19,7 @@ Maintained by Claude: updated whenever something new is needed from you or an it
 
 ## Done
 
+- [x] **Production Airtable PAT record-read scope verified (2026-08-11)** — D-090's first deployed full cron completed with 42 current rows updated, 110 stale managed rows deleted, and 0 failures, proving the existing Worker secret already has `data.records:read`; no token replacement was needed.
 - [x] **Run 7 complete (2026-08-11 02:56 UTC): overall 93.0%** (98.1% coverage) — up from run 6's 91.3%, below run 5's 93.9% best. Areas: CFP 91.9, ABS 94.6, SPK 96.9, CNT 89.7, AIA 100, EMB 88.6, CRM 97.4. Recurring authenticated-route stalls required same-code recovery redeploys; SPK-S1 and CNT-S3 reached the 120-turn cap. Live calendar-invite sends failed with SendGrid 400 because the attachment `type` contained MIME parameters; public itinerary `.ics` downloads still worked.
 - [x] **Run 5 complete (2026-08-10 06:26 UTC): overall 93.9%** (99% coverage) — up from 88.5. Areas: CFP 89.4, ABS 96.4, SPK 98.4, CNT 91.9, AIA 100, EMB 91.2, **CRM 92.1 (was 34.2 — W28 delivered)**. Score history: 68.4 → 72.0 → 81.8 → 88.5 → 93.9. Mid-run: authed-route stalls escalated (worker-side hanging promises, ~10ms CPU vs 60–210s wall, eventually touched eval traffic twice) — remediated live with a same-code redeploy at 06:10 UTC and by stopping the synthetic probe bursts; zero stalls after. Fix wave W29 triaged from the defect list.
 - [x] Both run-5 gates decided (2026-08-09): a **one-time** evaluator DB reset approved — wipe all content but preserve the `+sbek-*` accounts, their roles, and their live auth sessions plus owner/admin accounts; Claude scripts and runs it before the eval; never reseed remote with demo data — and run 5 itself approved to launch once W28 (Speaker CRM, D-077) is deployed and verified, with the stall probe + `wrangler tail` capturing alongside.
