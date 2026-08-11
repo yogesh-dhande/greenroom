@@ -1,11 +1,9 @@
 # Greenroom
 
-Open-source speaker & event content management platform — an alternative to
-[Sessionboard](https://www.sessionboard.com/). Call-for-proposals → evaluation
-→ acceptance → onboarding → agenda → publishing, in one Cloudflare deployment.
-The organizer UI, authenticated REST API, and remote MCP server all use the
-same workflows, so automations do not bypass validation, email, or scheduling
-rules. A live deployment runs at
+Open-source speaker and session management for conferences — an alternative
+to [Sessionboard](https://www.sessionboard.com/). Everything from the call
+for proposals to the published program happens in one place you deploy and
+own. A live deployment runs at
 [greenroom.usespaces.dev](https://greenroom.usespaces.dev). See
 [spec.md](docs/spec.md) for the full product requirements and
 [decisions.md](docs/decisions.md) for the key technical decisions and their
