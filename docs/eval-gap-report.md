@@ -253,6 +253,10 @@ accepted scope:
 The run improved the required score from 93.0% to 95.5%. Section scores were
 CFP 93.1, ABS 96.4, SPK 96.7, CNT 96.8, AIA 100, EMB 92.9, and CRM 97.4.
 
+The fixes below shipped in Worker version
+`43336a63-526f-46a3-8815-e13b44f4affb` after 1,156 unit tests, 106 E2E tests,
+typecheck, lint, production build, and a 10-route deployed smoke passed.
+
 ### Confirmed product fixes and closed coverage gaps
 
 - **Blind-review decision context:** implemented under D-091. Blind reviewers
