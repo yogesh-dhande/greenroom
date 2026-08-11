@@ -114,6 +114,12 @@ export default async function SubmissionDetailPage({
     viewer.role === "admin"
       ? rollup.scorecards
       : myScorecards.filter((scorecard) => scorecard.submitted).length;
+  // D-084 is event-wide for a participating reviewer. Binding decisions can
+  // identify the author through the note, outcome, organizer, created session,
+  // or speaker task count even after the answer fields themselves are hidden.
+  // Keep the real decision values out of the client component props as well as
+  // out of the rendered page; an admin's record remains unchanged.
+  const hideBindingDecision = viewer.role !== "admin" && blind;
 
   // The track queue reaches this record (D-035(1)/D-047), so a reviewer scoring
   // this proposal in a blind round would otherwise read the author here that
@@ -398,24 +404,24 @@ export default async function SubmissionDetailPage({
           {/* What the decision already set off (spec.md section 5): reference
               material, so it stays on the page with the rest of the record
               while the buttons themselves live in the bar below. */}
-          <DecisionOutcome
-            eventSlug={eventSlug}
-            status={submission.status}
-            // A decision email is written to the speaker and may address them
-            // by name; it is identity-bearing content in a blind workspace.
-            note={blind ? null : submission.decisionNote}
-            session={
-              session
-                ? {
-                    id: session.id,
-                    scheduled: Boolean(session.day && session.startTime),
-                    cancelled: session.status === "cancelled",
-                  }
-                : null
-            }
-            taskCount={speakerTaskCount}
-            speakerCount={detail.speakerIds.length}
-          />
+          {hideBindingDecision ? null : (
+            <DecisionOutcome
+              eventSlug={eventSlug}
+              status={submission.status}
+              note={submission.decisionNote}
+              session={
+                session
+                  ? {
+                      id: session.id,
+                      scheduled: Boolean(session.day && session.startTime),
+                      cancelled: session.status === "cancelled",
+                    }
+                  : null
+              }
+              taskCount={speakerTaskCount}
+              speakerCount={detail.speakerIds.length}
+            />
+          )}
         </div>
       </div>
 
@@ -425,12 +431,14 @@ export default async function SubmissionDetailPage({
       <DecisionBar
         eventSlug={eventSlug}
         submissionId={submission.id}
-        status={submission.status}
-        note={submission.decisionNote}
-        decidedBy={decider ? personName(decider) : null}
-        decidedAt={submission.decidedAt ? formatDate(submission.decidedAt) : null}
+        status={hideBindingDecision ? null : submission.status}
+        note={hideBindingDecision ? null : submission.decisionNote}
+        decidedBy={hideBindingDecision || !decider ? null : personName(decider)}
+        decidedAt={
+          hideBindingDecision || !submission.decidedAt ? null : formatDate(submission.decidedAt)
+        }
         canDecide={canRecordDecision(viewer.role)}
-        speakerCount={detail.speakerIds.length}
+        speakerCount={hideBindingDecision ? 0 : detail.speakerIds.length}
       />
     </div>
   );

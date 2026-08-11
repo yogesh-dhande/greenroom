@@ -145,6 +145,7 @@ export function ScheduleView({
           value={format}
           options={facets.formats}
           onChange={setFormat}
+          showSingleOption
         />
 
         {isFiltered && (
@@ -159,7 +160,7 @@ export function ScheduleView({
           data-testid="session-count"
         >
           {shown === total
-            ? `${total} sessions`
+            ? `${total} ${total === 1 ? "session" : "sessions"}`
             : `${shown} of ${total} sessions`}
         </p>
       </div>
@@ -327,15 +328,19 @@ function Facet({
   value,
   options,
   onChange,
+  showSingleOption = false,
 }: {
   label: string;
   allLabel: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
+  showSingleOption?: boolean;
 }) {
-  // A facet with nothing to choose between (one room, one format) is noise.
-  if (options.length < 2) return null;
+  // A track or room with nothing to choose between is noise. Format remains
+  // useful with one option: it names the session shape available in a small
+  // programme and keeps the promised Track/Room/Format controls consistent.
+  if (options.length < (showSingleOption ? 1 : 2)) return null;
   return (
     // Native <select>, not shadcn's Radix-backed one: on this public,
     // embeddable surface a listbox with a focus trap and a portal is a

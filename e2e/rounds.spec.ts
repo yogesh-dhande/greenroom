@@ -206,6 +206,32 @@ test("an isolated scored round runs from design through assignments, scoring, ex
     page.getByText("Strong practitioner story, exactly the level our audience wants."),
   ).toHaveCount(0);
   await expect(page.getByText("Priya Raman")).toHaveCount(0);
+  // Blindness covers the binding decision too. Its status, deciding admin,
+  // conversion side effects, and speaker-facing note can all reveal context
+  // that biases the reviewer; none belongs in this event-wide blind record.
+  await expect(page.getByTestId("decision-summary")).toHaveCount(0);
+  await expect(page.getByText("Approved", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Accepted by Avery Chen/)).toHaveCount(0);
+  await expect(page.getByText("What this decision did")).toHaveCount(0);
+  await expect(page.getByTestId("decision-session")).toHaveCount(0);
+  await expect(page.getByTestId("decision-tasks")).toHaveCount(0);
+  await expect(page.getByTestId("decision-bar")).toContainText(
+    "An event admin records the final decision",
+  );
+
+  // The organizer reads the same stored record without anonymization: the
+  // decision status, actor, note, session, and onboarding outcome all remain.
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(`/admin/${EVENT_SLUG}/submissions/${forbiddenId}`);
+  await expect(page.getByTestId("decision-summary")).toContainText("Accepted by Avery Chen");
+  await expect(page.getByText("What this decision did")).toBeVisible();
+  await expect(page.getByText("Note to speakers:", { exact: true }).locator("..")).toContainText(
+    "Strong practitioner story, exactly the level our audience wants.",
+  );
+  await expect(page.getByTestId("decision-session")).toBeVisible();
+  await expect(page.getByTestId("decision-tasks")).toBeVisible();
+
+  await signIn(page, "dana@greenroom.dev");
 
   await page.goto(ROUNDS);
   await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();
@@ -264,6 +290,13 @@ test("an isolated scored round runs from design through assignments, scoring, ex
   await expect(
     page.getByText(/\d+ round scorecards? filed in your assigned round/),
   ).toBeVisible();
+  // This proposal is still undecided, but the neutral reviewer guidance is
+  // identical to the accepted record above: no decided-vs-undecided side
+  // channel survives the event-wide blind treatment.
+  await expect(page.getByTestId("decision-summary")).toHaveCount(0);
+  await expect(page.getByTestId("decision-bar")).toContainText(
+    "An event admin records the final decision",
+  );
 
   await page.goto(ROUNDS);
   await roundRow(page, roundName).getByRole("link", { name: "Open queue" }).click();

@@ -133,14 +133,15 @@ test("reviewers use assigned scorecards and cannot flat-review unassigned talks"
   }
 
   // Review authorization is separate from the binding decision: this
-  // submitted, unassigned proposal has neither kind of reviewer control.
+  // submitted, unassigned proposal has neither kind of reviewer control or
+  // decision-status side channel while the review workspace is blind.
   await expect(page.getByText("An event admin records the final decision")).toBeVisible();
   for (const action of ["Accept", "Waitlist", "Decline"]) {
     await expect(page.getByRole("button", { name: action, exact: true })).toHaveCount(0);
   }
   await expect(page.getByLabel("Note to the speakers", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Request changes" })).toHaveCount(0);
-  await expect(page.getByTestId("decision-summary")).toContainText("No decision recorded yet");
+  await expect(page.getByTestId("decision-summary")).toHaveCount(0);
 
   // Assigned work uses its round scorecard instead of the flat vocabulary.
   // This seeded proposal is already approved, so the assertions deliberately

@@ -32,8 +32,9 @@ import { RequestChangesDialog } from "./request-changes-dialog";
  * only the current status and the actions.
  *
  * Admin-only by design — see canRecordDecision in src/domain/review.ts. A
- * reviewer sees the bar read-only: they get to know the outcome of the talk
- * they reviewed, they just don't get to declare it.
+ * reviewer sees the bar read-only. A reviewer whose event workspace is blind
+ * gets no binding-decision data at all: even serializing the real status into
+ * this client component would make the browser a side door around D-084.
  *
  * The options mirror DECISION_OPTIONS in src/domain/review.ts. They are spelled
  * out again here rather than imported because that module reaches the email
@@ -89,7 +90,7 @@ export function DecisionBar({
 }: {
   eventSlug: string;
   submissionId: string;
-  status: SubmissionStatus;
+  status: SubmissionStatus | null;
   note: string | null;
   decidedBy: string | null;
   decidedAt: string | null;
@@ -101,7 +102,7 @@ export function DecisionBar({
   const [pending, setPending] = useState<Option | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const decided = DECIDED[status] ?? null;
+  const decided = status ? (DECIDED[status] ?? null) : null;
 
   /**
    * Default the notify checkbox to the selected decision (D-028: waitlist
@@ -147,20 +148,22 @@ export function DecisionBar({
       data-testid="decision-bar"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <SubmissionStatusBadge status={status} />
-          {decided ? (
-            <p className="text-sm text-muted-foreground" data-testid="decision-summary">
-              <span className="font-medium text-foreground">{decided}</span>
-              {decidedBy ? ` by ${decidedBy}` : ""}
-              {decidedAt ? ` on ${decidedAt}` : ""}.
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground" data-testid="decision-summary">
-              No decision recorded yet.
-            </p>
-          )}
-        </div>
+        {status ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <SubmissionStatusBadge status={status} />
+            {decided ? (
+              <p className="text-sm text-muted-foreground" data-testid="decision-summary">
+                <span className="font-medium text-foreground">{decided}</span>
+                {decidedBy ? ` by ${decidedBy}` : ""}
+                {decidedAt ? ` on ${decidedAt}` : ""}.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="decision-summary">
+                No decision recorded yet.
+              </p>
+            )}
+          </div>
+        ) : null}
 
         {!canDecide ? (
           <p className="text-sm text-muted-foreground">

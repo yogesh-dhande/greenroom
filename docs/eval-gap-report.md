@@ -253,32 +253,28 @@ accepted scope:
 The run improved the required score from 93.0% to 95.5%. Section scores were
 CFP 93.1, ABS 96.4, SPK 96.7, CNT 96.8, AIA 100, EMB 92.9, and CRM 97.4.
 
-### Confirmed or actionable product gaps
+### Confirmed product fixes and closed coverage gaps
 
-- **Blind-review decision context (highest priority):** speaker identity and the
-  organizer-only decision controls are hidden correctly, but a blind reviewer
-  can still see the current decision status, deciding organizer, and decision
-  outcome copy. Existing rounds E2E verifies identity/note isolation and
-  assignment-only scoring, but does not assert that decision outcome metadata
-  is hidden while the round is blind.
-- **Format facet:** filtering logic and unit tests already support Track, Room,
-  and Format, but the public schedule hides a facet when fewer than two values
-  exist. The current event has one format, so the evaluator could not see a
-  Format control. Public E2E covers Track and Room, not Format.
-- **ZIP export feedback:** the ZIP download is functional. The files E2E waits
-  for the actual download, opens the archive, checks its signature and latest
-  selected content, and excludes old/deselected files. The missing behavior is
-  visible download-start feedback, not export correctness.
-- **Files-table layout:** high-cardinality speaker/session associations can
-  squeeze and overlap the Task and Session scope columns at the evaluator's
-  viewport. Functional file/session navigation and export are covered, but no
-  visual or geometry assertion protects this layout.
-- **Coverage-only gaps:** event-roster CSV import has extensive parser/unit
-  coverage but no direct event import E2E; confirmation filtering has domain
-  tests and public confirmation-state E2E but no roster-filter E2E. The task
-  duplicate policy has domain tests, but no rendered rejection/default-off
-  override E2E. These are missing regression tests, not demonstrated runtime
-  failures.
+- **Blind-review decision context:** implemented under D-091. Blind reviewers
+  now receive the same neutral decision guidance for decided and undecided
+  records; status, actor, note, conversion effects, and speaker counts are not
+  serialized into their page. Rounds E2E proves both reviewer states and the
+  unchanged complete admin view.
+- **Format facet:** the public schedule now keeps Format visible when the
+  current result set has one format. Public E2E filters a multi-format schedule
+  and verifies the one-format configured-embed case.
+- **ZIP export feedback:** starting an export now exposes an accessible status
+  while retaining the native browser download. Files E2E waits for that status,
+  opens the real archive, verifies every expected latest file, and excludes old
+  or deselected files.
+- **Files-table layout:** fixed-width columns, contained scrolling, and capped
+  session-link overflow keep high-cardinality associations from overlapping.
+  Files E2E verifies the cell geometry and overflow behavior at the evaluator's
+  viewport with a six-session speaker.
+- **Coverage-only gaps:** direct E2E now covers event-roster CSV create/merge,
+  confirmed versus unconfirmed roster filtering, and the task duplicate
+  rejection plus its explicitly unchecked override. These were test gaps, not
+  demonstrated runtime failures.
 
 ### Evaluator, deployment, or accumulated-data artifacts
 
@@ -311,12 +307,11 @@ evaluator comment without a product decision.
 
 ## Verification and next-run order
 
-1. Await owner prioritization of the confirmed run-8 product gaps; do not turn
-   deployment/evaluator oddities into speculative framework patches.
-2. Add the missing E2E assertions alongside any selected product changes.
-3. Run unit, type, lint, build, and the full Playwright suite before deployment.
-4. Request approval before any production evaluator-data cleanup or reset.
-5. Deploy once, record the Worker version, and run the deployed smoke. Preserve
+1. Keep deployment/evaluator oddities separate from product defects; do not
+   turn them into speculative framework patches.
+2. Run unit, type, lint, build, and the full Playwright suite before deployment.
+3. Request approval before any production evaluator-data cleanup or reset.
+4. Deploy once, record the Worker version, and run the deployed smoke. Preserve
    Worker traces before any recovery redeploy if F2 recurs.
-6. Do not start another multi-hour evaluator run while product or test work is
+5. Do not start another multi-hour evaluator run while product or test work is
    pending. After the next run, complete its newest manual checklist.

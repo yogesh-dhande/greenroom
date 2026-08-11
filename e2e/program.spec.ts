@@ -261,6 +261,40 @@ test("the track facet narrows the schedule to one track", async ({ page }) => {
   await expect(page.getByTestId("session-count")).toHaveText(/^\d+ sessions$/);
 });
 
+test("the format facet filters sessions and remains available with one format", async ({
+  page,
+}) => {
+  await page.goto(SCHEDULE);
+
+  const format = page.getByLabel("Filter by format");
+  await expect(format).toBeVisible();
+  await chooseFacet(page, "Filter by format", "90-minute workshop");
+
+  await expect(format).toHaveValue("90-minute workshop");
+  await expect(page.getByText("Hands-on: building a recovery loop for flaky agents")).toBeVisible();
+  await expect(page.getByText(RETRIEVAL)).toHaveCount(0);
+  await expect(page.getByText(INFERENCE)).toHaveCount(0);
+  await expect(page.getByText(HOSPITAL)).toHaveCount(0);
+  await expect(page.getByTestId("session-count")).toContainText("1 of ");
+
+  // The Evals track has exactly one scheduled format in the seeded program.
+  // The configured embed applies that track before ScheduleView derives its
+  // facets, reproducing a small single-format public program without writes.
+  await page.goto(`${EMBED_SCHEDULE}?track=Evals%20%26%20Reliability`);
+  const singleFormat = page.getByLabel("Filter by format");
+  await expect(singleFormat).toBeVisible();
+  await expect(singleFormat.locator("option")).toHaveText([
+    "All formats",
+    "45-minute talk",
+  ]);
+
+  await chooseFacet(page, "Filter by format", "45-minute talk");
+  await expect(singleFormat).toHaveValue("45-minute talk");
+  await expect(page.getByText("Evals you'll actually keep running")).toBeVisible();
+  await expect(page.getByTestId("session-count")).toHaveText("1 session");
+  await expect(page.getByRole("button", { name: "Clear filters" })).toBeVisible();
+});
+
 test("a schedule session opens a detail view and closes back to the schedule", async ({ page }) => {
   await page.goto(SCHEDULE);
 

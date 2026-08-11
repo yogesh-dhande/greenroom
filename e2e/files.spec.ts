@@ -1,5 +1,6 @@
 import { createDirectSession, createTask, expect, test } from "./fixtures";
 import { signIn } from "./helpers";
+import { unzipSync } from "fflate";
 
 const FIRST_FILE = Buffer.from("first version of the deck");
 const SECOND_FILE = Buffer.from("second version of the deck");
@@ -13,6 +14,22 @@ async function openTask(page: import("@playwright/test").Page, title: string) {
   const trigger = task.locator("button[aria-expanded]").first();
   if ((await trigger.getAttribute("aria-expanded")) === "false") await trigger.click();
   return task;
+}
+
+async function createSessionForExistingSpeaker(
+  page: import("@playwright/test").Page,
+  title: string,
+  speakerName: string,
+) {
+  await page.getByRole("button", { name: "New session" }).click();
+  const dialog = page.getByRole("dialog", { name: "New session" });
+  await dialog.locator("#new-session-title").fill(title);
+  await dialog.getByLabel("Add an existing speaker").click();
+  await page.getByRole("option", { name: new RegExp(`^${speakerName}`) }).click();
+  await dialog.getByRole("button", { name: "Create session" }).click();
+  await expect(page.getByTestId("unscheduled-tray").getByText(title)).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 test("file replacements, cross-role comments, and the ZIP library share one isolated deliverable", async ({
@@ -32,6 +49,12 @@ test("file replacements, cross-role comments, and the ZIP library share one isol
   const session = await createDirectSession(page, isolatedEvent.slug, fixtureId, {
     title: `Session ${fixtureId}`,
   });
+  const sessionTitles = [session.title];
+  for (let index = 1; index <= 5; index += 1) {
+    const title = `Associated session ${index} ${fixtureId}`;
+    await createSessionForExistingSpeaker(page, title, speakerName);
+    sessionTitles.push(title);
+  }
   await createTask(page, isolatedEvent.slug, taskTitle, "file");
   await page.goto(`/admin/${isolatedEvent.slug}/speakers`);
   await page.getByRole("link", { name: speakerName }).click();
@@ -77,25 +100,62 @@ test("file replacements, cross-role comments, and the ZIP library share one isol
   await expect(page.getByText("Profile saved")).toBeVisible();
 
   await signIn(page, "admin@greenroom.dev");
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto(`/admin/${isolatedEvent.slug}/files`);
   const row = page.getByRole("row").filter({ hasText: secondName }).first();
   await expect(row).toContainText(speakerName);
   await expect(row).toContainText(session.title);
   await expect(row).toContainText(taskTitle);
-  const sessionHref = await row.getByRole("link", { name: session.title }).getAttribute("href");
+  const sessionScope = row.getByTestId("file-session-scope");
+  const taskScope = row.getByTestId("file-task-scope");
+  await expect(sessionScope.getByRole("link")).toHaveCount(sessionTitles.length);
+  // Relational geometry rather than fixed pixel widths: at the evaluator's
+  // viewport, every high-cardinality session link stays clipped to its own
+  // column and the shared table container provides horizontal overflow.
+  const layout = await row.evaluate((element) => {
+    const sessionCell = element.querySelector<HTMLElement>("[data-testid=file-session-scope]")!;
+    const taskCell = element.querySelector<HTMLElement>("[data-testid=file-task-scope]")!;
+    const container = element.closest<HTMLElement>("[data-slot=table-container]")!;
+    const sessionRect = sessionCell.getBoundingClientRect();
+    const taskRect = taskCell.getBoundingClientRect();
+    const links = [...sessionCell.querySelectorAll<HTMLElement>("a")];
+    return {
+      cellsDoNotOverlap: sessionRect.right <= taskRect.left + 0.5,
+      linksStayInsideSessionCell: links.every((link) => {
+        const rect = link.getBoundingClientRect();
+        return rect.left >= sessionRect.left - 0.5 && rect.right <= sessionRect.right + 0.5;
+      }),
+      longLinksAreClipped: links.every(
+        (link) => getComputedStyle(link).overflowX === "hidden",
+      ),
+      tableOverflow: getComputedStyle(container).overflowX,
+    };
+  });
+  expect(layout).toEqual({
+    cellsDoNotOverlap: true,
+    linksStayInsideSessionCell: true,
+    longLinksAreClipped: true,
+    tableOverflow: "auto",
+  });
+  await expect(taskScope).toHaveText(taskTitle);
+  const sessionHref = await row
+    .getByRole("link", { name: session.title, exact: true })
+    .getAttribute("href");
   expect(sessionHref).toMatch(new RegExp(`/admin/${isolatedEvent.slug}/agenda\\?session=`));
 
   // Session names are real navigation, not a generic count or tooltip. The
   // agenda detail links back into the same library with that session scoped,
   // giving organizers a session-to-files path in both directions.
-  await row.getByRole("link", { name: session.title }).click();
+  await row.getByRole("link", { name: session.title, exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: session.title })).toBeVisible();
   await page.getByRole("link", { name: "View related files" }).click();
   await expect(page).toHaveURL(new RegExp(`/admin/${isolatedEvent.slug}/files\\?session=`));
   await expect(page.getByText(`Showing speaker-owned files related to ${session.title}.`)).toBeVisible();
 
   const scopedRow = page.getByRole("row").filter({ hasText: secondName }).first();
-  await expect(scopedRow.getByRole("link", { name: session.title })).toBeVisible();
+  await expect(
+    scopedRow.getByRole("link", { name: session.title, exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: "Show all files" })).toBeVisible();
 
   await expect(row).toContainText(`by ${speakerName}`);
@@ -121,19 +181,24 @@ test("file replacements, cross-role comments, and the ZIP library share one isol
   await page.getByLabel(`Select ${headshotName}`).uncheck();
   await expect(page.getByText("1 of 2 selected")).toBeVisible();
   await page.getByLabel("Group folders by").selectOption("session");
-  const [download] = await Promise.all([
-    page.waitForEvent("download"),
-    page.getByRole("button", { name: "Download selected" }).click(),
-  ]);
+  const downloadStarted = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download selected" }).click();
+  await expect(page.getByRole("status")).toHaveText(
+    "ZIP download started. Your browser will save it when it is ready.",
+  );
+  const download = await downloadStarted;
   const stream = await download.createReadStream();
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(Buffer.from(chunk));
   const archiveBody = Buffer.concat(chunks);
-  expect(archiveBody.subarray(0, 2).toString()).toBe("PK");
-  expect(archiveBody.toString("latin1")).toContain(session.title);
-  expect(archiveBody.toString("latin1")).toContain(secondName);
-  expect(archiveBody.toString("latin1")).not.toContain(firstName);
-  expect(archiveBody.toString("latin1")).not.toContain(headshotName);
+  const archive = unzipSync(new Uint8Array(archiveBody));
+  const archivePaths = Object.keys(archive).sort();
+  expect(archivePaths).toEqual(sessionTitles.map((title) => `${title}/${secondName}`).sort());
+  expect(archivePaths.every((path) => !path.includes(firstName))).toBe(true);
+  expect(archivePaths.every((path) => !path.includes(headshotName))).toBe(true);
+  for (const contents of Object.values(archive)) {
+    expect(Buffer.from(contents)).toEqual(SECOND_FILE);
+  }
 
   await signIn(page, speakerEmail);
   await page.goto("/portal");

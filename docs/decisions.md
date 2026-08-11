@@ -547,6 +547,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** The previous write-only projection left every deleted source row in Airtable indefinitely, so evaluator cleanup and delete/recreate workflows accumulated duplicate-looking records. The owner clarified on 2026-08-11 that their Airtable automations run when a new row lands and that deleting the Airtable row when its source is deleted is the desired behavior. Full-snapshot reconciliation preserves those new-row automations, keeps D1 authoritative, and avoids unsafe deletion from the Settings action's one-event view. Conference-scale table scans and batched deletes are an acceptable periodic-sync cost; human Airtable rows remain outside the managed lifecycle.
 
+## D-091: Blind reviewers receive no binding-decision context — **accepted** (2026-08-11)
+
+**Decision:** D-084's event-wide blind workspace also withholds whether a binding decision exists and every value derived from it: status, deciding organizer, decision date/note, converted session, onboarding-task effects, and speaker counts. A blinded reviewer sees the same neutral reminder that an event admin owns the final decision on decided and undecided records. Admin records remain complete. Real decision values are not serialized into the blinded page's client props.
+
+**Rationale:** Evaluator run 8 found an accepted, otherwise-anonymized proposal still displaying “Accepted by” the organizer and “What this decision did.” Even without the author's name, telling a scorer the organizer's conclusion and downstream effects biases an ostensibly independent blind score and can indirectly reveal speaker context. Hiding only the decided variant would leak decision existence through the difference, so decided and undecided records share one neutral reviewer treatment. Owner directive 2026-08-11: fix confirmed product defects and add E2E coverage rather than relying on another evaluator run.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

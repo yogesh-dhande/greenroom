@@ -76,7 +76,11 @@ export default async function FilesPage({
         description="Every deliverable your speakers have uploaded — decks, headshots, paperwork — with what each one replaced and the conversation about it."
         action={
           exportable.length > 0 ? (
-            <FileExportControls formId={exportFormId} total={exportable.length} />
+            <FileExportControls
+              action={`/admin/${eventSlug}/files/download-all`}
+              formId={exportFormId}
+              total={exportable.length}
+            />
           ) : (
             <span className="text-sm text-muted-foreground" title={NO_FILES_MESSAGE}>
               No files to export
@@ -99,19 +103,28 @@ export default async function FilesPage({
         </div>
       ) : null}
 
-      <form
-        id={exportFormId}
-        method="post"
-        action={`/admin/${eventSlug}/files/download-all`}
-      />
-
       {deliverables.length === 0 ? (
         <EmptyState
           title="Nothing uploaded yet"
           description="Files speakers upload — for an onboarding task or on their profile — land here, with what they belong to, who sent them, and every earlier version."
         />
       ) : (
-        <Table>
+        <Table className="min-w-[67.5rem] table-fixed">
+          {/* Fixed columns make long, high-cardinality session associations
+              wrap or scroll inside their own cell instead of changing the
+              width of Task (or painting over it). The table primitive owns
+              horizontal overflow when the admin viewport is narrower than
+              this readable minimum. */}
+          <colgroup>
+            <col className="w-14" />
+            <col className="w-36" />
+            <col className="w-32" />
+            <col className="w-64" />
+            <col className="w-40" />
+            <col className="w-44" />
+            <col className="w-16" />
+            <col className="w-24" />
+          </colgroup>
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">Export</TableHead>
@@ -149,7 +162,7 @@ export default async function FilesPage({
               const rowKey = `${deliverable.assignmentId ?? `profile-${deliverable.speakerId}`}-${deliverable.label}`;
 
               return [
-                <TableRow key={rowKey} className="border-b-0">
+                <TableRow key={rowKey} className="border-b-0 [&>td]:align-top">
                   <TableCell>
                     {deliverable.current.key ? (
                       <input
@@ -163,22 +176,24 @@ export default async function FilesPage({
                       />
                     ) : null}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="min-w-0">
                     <a
                       href={deliverable.current.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 font-medium text-foreground underline-offset-4 hover:underline"
+                      title={deliverable.current.filename}
+                      className="flex min-w-0 items-center gap-1.5 font-medium text-foreground underline-offset-4 hover:underline"
                     >
                       <PaperclipIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                      {deliverable.current.filename}
+                      <span className="truncate">{deliverable.current.filename}</span>
                     </a>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="min-w-0">
                     {speaker ? (
                       <Link
                         href={`/admin/${eventSlug}/speakers/${speaker.id}`}
-                        className="text-sm text-foreground underline-offset-4 hover:underline"
+                        title={speaker.name ?? speaker.email}
+                        className="block truncate text-sm text-foreground underline-offset-4 hover:underline"
                       >
                         {speaker.name ?? speaker.email}
                       </Link>
@@ -186,16 +201,21 @@ export default async function FilesPage({
                       <span className="text-sm text-muted-foreground">Unknown speaker</span>
                     )}
                   </TableCell>
-                  <TableCell className="max-w-64 text-sm text-muted-foreground" title={sessionScope.description}>
+                  <TableCell
+                    className="min-w-0 whitespace-normal text-sm text-muted-foreground"
+                    title={sessionScope.description}
+                    data-testid="file-session-scope"
+                  >
                     {deliverable.source === "profile" || sessionRefs.length === 0 ? (
                       sessionScope.label
                     ) : (
-                      <span className="flex flex-col items-start gap-1">
+                      <span className="flex max-h-32 min-w-0 flex-col items-stretch gap-1 overflow-y-auto pr-1">
                         {sessionRefs.map((session) => (
                           <Link
                             key={session.id}
                             href={`/admin/${eventSlug}/agenda?session=${session.id}`}
-                            className="line-clamp-1 text-foreground underline-offset-4 hover:underline"
+                            title={session.title}
+                            className="block max-w-full truncate text-foreground underline-offset-4 hover:underline"
                           >
                             {session.title}
                           </Link>
@@ -206,10 +226,13 @@ export default async function FilesPage({
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell
+                    className="break-words whitespace-normal text-sm text-muted-foreground"
+                    data-testid="file-task-scope"
+                  >
                     {deliverable.label}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="whitespace-normal text-sm text-muted-foreground">
                     {formatFileMoment(deliverable.current.uploadedAt, event.timezone)}
                     {uploader ? (
                       <span className="block text-xs">

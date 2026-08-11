@@ -37,6 +37,7 @@ const LIORA_EMAIL = "liora.vantreight@example.com";
 const BADGE_TASK = "Collect your speaker badge";
 const VISA_TASK = "Visa letter request";
 const SPARE_TASK = "Green room preferences";
+const DUPLICATE_TASK = "Confirm backstage arrival window";
 
 /** A seeded onboarding form (scripts/seed.ts) — used so the locked task has a
  * form to freeze as well as a type. */
@@ -207,4 +208,35 @@ test("a task's shape locks once someone holds it; an unassigned one stays editab
   await expect(page.getByRole("row").filter({ hasText: SPARE_TASK })).toContainText(
     "Upload a file",
   );
+});
+
+test("an exact duplicate task is blocked by default and requires an explicit override", async ({
+  page,
+}) => {
+  await signIn(page, "admin@greenroom.dev");
+  await page.goto(TASKS);
+
+  await page.getByRole("button", { name: "New task" }).click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Title", { exact: true }).fill(DUPLICATE_TASK);
+  await expect(dialog.getByLabel("Create it anyway")).not.toBeChecked();
+  await dialog.getByRole("button", { name: "Create task" }).click();
+  const duplicateRows = page.locator("tbody tr").filter({ hasText: DUPLICATE_TASK });
+  await expect(duplicateRows).toHaveCount(1);
+
+  await page.getByRole("button", { name: "New task" }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Title", { exact: true }).fill(DUPLICATE_TASK);
+  await expect(dialog.getByLabel("Create it anyway")).not.toBeChecked();
+  await dialog.getByRole("button", { name: "Create task" }).click();
+  await expect(
+    dialog.getByText(
+      "A task with this title, type, and due date already exists. Tick ‘Create it anyway’ if a second copy is intentional.",
+    ),
+  ).toBeVisible();
+  await expect(duplicateRows).toHaveCount(1);
+
+  await dialog.getByLabel("Create it anyway").check();
+  await dialog.getByRole("button", { name: "Create task" }).click();
+  await expect(duplicateRows).toHaveCount(2);
 });
