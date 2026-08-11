@@ -111,21 +111,23 @@ export default async function CommunicationsPage({
   // `email_log` rows are addressed to a person, not to an event, so an
   // event's correspondence is composed from both directions — see
   // buildCommunicationLog in src/domain/comms.ts.
-  const [byRecipient, aboutSubmissions, aboutSessions, aboutAssignments] = await Promise.all([
+  const [byRecipient, aboutSubmissions, aboutSessions, aboutAssignments, aboutRounds] = await Promise.all([
     repos.emailLog.listByRecipients(people.map((person) => person.email)),
     repos.emailLog.listByRelatedIds("submission", submissions.map((s) => s.id)),
     repos.emailLog.listByRelatedIds("session", sessions.map((s) => s.id)),
     repos.emailLog.listByRelatedIds("task_assignment", assignments.map((a) => a.id)),
+    repos.emailLog.listByRelatedIds("review_round", rounds.map((round) => round.id)),
   ]);
   const log = buildCommunicationLog(
     byRecipient,
     aboutSubmissions,
     aboutSessions,
     aboutAssignments,
+    aboutRounds,
   );
 
   const peopleByEmail = new Map(people.map((person) => [person.email.toLowerCase(), person]));
-  const contextFor = buildContextResolver({ sessions, submissions, assignments });
+  const contextFor = buildContextResolver({ sessions, submissions, assignments, rounds });
   const stamp = timestampFormatter(event.timezone);
   const logRows: LogRow[] = log.map((entry) =>
     toLogRow(entry, peopleByEmail, contextFor, stamp),
@@ -341,19 +343,23 @@ function buildContextResolver({
   sessions,
   submissions,
   assignments,
+  rounds,
 }: {
   sessions: Session[];
   submissions: Array<{ id: string; title: string }>;
   assignments: Array<{ id: string; taskId: string }>;
+  rounds: Array<{ id: string; name: string }>;
 }) {
   const submissionTitles = new Map(submissions.map((s) => [s.id, s.title]));
   const sessionTitles = new Map(sessions.map((s) => [s.id, s.title]));
   const assignmentIds = new Set(assignments.map((a) => a.id));
+  const roundNames = new Map(rounds.map((round) => [round.id, round.name]));
 
   return (relatedType: string | null, relatedId: string | null): string | null => {
     if (!relatedType || !relatedId) return null;
     if (relatedType === "submission") return submissionTitles.get(relatedId) ?? null;
     if (relatedType === "session") return sessionTitles.get(relatedId) ?? null;
+    if (relatedType === "review_round") return roundNames.get(relatedId) ?? null;
     // Task titles would need a third lookup for a line the reader can already
     // read off the subject ("Reminder: Upload your headshot").
     if (relatedType === "task_assignment") {

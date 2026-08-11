@@ -119,6 +119,12 @@ test("an isolated scored round runs from design through assignments, scoring, ex
   await openRoundTab(page, roundName, "Assign");
 
   await choose(page, "Reviewer", "Dana Okoye");
+  // The controlled reviewer identity is the source for every bulk action —
+  // the selector must not visually fall back to the first pool member while
+  // the action labels point at Dana (eval backlog F4).
+  await expect(page.getByLabel("Reviewer")).toContainText("Dana Okoye (dana@greenroom.dev)");
+  await expect(page.getByRole("button", { name: "Assign all to Dana Okoye" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Assign selected to Dana Okoye" })).toBeVisible();
   for (const title of [EVALS, OFFLINE_EVALS, CONTEXT_BUDGET]) {
     await page.getByLabel(`Select ${title}`).click();
   }
@@ -137,7 +143,9 @@ test("an isolated scored round runs from design through assignments, scoring, ex
   const reminderDialog = page.getByRole("alertdialog");
   await expect(reminderDialog).toContainText(`Remind 1 reviewer in ${roundName}?`);
   await reminderDialog.getByRole("button", { name: "Send reminders" }).click();
-  await expect(page.getByText("Sent 1 reminder")).toBeVisible();
+  await expect(page.getByText("Reviewer reminders: 1 sent · 0 skipped")).toBeVisible();
+  await expect(page.getByTestId("round-reminder-history")).toContainText("Last reminder sent");
+  await expect(page.getByTestId("round-reminder-history")).toContainText("dana@greenroom.dev");
   await expect(async () => {
     const reminder = (await devEmailsSince(reminderAt)).find(
       (body) => body.includes("dana@greenroom.dev") && body.includes("X-Greenroom-Log: round_reminder"),
@@ -147,6 +155,16 @@ test("an isolated scored round runs from design through assignments, scoring, ex
     expect(reminder).toContain("3");
     expect(reminder).toContain("/score");
   }).toPass({ timeout: 15_000 });
+  // Success survives the toast and a page reload, and the event communication
+  // log names the exact round, recipient, status, and timestamp.
+  await page.reload();
+  await expect(page.getByTestId("round-reminder-history")).toContainText("Last reminder sent");
+  await page.goto(`/admin/${EVENT_SLUG}/communications`);
+  const reminderLogRow = page.getByRole("row").filter({ hasText: roundName });
+  await expect(reminderLogRow).toContainText("Dana Okoye");
+  await expect(reminderLogRow).toContainText("Reviewer reminder");
+  await expect(reminderLogRow).toContainText("Sent");
+  await expect(reminderLogRow.locator("time")).toHaveAttribute("datetime", /T/);
   // Grab an id Dana holds in the *seeded* round, to try it in this one.
   await signIn(page, "admin@greenroom.dev");
   await page.goto(`/admin/${EVENT_SLUG}/submissions`);
@@ -167,6 +185,11 @@ test("an isolated scored round runs from design through assignments, scoring, ex
   // must not become a side door around it: even rows not assigned in this
   // round keep every author hidden (D-084).
   await page.goto(`/admin/${EVENT_SLUG}/submissions?view=all`);
+  await expect(page.locator("aside nav").getByRole("link")).toHaveText([
+    "Overview",
+    "Submissions",
+    "Review rounds",
+  ]);
   const trackQueueRows = page.locator("tbody tr");
   expect(await trackQueueRows.count()).toBeGreaterThan(3);
   for (const row of await trackQueueRows.all()) {

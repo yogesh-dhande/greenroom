@@ -773,6 +773,8 @@ export const emailRelatedTypeSchema = z.enum([
   "session",
   "task_assignment",
   "user",
+  /** A manual reviewer reminder belongs to the round that triggered it. */
+  "review_round",
 ]);
 export type EmailRelatedType = z.infer<typeof emailRelatedTypeSchema>;
 

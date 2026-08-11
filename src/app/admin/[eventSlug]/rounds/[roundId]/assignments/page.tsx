@@ -40,6 +40,9 @@ export default async function RoundAssignmentsPage({
     loadReviewerPool(repos, event.id),
     viewerHasQueue(repos, roundId, viewer.id),
   ]);
+  const lastReminder = (
+    await repos.emailLog.listByRelated("review_round", round.id)
+  ).find((entry) => entry.kind === "round_reminder") ?? null;
 
   const poolById = new Map(pool.map((member) => [member.user.id, member.user]));
   const scored = new Set(work.scores.map((score) => score.assignmentId));
@@ -96,6 +99,24 @@ export default async function RoundAssignmentsPage({
         tracks={tracks.map((track) => ({ id: track.id, name: track.name }))}
         submissions={options}
         assignments={rows}
+        lastReminder={
+          lastReminder
+            ? {
+                to: lastReminder.to,
+                status: lastReminder.status,
+                sentAtLabel: new Intl.DateTimeFormat("en-US", {
+                  timeZone: event.timezone,
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZoneName: "short",
+                })
+                  .format(lastReminder.sentAt)
+                  .replace(",", ""),
+              }
+            : null
+        }
       />
     </div>
   );

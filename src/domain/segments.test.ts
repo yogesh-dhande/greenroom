@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findSegmentNameCollision,
   normalizeSegmentName,
   parseSegmentQuery,
   SEGMENT_QUERY_KEYS,
@@ -113,5 +114,24 @@ describe("normalizeSegmentName", () => {
 
   it("keeps the organizer's capitalization", () => {
     expect(normalizeSegmentName("Returning Keynotes")).toBe("Returning Keynotes");
+  });
+});
+
+describe("findSegmentNameCollision", () => {
+  const segments = [
+    { id: "segment-1", name: "VIP Prospects" },
+    { id: "segment-2", name: "Returning speakers" },
+  ];
+
+  it("finds the existing segment across case and whitespace variants", () => {
+    expect(findSegmentNameCollision(segments, "  vip   PROSPECTS ")).toEqual(segments[0]);
+  });
+
+  it("does not confuse distinct names", () => {
+    expect(findSegmentNameCollision(segments, "AI Prospects")).toBeNull();
+  });
+
+  it("does not manufacture a collision for a blank name", () => {
+    expect(findSegmentNameCollision(segments, "   ")).toBeNull();
   });
 });

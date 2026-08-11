@@ -33,3 +33,28 @@ export function pendingReviewers(
 export function pendingScorecardsLabel(pending: number): string {
   return `${pending} scorecard${pending === 1 ? "" : "s"}`;
 }
+
+export interface ReminderDeliverySummary {
+  sent: number;
+  failed: number;
+  skipped: number;
+}
+
+/**
+ * Counts one outcome per reviewer, not per assignment. The send domain only
+ * returns deliveries for reviewers who still owe work and have an address;
+ * everyone else in the round was deliberately skipped. Failed deliveries
+ * were attempted, so they are reported separately and never double-counted
+ * as skips.
+ */
+export function summarizeReminderDeliveries(
+  assignments: Array<Pick<RoundAssignment, "reviewerId">>,
+  deliveries: Array<{ status: "sent" | "failed" }>,
+): ReminderDeliverySummary {
+  const reviewers = new Set(assignments.map((assignment) => assignment.reviewerId)).size;
+  return {
+    sent: deliveries.filter((delivery) => delivery.status === "sent").length,
+    failed: deliveries.filter((delivery) => delivery.status === "failed").length,
+    skipped: Math.max(0, reviewers - deliveries.length),
+  };
+}

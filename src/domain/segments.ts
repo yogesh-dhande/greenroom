@@ -11,6 +11,7 @@
  * showing more contacts than its name promises.
  */
 import type { DirectoryFilter } from "@/db/repos/contacts";
+import type { Segment } from "@/db/entities";
 import { normalizeDirectoryFilter } from "@/domain/crm";
 
 /**
@@ -110,4 +111,24 @@ export function segmentFilterOrEmpty(raw: string): DirectoryFilter {
 export function normalizeSegmentName(raw: string | null | undefined): string | null {
   const name = (raw ?? "").trim().replace(/\s+/g, " ");
   return name === "" ? null : name;
+}
+
+/**
+ * Finds the saved segment whose name would be indistinguishable from `raw`.
+ *
+ * Segment names are organizer-facing labels rather than identifiers, so case
+ * and incidental whitespace do not create a meaningful distinction. This is
+ * deliberately a read-before-create domain guard instead of a D1 uniqueness
+ * rule: the same behavior belongs to every storage adapter, and existing
+ * duplicate rows remain readable until an organizer chooses how to rename
+ * them.
+ */
+export function findSegmentNameCollision(
+  existing: readonly Pick<Segment, "id" | "name">[],
+  raw: string | null | undefined,
+): Pick<Segment, "id" | "name"> | null {
+  const name = normalizeSegmentName(raw);
+  if (!name) return null;
+  const key = name.toLowerCase();
+  return existing.find((segment) => normalizeSegmentName(segment.name)?.toLowerCase() === key) ?? null;
 }

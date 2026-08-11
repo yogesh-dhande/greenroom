@@ -907,7 +907,7 @@ export const emailLog = sqliteTable(
     /** What this email was about, so a speaker's log can be reconstructed
      * without a column per relationship. */
     relatedType: text("related_type", {
-      enum: ["submission", "session", "task_assignment", "user"],
+      enum: ["submission", "session", "task_assignment", "user", "review_round"],
     }),
     relatedId: text("related_id"),
     status: text("status", { enum: ["sent", "failed"] }).notNull(),

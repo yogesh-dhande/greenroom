@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { sendRoundReminders } from "@/domain/comms";
+import { summarizeReminderDeliveries } from "@/domain/round-reminders";
 import { getCommsContext } from "@/lib/comms-context";
 import { getRepos } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
@@ -34,6 +35,7 @@ export async function remindReviewers(eventSlug: string, roundId: string) {
 
   const round = await repos.reviewRounds.getById(roundId);
   if (!round || round.eventId !== event.id) return fail("That round no longer exists");
+  const assignments = await repos.reviewRounds.listAssignments(round.id);
 
   // The acting admin's own identity for {{organizerName}}/{{organizerEmail}}
   // (decisions.md D-053), not the automated-send fallbacks - same pattern as
@@ -50,9 +52,9 @@ export async function remindReviewers(eventSlug: string, roundId: string) {
     return fail("Couldn't send the reminders — try again");
   }
 
-  const sent = deliveries.filter((delivery) => delivery.status === "sent").length;
-  const failed = deliveries.filter((delivery) => delivery.status === "failed").length;
+  const { sent, failed, skipped } = summarizeReminderDeliveries(assignments, deliveries);
 
   revalidatePath(`/admin/${eventSlug}/communications`);
-  return { ok: true as const, sent, failed };
+  revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
+  return { ok: true as const, sent, failed, skipped };
 }

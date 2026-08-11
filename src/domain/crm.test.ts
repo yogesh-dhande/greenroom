@@ -10,10 +10,12 @@ import {
   findDisplayNameCollision,
   isEmptyDirectoryFilter,
   matchesDirectoryFilter,
+  normalizeContactNameKey,
   normalizeDirectoryFilter,
   normalizeTagLabel,
   normalizeTagLabels,
   planContactCreation,
+  previewContactDuplicate,
   sortDirectoryContacts,
   topCompanies,
 } from "@/domain/crm";
@@ -176,6 +178,7 @@ describe("findDisplayNameCollision", () => {
   it("returns the colliding contact's email, case-insensitively", () => {
     expect(findDisplayNameCollision(existing, "priya raman")).toBe("priya@example.com");
     expect(findDisplayNameCollision(existing, "  PRIYA RAMAN  ")).toBe("priya@example.com");
+    expect(findDisplayNameCollision(existing, "Priya   Raman")).toBe("priya@example.com");
   });
 
   it("returns null when no existing contact shares the name", () => {
@@ -184,6 +187,17 @@ describe("findDisplayNameCollision", () => {
 
   it("returns null for a blank name rather than matching a nameless contact", () => {
     expect(findDisplayNameCollision(existing, "  ")).toBeNull();
+  });
+});
+
+describe("normalizeContactNameKey", () => {
+  it("normalizes the case and whitespace that do not distinguish display names", () => {
+    expect(normalizeContactNameKey("  Priya   RAMAN ")).toBe("priya raman");
+  });
+
+  it("returns null for a missing display name", () => {
+    expect(normalizeContactNameKey("  ")).toBeNull();
+    expect(normalizeContactNameKey(null)).toBeNull();
   });
 });
 
@@ -236,6 +250,35 @@ describe("planContactCreation", () => {
       action: "create",
       nameCollisionEmail: null,
     });
+  });
+});
+
+describe("previewContactDuplicate", () => {
+  const candidates = [
+    { userId: "u1", name: "Priya Raman", email: "priya@example.com" },
+    { userId: "u2", name: "Tom Beckett", email: "tom@example.com" },
+  ];
+
+  it("surfaces a same-name possible match before a new email is submitted", () => {
+    expect(previewContactDuplicate(candidates, { name: "  PRIYA   raman ", email: "" })).toEqual({
+      kind: "name",
+      contact: candidates[0],
+    });
+  });
+
+  it("upgrades the preview to an exact identity when the email is already known", () => {
+    expect(
+      previewContactDuplicate(candidates, {
+        name: "A different label",
+        email: " PRIYA@EXAMPLE.COM ",
+      }),
+    ).toEqual({ kind: "email", contact: candidates[0] });
+  });
+
+  it("does not flag a distinct name and address", () => {
+    expect(
+      previewContactDuplicate(candidates, { name: "Ada Lovelace", email: "ada@example.com" }),
+    ).toBeNull();
   });
 });
 

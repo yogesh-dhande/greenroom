@@ -35,15 +35,36 @@ import { FileExportControls } from "./file-export-controls";
  */
 export default async function FilesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ eventSlug: string }>;
+  searchParams: Promise<{ session?: string }>;
 }) {
   const { eventSlug } = await params;
+  const requestedSessionId = (await searchParams).session;
   const { event } = await requireEventAdmin(eventSlug);
 
   const repos = await getRepos();
-  const { deliverables, commentsByAssignment, peopleById, sessionTitlesBySpeaker } =
+  const {
+    deliverables: allDeliverables,
+    commentsByAssignment,
+    peopleById,
+    sessionTitlesBySpeaker,
+    sessionRefsBySpeaker,
+    sessions,
+    speakerIdsBySession,
+  } =
     await loadFileLibrary(repos, event.id);
+
+  const selectedSession = requestedSessionId
+    ? (sessions.find((session) => session.id === requestedSessionId) ?? null)
+    : null;
+  const selectedSpeakerIds = selectedSession
+    ? new Set(speakerIdsBySession.get(selectedSession.id) ?? [])
+    : null;
+  const deliverables = selectedSpeakerIds
+    ? allDeliverables.filter((deliverable) => selectedSpeakerIds.has(deliverable.speakerId))
+    : allDeliverables;
 
   const exportable = deliverables.filter((deliverable) => deliverable.current.key !== null);
   const exportFormId = "file-export";
@@ -63,6 +84,20 @@ export default async function FilesPage({
           )
         }
       />
+
+      {selectedSession ? (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+          <p>
+            Showing speaker-owned files related to <span className="font-medium">{selectedSession.title}</span>.
+          </p>
+          <Link
+            href={`/admin/${eventSlug}/files`}
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Show all files
+          </Link>
+        </div>
+      ) : null}
 
       <form
         id={exportFormId}
@@ -107,6 +142,7 @@ export default async function FilesPage({
                 deliverable.source,
                 sessionTitlesBySpeaker.get(deliverable.speakerId) ?? [],
               );
+              const sessionRefs = sessionRefsBySpeaker.get(deliverable.speakerId) ?? [];
               // Keyed on the speaker as well as the assignment: profile rows
               // carry no assignment id, so two speakers' headshots would
               // otherwise collide on one key.
@@ -150,11 +186,25 @@ export default async function FilesPage({
                       <span className="text-sm text-muted-foreground">Unknown speaker</span>
                     )}
                   </TableCell>
-                  <TableCell
-                    className="max-w-56 truncate text-sm text-muted-foreground"
-                    title={sessionScope.description}
-                  >
-                    {sessionScope.label}
+                  <TableCell className="max-w-64 text-sm text-muted-foreground" title={sessionScope.description}>
+                    {deliverable.source === "profile" || sessionRefs.length === 0 ? (
+                      sessionScope.label
+                    ) : (
+                      <span className="flex flex-col items-start gap-1">
+                        {sessionRefs.map((session) => (
+                          <Link
+                            key={session.id}
+                            href={`/admin/${eventSlug}/agenda?session=${session.id}`}
+                            className="line-clamp-1 text-foreground underline-offset-4 hover:underline"
+                          >
+                            {session.title}
+                          </Link>
+                        ))}
+                        {sessionRefs.length > 1 ? (
+                          <span className="text-xs">Speaker-wide task · {sessionRefs.length} sessions</span>
+                        ) : null}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {deliverable.label}

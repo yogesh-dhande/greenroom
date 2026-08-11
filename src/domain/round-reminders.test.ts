@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RoundAssignment } from "@/db/entities";
-import { pendingReviewers, pendingScorecardsLabel } from "@/domain/round-reminders";
+import {
+  pendingReviewers,
+  pendingScorecardsLabel,
+  summarizeReminderDeliveries,
+} from "@/domain/round-reminders";
 
 const EPOCH = new Date("2026-01-01T00:00:00Z");
 
@@ -55,5 +59,32 @@ describe("pendingScorecardsLabel", () => {
   it("pluralizes everything else", () => {
     expect(pendingScorecardsLabel(0)).toBe("0 scorecards");
     expect(pendingScorecardsLabel(3)).toBe("3 scorecards");
+  });
+});
+
+describe("summarizeReminderDeliveries", () => {
+  it("reports sent, failed, and skipped reviewers without counting assignments twice", () => {
+    const assignments = [
+      assignment({ id: "a1", reviewerId: "dana" }),
+      assignment({ id: "a2", reviewerId: "dana" }),
+      assignment({ id: "a3", reviewerId: "marco" }),
+      assignment({ id: "a4", reviewerId: "sam" }),
+    ];
+
+    expect(
+      summarizeReminderDeliveries(assignments, [{ status: "sent" }, { status: "failed" }]),
+    ).toEqual({ sent: 1, failed: 1, skipped: 1 });
+  });
+
+  it("reports every reviewer skipped when no reminder needed sending", () => {
+    expect(
+      summarizeReminderDeliveries(
+        [
+          assignment({ id: "a1", reviewerId: "dana" }),
+          assignment({ id: "a2", reviewerId: "marco" }),
+        ],
+        [],
+      ),
+    ).toEqual({ sent: 0, failed: 0, skipped: 2 });
   });
 });

@@ -529,6 +529,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** Repeated evaluator runs created identical submissions and tasks that fanned out into duplicate reviews, sessions, task checklists, agenda cards, and public program entries. Email or display-name matching alone would block legitimate people and intake, while a global uniqueness constraint would make intentional duplicate tasks impossible and still would not define safe auth-aware record merge. Narrow guards at the creation boundary prevent the demonstrated replay without changing D-065/D-077's no-merge decision or the storage abstraction.
 
+## D-088: CRM creation surfaces normalized naming collisions before writing — **accepted** (2026-08-11)
+
+**Decision:** Saving a directory segment rejects an existing name after trimming, collapsing whitespace, and case-folding; there is no database uniqueness constraint and existing duplicate rows remain readable. Manual contact creation previews an exact email match or possible same-display-name contact while the organizer is still composing the form. Email remains the authoritative identity and is rejected server-side; a same-name/different-email person may still be created through an explicitly labelled “Add separate contact” action. No merge behavior is added.
+
+**Rationale:** Evaluator run 7 produced indistinguishable saved segment labels and only showed a possible same-name contact after the second record was already written. Normalized read-before-create checks match D-087's storage-agnostic guard pattern without a datastore-specific constraint or destructive cleanup. Segment labels need to be distinguishable, while people legitimately share names, so segment collisions block and contact-name collisions warn. This preserves D-051's email identity and D-065/D-077's deliberate no-merge scope.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

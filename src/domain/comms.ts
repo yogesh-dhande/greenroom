@@ -873,8 +873,12 @@ export async function sendRoundReminders(
     results.push(
       await deliver(ctx, reviewer.email, renderForEvent("round_reminder", overrides, data), {
         kind: "round_reminder",
-        relatedType: "user",
-        relatedId: reviewer.id,
+        // Round identity makes the durable log answer "when did we last
+        // remind this committee?" from the assignments page. Recipient
+        // history remains address-scoped, so this still appears on the
+        // reviewer's communication history too.
+        relatedType: "review_round",
+        relatedId: round.id,
       }),
     );
   }

@@ -6,6 +6,7 @@ import {
   contactDisplayName,
   filterDirectory,
   isEmptyDirectoryFilter,
+  normalizeContactNameKey,
   normalizeDirectoryFilter,
 } from "@/domain/crm";
 import { PIPELINE_STAGE_LABELS } from "@/domain/pipeline";
@@ -38,7 +39,8 @@ const DIRECTORY_PATH = "/admin/directory";
 function duplicateNamesByUser(contacts: readonly DirectoryContact[]): Map<string, string> {
   const byName = new Map<string, DirectoryContact[]>();
   for (const contact of contacts) {
-    const key = contactDisplayName(contact).toLowerCase();
+    const key = normalizeContactNameKey(contact.name);
+    if (!key) continue;
     byName.set(key, [...(byName.get(key) ?? []), contact]);
   }
 
@@ -172,7 +174,13 @@ export default async function DirectoryPage({
               matchCount={contacts.length}
             />
             <ImportContactsDialog />
-            <AddContactDialog />
+            <AddContactDialog
+              duplicateCandidates={allContacts.map(({ userId, name, email }) => ({
+                userId,
+                name,
+                email,
+              }))}
+            />
           </div>
         }
       />

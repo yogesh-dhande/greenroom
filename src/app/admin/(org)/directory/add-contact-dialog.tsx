@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,10 @@ import {
   ActionTimeoutError,
   withActionTimeout,
 } from "@/app/admin/[eventSlug]/speakers/action-timeout";
+import {
+  previewContactDuplicate,
+  type ContactDuplicateCandidate,
+} from "@/domain/crm";
 import { addContact } from "./actions";
 
 const formSchema = z.object({
@@ -51,18 +55,29 @@ const EMPTY: FormValues = { name: "", email: "", title: "", company: "", bio: ""
  * different email is a softer case (decisions.md D-059): it still creates
  * the contact, with a flash note that a possible duplicate now exists.
  */
-export function AddContactDialog() {
+export function AddContactDialog({
+  duplicateCandidates,
+}: {
+  duplicateCandidates: readonly ContactDuplicateCandidate[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   /** Set when the add was refused because the address is already a contact. */
   const [duplicateUserId, setDuplicateUserId] = useState<string | null>(null);
   const {
     register,
+    control,
     handleSubmit,
     reset,
     setError,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: EMPTY });
+  const name = useWatch({ control, name: "name" });
+  const email = useWatch({ control, name: "email" });
+  const duplicatePreview = previewContactDuplicate(duplicateCandidates, {
+    name,
+    email,
+  });
 
   async function onSubmit(values: FormValues) {
     setDuplicateUserId(null);
@@ -144,6 +159,29 @@ export function AddContactDialog() {
             {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
           </div>
 
+          {duplicatePreview ? (
+            <div
+              role="status"
+              className="rounded-md border border-warning bg-warning/10 p-3 text-sm text-foreground"
+            >
+              <p className="font-medium">
+                {duplicatePreview.kind === "email" ? "Existing contact" : "Possible name match"}
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                {duplicatePreview.contact.name?.trim() || duplicatePreview.contact.email} (
+                {duplicatePreview.contact.email}) {duplicatePreview.kind === "email"
+                  ? "already uses this email. Open that record instead of adding it again."
+                  : "already uses this display name. Two people can share a name — verify the email before adding a separate contact."}
+              </p>
+              <Link
+                href={`/admin/directory/${duplicatePreview.contact.userId}`}
+                className="mt-2 inline-block text-foreground underline underline-offset-4"
+              >
+                Open possible match
+              </Link>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="contact-title">Title (optional)</Label>
@@ -185,7 +223,11 @@ export function AddContactDialog() {
 
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Adding…" : "Add contact"}
+              {isSubmitting
+                ? "Adding…"
+                : duplicatePreview?.kind === "name"
+                  ? "Add separate contact"
+                  : "Add contact"}
             </Button>
           </DialogFooter>
         </form>

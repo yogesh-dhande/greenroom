@@ -82,6 +82,22 @@ test("file replacements, cross-role comments, and the ZIP library share one isol
   await expect(row).toContainText(speakerName);
   await expect(row).toContainText(session.title);
   await expect(row).toContainText(taskTitle);
+  const sessionHref = await row.getByRole("link", { name: session.title }).getAttribute("href");
+  expect(sessionHref).toMatch(new RegExp(`/admin/${isolatedEvent.slug}/agenda\\?session=`));
+
+  // Session names are real navigation, not a generic count or tooltip. The
+  // agenda detail links back into the same library with that session scoped,
+  // giving organizers a session-to-files path in both directions.
+  await row.getByRole("link", { name: session.title }).click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: session.title })).toBeVisible();
+  await page.getByRole("link", { name: "View related files" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin/${isolatedEvent.slug}/files\\?session=`));
+  await expect(page.getByText(`Showing speaker-owned files related to ${session.title}.`)).toBeVisible();
+
+  const scopedRow = page.getByRole("row").filter({ hasText: secondName }).first();
+  await expect(scopedRow.getByRole("link", { name: session.title })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Show all files" })).toBeVisible();
+
   await expect(row).toContainText(`by ${speakerName}`);
   await expect(row.getByText(/[A-Z][a-z]{2} \d{1,2}, \d{4}/)).toBeVisible();
   await expect(row).toContainText("2");

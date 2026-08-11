@@ -62,7 +62,12 @@ test("admin manages tracks and rooms in an isolated event", async ({ page, isola
   await expect(page.getByRole("row", { name: /E2E Room Updated/ })).toContainText("300");
 
   await page.getByRole("button", { name: "Delete E2E Room Updated" }).click();
-  await page.getByRole("button", { name: "Delete room" }).click();
+  const deleteDialog = page.getByRole("alertdialog");
+  await expect(
+    deleteDialog.getByRole("heading", { name: 'Delete "E2E Room Updated"?' }),
+  ).toBeVisible();
+  await deleteDialog.getByRole("button", { name: "Delete room" }).click();
+  await expect(page.getByRole("heading", { name: 'Delete ""?' })).toHaveCount(0);
   await expect(page.getByText("Room deleted")).toBeVisible();
   await expect(page.getByRole("cell", { name: "E2E Room Updated", exact: true })).toHaveCount(0);
 });

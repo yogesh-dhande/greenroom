@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   CalendarOffIcon,
@@ -62,6 +63,7 @@ const CUSTOM_DURATION = "__custom__"; // matches the "Custom..." SelectItem belo
 const NO_TRACK = "__no_track__";
 
 export interface SessionEditDialogProps {
+  eventSlug: string;
   session: BoardSession | null;
   days: string[];
   rooms: Room[];
@@ -122,6 +124,7 @@ export function SessionEditDialog({ session, onOpenChange, ...rest }: SessionEdi
 }
 
 function SessionEditForm({
+  eventSlug,
   session,
   days,
   rooms,
@@ -287,7 +290,17 @@ function SessionEditForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle className="pr-6">{session.title}</DialogTitle>
+        <div className="flex items-start justify-between gap-4 pr-6">
+          <DialogTitle>{session.title}</DialogTitle>
+          {canEdit ? (
+            <Link
+              href={`/admin/${eventSlug}/files?session=${session.id}`}
+              className="shrink-0 text-sm font-medium text-foreground underline underline-offset-4"
+            >
+              View related files
+            </Link>
+          ) : null}
+        </div>
         <DialogDescription>
           {canEdit
             ? "Edit the session's own content, or set the exact day, room, and time. Each saves independently."

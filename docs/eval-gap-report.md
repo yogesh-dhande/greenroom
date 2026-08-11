@@ -15,7 +15,7 @@ raw defect array as an implementation plan without this triage.
 
 ### F1. Repair calendar-invite delivery and prove it through the real sender
 
-**Status:** implemented and unit-tested; deployment and controlled live send pending.
+**Status:** implemented, unit-tested, deployed, and verified with a controlled production send (`status=sent`, no provider error).
 
 **Affected:** Speaker Management (major), Speaker CRM activity feed
 
@@ -39,7 +39,7 @@ Acceptance criteria:
 
 ### F2. Eliminate recurring authenticated-route stalls
 
-**Status:** unresolved; privacy-preserving per-isolate/request lifecycle diagnostics added for the next occurrence.
+**Status:** no current stall reproduced; privacy-preserving per-isolate/request lifecycle diagnostics are deployed for the next occurrence. A 15-minute post-deploy matrix completed 370 requests across organizer, reviewer, speaker, public, root, and cookieless routes with zero failures, zero warnings, and zero responses over five seconds. The historical mechanism remains the leading explanation rather than a proven cause of every run-7 timeout.
 
 **Affected:** all required areas; explicitly observed on `/`, `/admin`,
 `/portal`, event navigation, and Agenda
@@ -113,6 +113,8 @@ Record merge remains excluded by D-065/D-077 and is not part of this item.
 
 ### F4. Fix reviewer workspace and assignment controls
 
+**Status:** implemented with controlled reviewer identity, consistent bulk labels, durable reminder counts/timestamp/log context, and focused unit/E2E coverage. Reviewer-only navigation was already correct and now has an exact regression assertion.
+
 **Affected:** Abstract Management, CFP
 
 **Evidence:** the reviewer was shown the organizer-style sidebar, contrary to
@@ -165,6 +167,8 @@ session/speaker detail exactly once and restore focus to the invoking card.
 
 ### F7. Improve content-file and task administration
 
+**Status:** named session links, bidirectional session/file navigation, safe task-shape editing, and explicit digest run counts implemented with focused E2E coverage.
+
 **Affected:** Content Management
 
 **Evidence:** Files showed a generic “N speaker sessions” association rather
@@ -193,16 +197,17 @@ Acceptance criteria:
 
 ## P2 — polish after the blockers
 
-- **F9 — Room deletion dialog:** retain the room name while deletion is in
-  flight instead of rendering `Delete ""?`.
-- **F10 — Segment naming:** reject or explicitly confirm a duplicate saved
-  segment name so two unrelated definitions are not indistinguishable.
-- **F11 — Duplicate-prevention timing:** when a manually added contact shares a
-  display name, show the possible match before submission as well as flagging
-  the saved row afterward. Email identity deduplication already works.
-- **F12 — Navigation/action responsiveness:** after F2 is fixed, retest sidebar
-  clicks and portal optimistic actions. Only pursue separate client bugs if
-  navigation still fails without a stalled RSC request.
+- **F9 — Room deletion dialog (implemented):** retain the room name while deletion is in
+  flight instead of rendering `Delete ""?`; covered in the settings E2E flow.
+- **F10 — Segment naming (implemented):** case/whitespace-equivalent saved
+  segment names are rejected before creation so unrelated definitions remain distinguishable.
+- **F11 — Duplicate-prevention timing (implemented):** manual contact creation
+  shows a possible same-display-name match before submission while preserving
+  authoritative email identity deduplication.
+- **F12 — Navigation/action responsiveness (verified):** coordinated portal,
+  rounds, program, and navigation E2E flows passed, and the sustained deployed
+  matrix had no stalled RSC requests. No separate client-navigation defect was
+  reproduced; keep monitoring through F2's lifecycle diagnostics.
 
 ## Not product fixes from this run
 

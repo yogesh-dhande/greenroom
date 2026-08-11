@@ -1467,7 +1467,7 @@ describe("sendRoundReminders", () => {
   it("emails every reviewer with unfiled scorecards, and nobody else", async () => {
     const dana = user({ id: "dana", email: "dana@example.test", name: "Dana Scully" });
     const marco = user({ id: "marco", email: "marco@example.test", name: "Marco Polo" });
-    const { repos } = fakeRoundRepos({
+    const { repos, emails } = fakeRoundRepos({
       round: round(),
       assignments: [
         roundAssignment({ id: "a1", reviewerId: "dana" }),
@@ -1494,6 +1494,13 @@ describe("sendRoundReminders", () => {
     expect(sent[0].text).toContain(
       "https://example.com/admin/aie-2026/rounds/round-1/score",
     );
+    expect(emails).toHaveLength(1);
+    expect(emails[0]).toMatchObject({
+      kind: "round_reminder",
+      relatedType: "review_round",
+      relatedId: "round-1",
+      status: "sent",
+    });
   });
 
   it("sends nothing, and touches no repo write, when every scorecard is filed", async () => {

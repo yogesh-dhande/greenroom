@@ -153,6 +153,40 @@ A successful deploy prints the new Worker version ID. Keep that ID with any
 evaluation or incident notes so results can be tied to the exact deployment.
 For a first deployment, continue with the initial-admin setup below.
 
+### Known authenticated-route stalls
+
+We have seen rare production requests spend 45–210 seconds in wall time while
+using only 6–77 ms of Worker CPU, throwing no exception, and eventually ending
+as `outcome=canceled`. Same-second authenticated D1 reads completed normally,
+and cookieless requests could also stall, so this signature is a hanging
+request-path promise rather than database latency or CPU exhaustion.
+
+The strongest identified mechanism was concurrent cold-isolate startup in
+OpenNext 1.20.2: its generated dispatcher imported the Next handler during the
+first request, allowing sibling requests to encounter a module-loading promise
+owned by another request context. Affected isolates then appeared to remain
+poisoned. A same-code redeploy replaces those isolates, which explains why it
+restored service immediately without changing D1, R2, or application code.
+Greenroom now initializes the handler at isolate startup (D-082), and the
+deployed bundle no longer contains that request-time import, but a later
+evaluator run showed similar visible timeouts without a preserved Worker trace.
+Treat the original mechanism as the leading explanation, not proof that every
+later timeout has the same cause.
+
+For routine confidence, run the one-round probe above. Before a long evaluator
+run, use a sustained matrix instead:
+
+```sh
+node scripts/smoke-deployed.mjs --minutes 30 --event <event-slug> \
+  --auth-dir <path-to-playwright-storage-states>
+```
+
+If stalls recur, capture `wrangler tail` output and the probe JSONL before
+redeploying whenever service impact allows. Record Worker version, route,
+probe ID, wall/CPU time, outcome, and concurrent requests. The Worker emits
+privacy-preserving request lifecycle markers for this correlation. Then
+redeploy to restore service; do not reset or reseed production data.
+
 ## 7. First sign-in and the first admin
 
 New accounts get the `speaker` role, so something has to grant the first

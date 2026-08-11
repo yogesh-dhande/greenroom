@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BellRingIcon, XIcon } from "lucide-react";
@@ -94,6 +95,7 @@ export function AssignmentManager({
   tracks,
   submissions,
   assignments,
+  lastReminder,
 }: {
   eventSlug: string;
   roundId: string;
@@ -102,6 +104,11 @@ export function AssignmentManager({
   tracks: Array<{ id: string; name: string }>;
   submissions: SubmissionOption[];
   assignments: AssignmentRow[];
+  lastReminder: {
+    to: string;
+    status: "sent" | "failed";
+    sentAtLabel: string;
+  } | null;
 }) {
   const router = useRouter();
   const [reviewerId, setReviewerId] = useState(reviewers[0]?.id ?? "");
@@ -136,6 +143,11 @@ export function AssignmentManager({
     () => new Map(reviewers.map((reviewer) => [reviewer.id, reviewer])),
     [reviewers],
   );
+  const selectedReviewer = reviewerById.get(reviewerId) ?? null;
+  const reviewerName = selectedReviewer?.name ?? "this reviewer";
+  const reviewerLabel = selectedReviewer
+    ? `${selectedReviewer.name} (${selectedReviewer.email})`
+    : "Choose a reviewer…";
 
   // Same "who still owes work" reading as the Progress column itself — the
   // reminder can never disagree with what's on screen (D-050).
@@ -165,21 +177,25 @@ export function AssignmentManager({
         toast.error(result.error);
         return;
       }
-      if (result.sent === 0) {
-        toast.success("Nothing to send", { description: "Every reviewer is already caught up." });
-        return;
+      const summary = `${result.sent} sent · ${result.skipped} skipped`;
+      if (result.failed > 0) {
+        toast.warning(`Reviewer reminders: ${summary}`, {
+          description: `${result.failed} failed — check the communications log.`,
+        });
+      } else {
+        toast.success(`Reviewer reminders: ${summary}`);
       }
-      toast.success(`Sent ${result.sent} reminder${result.sent === 1 ? "" : "s"}`, {
-        description:
-          result.failed > 0
-            ? `${result.failed} couldn't be delivered — check the communications log.`
-            : undefined,
-      });
       router.refresh();
     });
   }
 
-  const reviewerName = reviewerById.get(reviewerId)?.name ?? "this reviewer";
+  function chooseReviewer(nextReviewerId: string) {
+    setReviewerId(nextReviewerId);
+    // Checked rows belong to the identity visible when they were selected.
+    // Clearing them makes a reviewer switch atomic instead of letting old
+    // choices reappear when the organizer switches back.
+    setSelected([]);
+  }
 
   // What the chosen reviewer's tracks actually reach. An assignment outside
   // them would be a queue item leading to a page they can't open (D-060/D-061),
@@ -248,9 +264,9 @@ export function AssignmentManager({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="assign-reviewer">Reviewer</Label>
-            <Select value={reviewerId} onValueChange={setReviewerId}>
+            <Select value={reviewerId} onValueChange={chooseReviewer}>
               <SelectTrigger id="assign-reviewer" className="w-full">
-                <SelectValue placeholder="Choose a reviewer…" />
+                <SelectValue placeholder="Choose a reviewer…">{reviewerLabel}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {reviewers.map((reviewer) => (
@@ -295,7 +311,7 @@ export function AssignmentManager({
                   )
                 }
               >
-                Assign all
+                Assign all to {reviewerName}
               </Button>
             </div>
           </div>
@@ -468,15 +484,32 @@ export function AssignmentManager({
               Only these people can score in this round — each round has its own pool.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={pendingCount === 0}
-            onClick={() => setConfirmingRemind(true)}
-          >
-            <BellRingIcon />
-            Remind reviewers
-          </Button>
+          <div className="flex flex-col items-end gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pendingCount === 0}
+              onClick={() => setConfirmingRemind(true)}
+            >
+              <BellRingIcon />
+              Remind reviewers
+            </Button>
+            {lastReminder ? (
+              <p
+                className="text-right text-xs text-muted-foreground"
+                data-testid="round-reminder-history"
+              >
+                Last reminder {lastReminder.status === "sent" ? "sent" : "failed"}{" "}
+                {lastReminder.sentAtLabel} · {lastReminder.to}.{" "}
+                <Link
+                  href={`/admin/${eventSlug}/communications`}
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  View log
+                </Link>
+              </p>
+            ) : null}
+          </div>
         </div>
         <AlertDialog open={confirmingRemind} onOpenChange={(open) => !open && setConfirmingRemind(false)}>
           <AlertDialogContent>

@@ -14,7 +14,11 @@ import {
   planContactCreation,
   TAG_MAX_LENGTH,
 } from "@/domain/crm";
-import { normalizeSegmentName, serializeSegmentQuery } from "@/domain/segments";
+import {
+  findSegmentNameCollision,
+  normalizeSegmentName,
+  serializeSegmentQuery,
+} from "@/domain/segments";
 import {
   importProfilePatch,
   parseSpeakerCsv,
@@ -349,6 +353,13 @@ export async function saveSegment(input: SaveSegmentInput) {
   }
 
   const repos = await getRepos();
+  const collision = findSegmentNameCollision(await repos.segments.listAll(), name);
+  if (collision) {
+    return fail(
+      `A segment named "${collision.name}" already exists — choose a different name so saved views stay distinguishable`,
+    );
+  }
+
   let segmentId: string;
   try {
     const segment = await repos.segments.create({

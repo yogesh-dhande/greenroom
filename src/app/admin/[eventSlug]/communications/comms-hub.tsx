@@ -77,21 +77,24 @@ export function CommsHub({
         return;
       }
       const { sent, failed, skipped, skipSummary } = result.data;
+      const considered = sent + failed + skipped;
+      const runSummary = `Checked ${considered} speaker${considered === 1 ? "" : "s"}: sent ${sent}, skipped ${skipped}, failed ${failed}.`;
       if (sent === 0) {
         // A quiet run is the normal outcome, not a failure — say *why* it was
         // quiet so the button doesn't look broken (D-039).
         toast.success("Nothing to send", {
           description:
             skipped > 0
-              ? `No digest was due: ${skipSummary}.`
-              : "Every speaker's checklist is already clear.",
+              ? `${runSummary} ${skipSummary}.`
+              : `${runSummary} Every speaker's checklist is already clear.`,
         });
         return;
       }
       toast.success(`Sent ${sent} email${sent === 1 ? "" : "s"}`, {
         description: [
+          runSummary,
+          skipSummary ? `Skipped: ${skipSummary}.` : null,
           failed > 0 ? `${failed} failed to send.` : null,
-          skipped > 0 ? `Skipped ${skipped}: ${skipSummary}.` : null,
         ]
           .filter(Boolean)
           .join(" "),

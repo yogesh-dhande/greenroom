@@ -199,6 +199,7 @@ test("a saved digest template drives one cooldown-protected send", async ({ page
   // The seed leaves speakers with outstanding tasks, so the first manual run
   // has something to do (the manual path bypasses the Monday window, D-039).
   await expect(page.getByText(/Sent \d+ emails?/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Checked \d+ speakers?: sent \d+, skipped \d+, failed \d+\./)).toBeVisible();
 
   // The digest uses the wording saved earlier in this same isolated scenario,
   // proving the override reaches the send path rather than only the editor.

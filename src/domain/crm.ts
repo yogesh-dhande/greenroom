@@ -125,6 +125,47 @@ export function contactDisplayName(
   return contact.name?.trim() || contact.email;
 }
 
+/** The safe subset an admin contact form needs for duplicate previews. */
+export interface ContactDuplicateCandidate {
+  userId: string;
+  name: string | null;
+  email: string;
+}
+
+export type ContactDuplicatePreview =
+  | { kind: "email"; contact: ContactDuplicateCandidate }
+  | { kind: "name"; contact: ContactDuplicateCandidate };
+
+export function normalizeContactNameKey(raw: string | null | undefined): string | null {
+  const key = (raw ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  return key || null;
+}
+
+/**
+ * Previews the duplicate rule while an organizer is still composing a manual
+ * contact. Email wins because it is an exact identity match; a shared display
+ * name under a different address is only a possible match and never blocks
+ * creation. `planContactCreation` remains the authoritative server-side
+ * decision at submit time.
+ */
+export function previewContactDuplicate(
+  contacts: readonly ContactDuplicateCandidate[],
+  input: { name: string; email: string },
+): ContactDuplicatePreview | null {
+  const email = normalizeEmail(input.email);
+  if (email) {
+    const exact = contacts.find((contact) => normalizeEmail(contact.email) === email);
+    if (exact) return { kind: "email", contact: exact };
+  }
+
+  const nameKey = normalizeContactNameKey(input.name);
+  if (!nameKey) return null;
+  const sameName = contacts.find(
+    (contact) => normalizeContactNameKey(contact.name) === nameKey,
+  );
+  return sameName ? { kind: "name", contact: sameName } : null;
+}
+
 /**
  * Directory order: display name, case-insensitively, with the email as the
  * tie-break so the list is stable across reads (two unnamed contacts at the
@@ -155,9 +196,9 @@ export function findDisplayNameCollision(
   contacts: readonly DirectoryContact[],
   name: string,
 ): string | null {
-  const key = name.trim().toLowerCase();
+  const key = normalizeContactNameKey(name);
   if (!key) return null;
-  const match = contacts.find((contact) => contactDisplayName(contact).toLowerCase() === key);
+  const match = contacts.find((contact) => normalizeContactNameKey(contact.name) === key);
   return match ? match.email : null;
 }
 

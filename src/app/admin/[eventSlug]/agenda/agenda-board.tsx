@@ -574,6 +574,7 @@ export function AgendaBoard({
       </div>
 
       <SessionEditDialog
+        eventSlug={eventSlug}
         session={editing}
         days={days}
         rooms={rooms}

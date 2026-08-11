@@ -114,9 +114,10 @@ export function RoomsManager({ eventSlug, eventId, rooms }: {
       )}
 
       <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
-        <AlertDialogContent>
+        {pendingDelete ? (
+          <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete &quot;{pendingDelete?.name}&quot;?</AlertDialogTitle>
+            <AlertDialogTitle>Delete &quot;{pendingDelete.name}&quot;?</AlertDialogTitle>
             <AlertDialogDescription>
               This can&apos;t be undone. If this room is used by any sessions, deletion is
               blocked until they&apos;re reassigned.
@@ -128,7 +129,8 @@ export function RoomsManager({ eventSlug, eventId, rooms }: {
               {isPending ? "Deleting…" : "Delete room"}
             </AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogContent>
+          </AlertDialogContent>
+        ) : null}
       </AlertDialog>
     </div>
   );

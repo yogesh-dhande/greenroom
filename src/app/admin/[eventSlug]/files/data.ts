@@ -29,6 +29,14 @@ export interface FileLibrary {
   peopleById: Map<string, User>;
   /** Speaker id -> the titles of the sessions they are on. */
   sessionTitlesBySpeaker: Map<string, string[]>;
+  /** Speaker id -> stable session links for the Files table and its
+   * session-scoped entry point. Task uploads are speaker-wide, so a speaker
+   * with multiple talks intentionally contributes every one of those links. */
+  sessionRefsBySpeaker: Map<string, Array<{ id: string; title: string }>>;
+  /** Session metadata and its speakers, assembled from the same batched read
+   * so the session-scoped library adds no duplicate repository queries. */
+  sessions: Array<{ id: string; title: string }>;
+  speakerIdsBySession: Map<string, string[]>;
 }
 
 export async function loadFileLibrary(repos: Repos, eventId: string): Promise<FileLibrary> {
@@ -48,12 +56,20 @@ export async function loadFileLibrary(repos: Repos, eventId: string): Promise<Fi
   );
   const sessionTitleById = new Map(sessions.map((session) => [session.id, session.title]));
   const sessionTitlesBySpeaker = new Map<string, string[]>();
+  const sessionRefsBySpeaker = new Map<string, Array<{ id: string; title: string }>>();
+  const speakerIdsBySession = new Map<string, string[]>();
   for (const row of sessionSpeakerRows) {
     const title = sessionTitleById.get(row.sessionId);
     if (!title) continue;
     const list = sessionTitlesBySpeaker.get(row.userId) ?? [];
     list.push(title);
     sessionTitlesBySpeaker.set(row.userId, list);
+    const refs = sessionRefsBySpeaker.get(row.userId) ?? [];
+    refs.push({ id: row.sessionId, title });
+    sessionRefsBySpeaker.set(row.userId, refs);
+    const speakerIds = speakerIdsBySession.get(row.sessionId) ?? [];
+    speakerIds.push(row.userId);
+    speakerIdsBySession.set(row.sessionId, speakerIds);
   }
 
   // Profile files (headshots) belong to a speaker rather than to a task, so
@@ -103,6 +119,9 @@ export async function loadFileLibrary(repos: Repos, eventId: string): Promise<Fi
     commentsByAssignment: groupByAssignment(comments),
     peopleById: new Map(people.map((person) => [person.id, person])),
     sessionTitlesBySpeaker,
+    sessionRefsBySpeaker,
+    sessions: sessions.map((session) => ({ id: session.id, title: session.title })),
+    speakerIdsBySession,
   };
 }
 

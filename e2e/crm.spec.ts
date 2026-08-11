@@ -147,6 +147,18 @@ test("an isolated contact runs through profile, segment, pipeline, roster, outre
   await segmentDialog.getByRole("button", { name: "Save segment" }).click();
   await expect(page.getByText('Saved the segment "VIP Prospects"')).toBeVisible();
 
+  // A case/whitespace variant is the same organizer-facing name. Refuse it
+  // before writing so two unrelated dynamic filters cannot become
+  // indistinguishable in the segment menu.
+  await page.getByRole("button", { name: "Save segment" }).click();
+  const duplicateSegmentDialog = page.getByRole("dialog");
+  await duplicateSegmentDialog.getByLabel("Segment name").fill("  vip   PROSPECTS ");
+  await duplicateSegmentDialog.getByRole("button", { name: "Save segment" }).click();
+  await expect(
+    duplicateSegmentDialog.getByText('A segment named "VIP Prospects" already exists'),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
   // Reopening from a clean directory applies the criteria, not a stored list.
   await page.goto(DIRECTORY);
   await page.getByRole("link", { name: "VIP Prospects" }).click();
@@ -348,8 +360,14 @@ test("a same-name different-email contact is created with a possible-duplicate n
   await page.getByRole("button", { name: "Add contact" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("Name").fill(WREN);
+  // The possible match appears while the form is still being composed — no
+  // contact has been submitted or created yet.
+  const possibleMatch = dialog.getByRole("status");
+  await expect(possibleMatch.getByText("Possible name match")).toBeVisible();
+  await expect(possibleMatch).toContainText(WREN_EMAIL);
+  await expect(possibleMatch.getByRole("link", { name: "Open possible match" })).toBeVisible();
   await dialog.getByLabel("Email").fill(WREN_SECOND_EMAIL);
-  await dialog.getByRole("button", { name: "Add contact" }).click();
+  await dialog.getByRole("button", { name: "Add separate contact" }).click();
   await expect(
     page.getByText(`another contact named ${WREN} already exists (${WREN_EMAIL})`),
   ).toBeVisible();
