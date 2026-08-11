@@ -39,7 +39,7 @@ Acceptance criteria:
 
 ### F2. Eliminate recurring authenticated-route stalls
 
-**Status:** no current stall reproduced; privacy-preserving per-isolate/request lifecycle diagnostics are deployed for the next occurrence. A 15-minute post-deploy matrix completed 370 requests across organizer, reviewer, speaker, public, root, and cookieless routes with zero failures, zero warnings, and zero responses over five seconds. The historical mechanism remains the leading explanation rather than a proven cause of every run-7 timeout.
+**Status:** reproduced with a definitive post-D-082 Worker trace. The preload-only fix still bundled OpenNext's request-time handler import. Source now replaces the generated dispatcher with an equivalent local, statically bound route; deployment and sustained soak remain pending.
 
 **Affected:** all required areas; explicitly observed on `/`, `/admin`,
 `/portal`, event navigation, and Agenda
@@ -47,8 +47,8 @@ Acceptance criteria:
 **Evidence:** repeated 30-second navigation timeouts and blank `Loading…`
 states; same-code redeploys restored service during the run.
 
-This recurred after D-082's static handler initialization, so the prior fix is
-not sufficient evidence that the production failure is closed.
+This recurred after D-082's preload-only implementation, proving the prior fix
+did not remove the production trigger from the final bundle.
 
 Why these are known deployment stalls:
 
@@ -66,23 +66,22 @@ Why these are known deployment stalls:
 - Affected isolates appeared to remain poisoned and consume later requests.
   A same-code redeploy creates a new Worker version and replaces those isolates,
   which explains the immediate recovery without any database or code change.
-- D-082 moved the handler import to isolate startup and removed cron-only
-  modules from the fetch startup graph. The built bundle no longer contained
-  the request-time import and a post-fix 256-request cold/soak probe passed.
-  Run 7 nevertheless showed the same visible timeout pattern. Until a new
-  failing-version trace proves it has the same canceled-promise signature, the
-  original mechanism is the leading explanation—not a confirmed explanation
-  for every run-7 timeout. A fresh redeploy also masks the evidence, which is
-  why tracing the failing version must precede the recovery redeploy whenever
-  service impact allows.
+- D-082 preloaded the handler and removed cron-only modules from the fetch
+  startup graph, but still imported the generated dispatcher. Wrangler's
+  minified bundle retained its per-request dynamic-import branch. Production
+  version `9badd68b-c1ab-41c6-a612-c5aac509514e` then captured `/` at 50,081 ms
+  wall / 23 ms CPU, `outcome=canceled`, no exception, sequence 6 with two active
+  requests, while a sibling isolate returned 200. The custom entry now copies
+  OpenNext's context/skew/image/middleware routing and calls the statically
+  imported handler itself; a dry-run bundle check rejects the generated
+  dispatcher. Deployment and a sustained soak are still required.
 
 Acceptance criteria:
 
-- Capture a fresh failing deployment's request/tail trace before replacing it,
-  including Worker version, wall/CPU time, outcome, route, and concurrent
-  requests.
-- Reproduce or isolate the remaining hanging promise and remove it from the
-  request path.
+- Preserve the captured failing-version request/tail trace with Worker version,
+  wall/CPU time, outcome, route, isolate, sequence, and concurrent requests.
+- Verify Wrangler's final dry-run bundle excludes the generated dispatcher and
+  request-time default-handler import.
 - Run a sustained deployed smoke across organizer, reviewer, speaker, public,
   and cookieless routes with zero timeouts. A just-deployed cold probe alone is
   not sufficient.

@@ -8,7 +8,10 @@ function records(log: LogSpy): Array<Record<string, unknown>> {
 }
 
 describe("Worker request diagnostics", () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("correlates start and finish without logging cookies or query values", async () => {
     const diagnostics = createWorkerRequestDiagnostics();
@@ -47,12 +50,27 @@ describe("Worker request diagnostics", () => {
     });
   });
 
-  it("does not generate random values while the Worker module initializes", () => {
+  it("does not initialize random identity or the Worker clock in global scope", async () => {
     const randomUUID = vi
       .spyOn(crypto, "randomUUID")
       .mockReturnValue("00000000-0000-4000-8000-000000000000");
-    createWorkerRequestDiagnostics();
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-11T06:00:00.000Z");
+    const diagnostics = createWorkerRequestDiagnostics();
     expect(randomUUID).not.toHaveBeenCalled();
+
+    vi.setSystemTime("2026-08-11T06:01:00.000Z");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await diagnostics.trace(
+      new Request("https://greenroom.test/admin"),
+      async () => new Response("ok"),
+    );
+
+    expect(records(log)[0]).toMatchObject({
+      workerStartedAt: "2026-08-11T06:01:00.000Z",
+      workerAgeMs: 0,
+      workerInstanceId: "00000000-0000-4000-8000-000000000000",
+    });
   });
 
   it("records overlapping requests on the same isolate", async () => {

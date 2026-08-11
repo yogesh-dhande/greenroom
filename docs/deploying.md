@@ -153,7 +153,7 @@ A successful deploy prints the new Worker version ID. Keep that ID with any
 evaluation or incident notes so results can be tied to the exact deployment.
 For a first deployment, continue with the initial-admin setup below.
 
-### Known authenticated-route stalls
+### Known Worker request-path stalls
 
 We have seen rare production requests spend 45–210 seconds in wall time while
 using only 6–77 ms of Worker CPU, throwing no exception, and eventually ending
@@ -161,17 +161,26 @@ as `outcome=canceled`. Same-second authenticated D1 reads completed normally,
 and cookieless requests could also stall, so this signature is a hanging
 request-path promise rather than database latency or CPU exhaustion.
 
-The strongest identified mechanism was concurrent cold-isolate startup in
-OpenNext 1.20.2: its generated dispatcher imported the Next handler during the
-first request, allowing sibling requests to encounter a module-loading promise
-owned by another request context. Affected isolates then appeared to remain
-poisoned. A same-code redeploy replaces those isolates, which explains why it
-restored service immediately without changing D1, R2, or application code.
-Greenroom now initializes the handler at isolate startup (D-082), and the
-deployed bundle no longer contains that request-time import, but a later
-evaluator run showed similar visible timeouts without a preserved Worker trace.
-Treat the original mechanism as the leading explanation, not proof that every
-later timeout has the same cause.
+The demonstrated mechanism is OpenNext 1.20.2's generated default dispatcher:
+it dynamically imports the generated Next handler inside every request, which
+can expose a module-loader promise owned by one request context to a sibling.
+Affected isolates then appear to remain poisoned. The original D-082 fix
+preloaded the handler but continued to call that dispatcher; Wrangler's actual
+minified bundle still contained its reachable dynamic-import branch. The
+deployed preload-only version then reproduced the signature on `/`: 50,081 ms
+wall, 23 ms CPU, `outcome=canceled`, no exception, with two active requests in
+that isolate while a sibling isolate returned 200.
+
+Greenroom's custom entry now preserves OpenNext's request-context, skew,
+image, and middleware routing locally and statically calls the generated Next
+handler. `npm run deploy` now runs `npm run check:worker-bundle` between the
+OpenNext build and upload; the check creates a temporary Wrangler dry run and
+verifies its source map contains those routing pieces but not
+`.open-next/worker.js`.
+A same-code redeploy replaces poisoned isolates and has restored service
+immediately without changing D1 or R2, but that recovery can be temporary if
+the deployed bundle still contains the trigger. A sustained deployed soak is
+therefore required before considering the structural fix validated.
 
 For routine confidence, run the one-round probe above. Before a long evaluator
 run, use a sustained matrix instead:
@@ -182,10 +191,12 @@ node scripts/smoke-deployed.mjs --minutes 30 --event <event-slug> \
 ```
 
 If stalls recur, capture `wrangler tail` output and the probe JSONL before
-redeploying whenever service impact allows. Record Worker version, route,
-probe ID, wall/CPU time, outcome, and concurrent requests. The Worker emits
-privacy-preserving request lifecycle markers for this correlation. Then
-redeploy to restore service; do not reset or reseed production data.
+redeploying whenever service impact allows. Preserve both sides of the join:
+the Worker's lifecycle fields (instance id, sequence, active requests, and a
+start with no finish) and Cloudflare's terminal wall time, CPU time, outcome,
+route, and Worker version. A browser's 30-second navigation timeout is not the
+request's terminal outcome: the Worker can remain active and be canceled much
+later. Then redeploy to restore service; do not reset or reseed production data.
 
 ## 7. First sign-in and the first admin
 
