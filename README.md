@@ -9,16 +9,16 @@ own. A live deployment runs at
 [decisions.md](docs/decisions.md) for the key technical decisions and their
 rationale.
 
-## Ten-minute walkthrough
+## Product demo
 
-[![Greenroom agenda builder — click to watch the walkthrough](public/walkthrough-poster.jpg)](https://greenroom.usespaces.dev/#walkthrough)
+[![Greenroom agenda builder — click to watch the demo](public/demo-poster.jpg)](https://greenroom.usespaces.dev/#demo)
 
-**[▶ Watch the walkthrough](https://greenroom.usespaces.dev/#walkthrough)** —
+**[▶ Watch the demo](https://greenroom.usespaces.dev/#demo)** —
 one continuous demo on seeded data: build a CFP form, take a public submission
 through blind review to acceptance, finish onboarding in the speaker portal,
 place the talk on a conflict-aware agenda, and publish the program. The
-recording is silent; the narration runs as captions.
-([direct mp4](https://greenroom.usespaces.dev/walkthrough.mp4))
+recording includes spoken narration and English captions.
+([direct mp4](https://greenroom.usespaces.dev/demo.mp4))
 
 ## Highlights
 
@@ -275,11 +275,12 @@ digest, CFP draft reminders, and the Airtable sync (`src/domain/comms.ts`,
 
 ## Demo walkthrough
 
-The [ten-minute walkthrough](#ten-minute-walkthrough) above is embedded on the
-[landing page](https://greenroom.usespaces.dev/#walkthrough); the video, its
+The [product demo](#product-demo) above is embedded on the
+[landing page](https://greenroom.usespaces.dev/#demo); the video, its
 caption track, and the poster frame ship as static assets
-(`public/walkthrough.mp4`, `public/walkthrough.vtt`,
-`public/walkthrough-poster.jpg`).
+(`public/demo.mp4`, `public/demo.vtt`, `public/demo.srt`, and
+`public/demo-poster.jpg`). The source-quality master stays outside Git; the
+deployment copy is compressed below Cloudflare's per-asset limit.
 
 [walkthrough.md](walkthrough/walkthrough.md) is the guided demo script behind
 it — the acceptance path end to end: create/open the seeded event, submit via
@@ -293,6 +294,9 @@ playwright.demo.config.ts` drives the whole demo against the seeded test
 harness (destructive to local dev data, like the e2e suite), and
 `node scripts/assemble-walkthrough.mjs` stitches the per-act clips into
 `walkthrough/walkthrough.mp4` with the narration as `walkthrough/walkthrough.srt` subtitles.
+
+Competition organizers can create isolated admin, reviewer, and speaker
+identities by following [the deployed-account testing guide](docs/organizer-testing-guide.md).
 
 ## Integration notes
 

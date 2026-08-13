@@ -106,10 +106,10 @@ export default async function Home() {
             Greenroom
           </span>
           <Link
-            href="#walkthrough"
+            href="#demo"
             className="hidden text-sm text-muted-foreground hover:text-foreground sm:block"
           >
-            Walkthrough
+            Demo
           </Link>
           <Link
             href="#features"
@@ -209,38 +209,38 @@ export default async function Home() {
         </section>
 
         <section
-          id="walkthrough"
+          id="demo"
           className="mx-auto w-full max-w-6xl scroll-mt-8 px-6 pb-20"
         >
           <div className="mb-7 max-w-2xl">
             <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              See the whole workflow in ten minutes.
+              See the whole workflow in one demo.
             </h2>
             <p className="mt-2 text-muted-foreground">
               One continuous demo on seeded data: build a CFP form, take a
               public submission through blind review to acceptance, finish
               onboarding in the speaker portal, place the talk on a
-              conflict-aware agenda, and publish the program. The recording is
-              silent; the narration runs as captions.
+              conflict-aware agenda, and publish the program. Spoken narration
+              and English captions are included.
             </p>
           </div>
           <video
             controls
             playsInline
             preload="metadata"
-            poster="/walkthrough-poster.jpg"
+            poster="/demo-poster.jpg"
             className="aspect-video w-full rounded-xl border border-border bg-card shadow-[0_16px_44px_-12px_var(--tw-shadow-color)] shadow-foreground/15"
           >
             <track
               kind="captions"
-              src="/walkthrough.vtt"
+              src="/demo.vtt"
               srcLang="en"
               label="English"
               default
             />
-            <source src="/walkthrough.mp4" type="video/mp4" />
+            <source src="/demo.mp4" type="video/mp4" />
             Your browser does not support embedded video.{" "}
-            <a href="/walkthrough.mp4" className="underline underline-offset-2">
+            <a href="/demo.mp4" className="underline underline-offset-2">
               Download the walkthrough
             </a>
             .

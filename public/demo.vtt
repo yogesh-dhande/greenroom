@@ -1,0 +1,404 @@
+WEBVTT
+
+00:00.000 --> 00:03.567
+This is Greenroom, the open-source speaker
+and session management software for
+
+00:03.667 --> 00:05.167
+conferences. Here's a demo.
+
+00:05.267 --> 00:09.367
+We're starting on the Greenroom home
+screen for AI Engineer Summit 2026.
+
+00:09.467 --> 00:13.429
+I'm signed in as an organizer so we can
+follow one proposal all the way from the
+
+00:13.529 --> 00:15.696
+call for speakers to the public schedule.
+
+00:15.729 --> 00:19.296
+First, I'm opening forms and
+selecting the main call for speakers.
+
+00:19.329 --> 00:22.883
+This screen contains the public welcome
+message, the questions speakers will
+
+00:22.983 --> 00:27.017
+answer, the confirmation email, and the
+dates when the form opens and closes.
+
+00:27.050 --> 00:29.417
+Here's a question called
+workshop requirements.
+
+00:29.450 --> 00:32.950
+It has a conditional badge, and when
+I open it, you can see the rule.
+
+00:33.050 --> 00:36.879
+Only show this question when session
+format is set to a 90-minute workshop.
+
+00:36.913 --> 00:40.146
+The form also allows Co-speakers
+That switch is already enabled,
+
+00:40.246 --> 00:43.563
+so a person submitting a talk can add
+someone else to the same proposal.
+
+00:43.596 --> 00:47.029
+Both people will stay connected to the
+submission as it moves through the event.
+
+00:47.225 --> 00:49.592
+Farther down, we can see
+the confirmation email.
+
+00:49.692 --> 00:53.058
+The organizer controls the subject and
+message, and the preview on the bottom
+
+00:53.158 --> 00:56.725
+shows how the merge fields will look
+when real proposal details are inserted.
+
+00:56.758 --> 01:00.208
+At the bottom are the public URL and
+the form's opening and closing dates.
+
+01:00.338 --> 01:04.038
+Everything looks ready so I'm saving the
+form and then opening its public link.
+
+01:04.071 --> 01:07.304
+Now we're looking at the speaker-facing
+form with no organizer session.
+
+01:07.404 --> 01:10.038
+The welcome copy appears at
+the top followed by the title,
+
+01:10.138 --> 01:13.425
+abstract, speaker details, and
+the organizer's custom questions.
+
+01:13.458 --> 01:17.275
+I'll enter the proposal title and abstract
+then move through the remaining fields.
+
+01:17.308 --> 01:21.075
+For the track, I'm choosing Evals &
+Reliability which will later help route
+
+01:21.175 --> 01:22.688
+this proposal to the right reviewers.
+
+01:22.721 --> 01:24.688
+Watch the session format field.
+
+01:24.721 --> 01:28.354
+When I choose 90-minute workshop, the
+workshop requirements question appears
+
+01:28.454 --> 01:31.354
+immediately. When I switch
+back to a 45-minute talk,
+
+01:31.454 --> 01:34.704
+that extra question disappears because
+its condition no longer matches.
+
+01:37.467 --> 01:41.433
+Co-speakers are enabled, so I'm
+adding Owen Diallo alongside Nadia.
+
+01:41.533 --> 01:44.500
+I'll fill in Owen's information,
+finish the required answers,
+
+01:44.600 --> 01:45.833
+and submit the proposal.
+
+01:45.867 --> 01:49.813
+The confirmation page shows that the
+proposal was received and that an email is
+
+01:49.913 --> 01:52.613
+being sent. Let's switch
+back to the organizer view.
+
+01:52.713 --> 01:56.146
+On the submission screen, I'm
+filtering the queue to unreviewed.
+
+01:56.246 --> 02:00.692
+The new proposal is at the top with Nadia
+and Owen listed together and its Evals &
+
+02:00.792 --> 02:03.175
+Reliability track is visible in the row.
+
+02:03.208 --> 02:07.025
+Opening the proposal shows the full
+abstract and every submitted answer.
+
+02:07.058 --> 02:10.025
+The co speaker section
+includes Owen's name, role,
+
+02:10.125 --> 02:13.646
+and company so the organizer has
+the complete proposal in one place.
+
+02:13.746 --> 02:17.646
+The abstract needs a small revision, so
+I'm choosing request changes instead of
+
+02:17.746 --> 02:21.646
+recording a decision. In the dialog I'm
+writing a note about what to update and
+
+02:21.746 --> 02:22.596
+setting a deadline.
+
+02:24.450 --> 02:26.550
+The proposal stays unreviewed.
+
+02:26.650 --> 02:30.483
+Next, I'm opening review rounds and going
+into the First-pass review assignments.
+
+02:30.517 --> 02:35.017
+I'm assigning this proposal to Dana, one
+of the reviewers for Evals & Reliability.
+
+02:35.050 --> 02:37.446
+Now I'll switch into
+Dana's reviewer account.
+
+02:38.129 --> 02:41.429
+On Dana's assigned proposal, I'm
+opening the First-pass scorecard.
+
+02:41.529 --> 02:44.763
+The title and proposal content are
+visible, but Nadia and Owen's identities
+
+02:44.863 --> 02:47.163
+are not shown because this round is blind.
+
+02:47.263 --> 02:50.475
+The scorecard has two numeric
+ratings, a recommendation field,
+
+02:50.575 --> 02:54.208
+and a comments box. I'll enter Dana's
+ratings, choose accept as her round
+
+02:54.308 --> 02:56.958
+recommendation, add her
+reasoning, and submit.
+
+02:57.042 --> 02:58.958
+I'm switching back to
+the organizer account.
+
+02:58.996 --> 03:03.096
+On the proposal, Dana's submitted ratings
+recommendation and written comments are
+
+03:03.196 --> 03:04.763
+all visible in the review section.
+
+03:04.796 --> 03:06.963
+The organizer is ready
+to accept the proposal.
+
+03:07.063 --> 03:10.763
+I'm choosing accept, adding a note for
+Nadia and Owen and leaving the email
+
+03:10.863 --> 03:15.092
+option enabled. The dialog explains that
+this will create a session and assign the
+
+03:15.192 --> 03:16.708
+event’s onboarding tasks.
+
+03:16.858 --> 03:20.225
+Back on the proposal record, the
+decision shows accepted by Avery Chen.
+
+03:20.325 --> 03:23.729
+The note to the speakers appears below it,
+along with links to the new session and
+
+03:23.829 --> 03:25.796
+the onboarding work
+created by the decision.
+
+03:25.829 --> 03:27.796
+Now we'll sign in as Nadia.
+
+03:27.829 --> 03:30.729
+Nadia's portal shows the approved
+proposal, the new session,
+
+03:30.829 --> 03:32.396
+and its current unscheduled state.
+
+03:32.429 --> 03:35.633
+Below that are the six onboarding
+tasks assigned to her when the talk was
+
+03:35.733 --> 03:36.383
+accepted.
+
+03:38.933 --> 03:42.500
+Switching back to the organizer, the
+Speakers screen reflects Nadia's progress
+
+03:42.600 --> 03:45.650
+immediately. Her row shows
+the updated completion count,
+
+03:45.683 --> 03:49.154
+overdue work, and an individual
+indicator for each task.
+
+03:49.438 --> 03:50.938
+Next is the agenda board.
+
+03:50.971 --> 03:54.404
+The unscheduled tray contains the
+new session, and the schedule grid is
+
+03:54.504 --> 03:56.833
+organized by day, room, and time.
+
+03:56.867 --> 04:01.017
+I'm deliberately dragging the new session
+onto Main Stage at 10:00 where another
+
+04:01.117 --> 04:05.283
+session already exists. The placement is
+saved and both cards turn red to show the
+
+04:05.383 --> 04:09.167
+room conflict. I'll fix it by moving
+the new session to Workshop B at 1:00.
+
+04:09.296 --> 04:12.329
+The red outlines clear and the
+conflict count returns to zero.
+
+04:12.363 --> 04:13.863
+Now I’m opening Communications.
+
+04:13.963 --> 04:17.129
+the log already contains the proposal
+confirmation, the change request,
+
+04:17.229 --> 04:18.396
+and the acceptance messages.
+
+04:18.496 --> 04:22.217
+The task digest action sends each eligible
+speaker one message containing all of
+
+04:22.317 --> 04:26.017
+their open tasks. The digest button is
+disabled because the recipients were
+
+04:26.117 --> 04:29.950
+contacted recently. The explanation
+underneath shows that the 24-hour guard is
+
+04:30.050 --> 04:31.500
+preventing another immediate reminder.
+
+04:32.013 --> 04:34.913
+In templates, the event has
+a set of built-in messages.
+
+04:34.946 --> 04:38.246
+I'm opening one and adding a merge
+field that this message cannot supply.
+
+04:38.279 --> 04:40.779
+Validation catches it
+and keeps save disabled.
+
+04:40.813 --> 04:43.196
+I'll replace that value with a
+supported field and save again.
+
+04:43.350 --> 04:45.250
+Next is the calendar invitation screen.
+
+04:45.350 --> 04:48.517
+The new session row shows
+Workshop B, its scheduled time,
+
+04:48.617 --> 04:50.783
+and both Nadia and Owen as recipients.
+
+04:50.817 --> 04:53.000
+I'm sending the invitation
+to both speakers.
+
+04:53.350 --> 04:55.717
+Finally, we're opening
+the public event page.
+
+04:55.817 --> 04:59.338
+It shows the event dates, venue,
+navigation, and links to the currently
+
+04:59.438 --> 05:00.804
+open calls for speakers.
+
+05:00.838 --> 05:05.138
+On the public schedule, the newly accepted
+session is now listed on day one at 1:00
+
+05:05.238 --> 05:08.288
+in Workshop B, with Nadia and
+Owen shown as its speakers.
+
+05:08.567 --> 05:11.267
+The same people also appear in
+the public speaker directory.
+
+05:11.367 --> 05:14.467
+The Embeds screen offers the
+schedule as a script, an iframe,
+
+05:14.567 --> 05:16.950
+JSON, XML, and iCalendar.
+
+05:17.300 --> 05:18.400
+That completes the flow.
+
+05:18.500 --> 05:21.546
+We created a proposal with a
+co-speaker, requested a revision,
+
+05:21.646 --> 05:24.413
+assigned and filed a blind
+scorecard, accepted the talk,
+
+05:24.513 --> 05:27.546
+completed speaker onboarding
+work, resolved an agenda conflict,
+
+05:27.646 --> 05:31.079
+sent communications and calendar updates,
+and confirmed the session on the public
+
+05:31.179 --> 05:32.400
+program. Thanks for watching.

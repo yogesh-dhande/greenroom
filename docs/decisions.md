@@ -553,6 +553,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** Evaluator run 8 found an accepted, otherwise-anonymized proposal still displaying “Accepted by” the organizer and “What this decision did.” Even without the author's name, telling a scorer the organizer's conclusion and downstream effects biases an ostensibly independent blind score and can indirectly reveal speaker context. Hiding only the decided variant would leak decision existence through the difference, so decided and undecided records share one neutral reviewer treatment. Owner directive 2026-08-11: fix confirmed product defects and add E2E coverage rather than relying on another evaluator run.
 
+## D-092: Ship the owner-edited narrated demo as a bounded static asset — **accepted** (2026-08-12)
+
+**Decision:** The landing page and README use the owner's final edited demo, its English SRT/VTT captions, and poster image. The deployed MP4 is a 1.2×, 720p H.264 rendition compressed below Cloudflare Workers' 25 MiB static-asset limit; its higher-quality source master and intermediate narration files remain outside Git. The Playwright recorder, assembly script, and written walkthrough remain the reproducible baseline for future recordings. This supersedes D-027 only where it required a silent, gitignored final rendition; D-027's scripted recording workflow remains accepted.
+
+**Rationale:** The owner replaced the machine-assembled silent walkthrough with a manually edited, spoken final cut and explicitly asked to ship it on the product landing page. Committing the bounded delivery rendition makes the deployed page self-contained and reproducible, while excluding masters and intermediates avoids repository bloat. Keeping the recorder preserves a repeatable way to rehearse and regenerate the product flow after future changes.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |
