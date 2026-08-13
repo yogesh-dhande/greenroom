@@ -19,6 +19,13 @@ interface CloudflareEnv {
    * (docs/deploying.md §7).
    */
   ADMIN_EMAILS?: string;
+  /** Temporary evaluation access. The feature fails closed unless all five
+   * values are present, the token is high entropy, and the expiry is future. */
+  EVALUATION_ACCESS_TOKEN?: string;
+  EVALUATION_ACCESS_EXPIRES_AT?: string;
+  EVALUATION_ORGANIZER_EMAIL?: string;
+  EVALUATION_REVIEWER_EMAIL?: string;
+  EVALUATION_SPEAKER_EMAIL?: string;
   SENDGRID_API_KEY?: string;
   /** From identity on every outgoing email (src/lib/email.ts). The address
    * also becomes the calendar invite's ORGANIZER, so it must be a real,

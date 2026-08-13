@@ -559,6 +559,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** The owner replaced the machine-assembled silent walkthrough with a manually edited, spoken final cut and explicitly asked to ship it on the product landing page. Committing the bounded delivery rendition makes the deployed page self-contained and reproducible, while excluding masters and intermediates avoids repository bloat. Keeping the recorder preserves a repeatable way to rehearse and regenerate the product flow after future changes.
 
+## D-093: Temporary evaluation access uses fixed existing personas — **accepted** (2026-08-12)
+
+**Decision:** A deployment may opt into a temporary evaluation entrance for exactly three configured personas: organizer, reviewer, and speaker. A high-entropy bearer token, absolute expiry, and all three existing-account emails are required; missing or expired configuration disables the entrance. The token travels in a URL fragment and a same-origin POST body, never in a request URL. The server resolves only the configured email for the selected persona, verifies the account already has the exact expected role, and creates a normal non-persistent Better Auth session. It never accepts an arbitrary email, creates an account, changes a role, or bypasses downstream authorization. Deleting the token secret disables new evaluation sign-ins immediately; existing sessions follow normal session revocation/expiry behavior.
+
+**Rationale:** Competition organizers need to test the three role-specific experiences without controlling seeded inboxes or repeating manual magic-link handoffs. A general auth bypass, test utility in production, or email-selectable impersonation would turn convenience into account takeover. A fixed, expiring, explicitly enabled plugin endpoint uses Better Auth's normal session-cookie path while keeping the bearer capability narrow and removable. Owner directive 2026-08-12; Avery Chen may again be an admin and serve as the organizer persona once this entrance is deployed.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

@@ -11,6 +11,7 @@ import { createDb } from "@/db/repos/d1/client";
 import { createD1Repos } from "@/db/repos/d1";
 import { decideAdminBootstrap, parseAdminEmails } from "@/domain/team";
 import { createLoggingEmailSender, getEmailSender } from "@/lib/email";
+import { evaluationLoginPlugin } from "@/lib/evaluation-login-plugin";
 
 /**
  * better-auth config (decisions.md D-007, D-016): magic links for every
@@ -121,6 +122,7 @@ export const getAuth = cache(async function getAuth() {
       },
     },
     plugins: [
+      evaluationLoginPlugin(env),
       apiKey({
         // External keys are visibly Greenroom credentials and are never
         // accepted as browser sessions. Scope/event authorization is still

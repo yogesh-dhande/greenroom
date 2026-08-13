@@ -264,6 +264,30 @@ communications log; the roster can resend a fresh sign-in link and show a
 handover URL if delivery is in doubt. The one thing Team refuses is removing
 the last admin, so an instance can't be locked out of itself.
 
+### Temporary competition evaluation access
+
+D-093 provides a disabled-by-default entrance for three fixed, existing
+accounts. Set all five values as Worker secrets: a random token of at least 32
+bytes, an absolute ISO-8601 expiry, and the organizer/reviewer/speaker emails.
+The accounts must already hold the matching `admin`, `reviewer`, and `speaker`
+roles; this feature never grants roles.
+
+```sh
+npx wrangler secret put EVALUATION_ACCESS_TOKEN
+npx wrangler secret put EVALUATION_ACCESS_EXPIRES_AT
+npx wrangler secret put EVALUATION_ORGANIZER_EMAIL
+npx wrangler secret put EVALUATION_REVIEWER_EMAIL
+npx wrangler secret put EVALUATION_SPEAKER_EMAIL
+```
+
+Give evaluators
+`https://<origin>/demo#token=<EVALUATION_ACCESS_TOKEN>` through a
+private channel. The fragment is removed from the address bar before a persona
+is selected and is never sent in the page request. To stop new automatic
+sign-ins immediately, run
+`npx wrangler secret delete EVALUATION_ACCESS_TOKEN`; also revoke any active
+evaluation sessions if access must end before their normal session expiry.
+
 ## Verifying it works
 
 - The public site renders at your origin.
