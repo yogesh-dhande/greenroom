@@ -27,7 +27,6 @@ if (existsSync(BACKUP)) {
 // Swap the auth origin, keeping a backup to restore on exit.
 copyFileSync(DEV_VARS, BACKUP);
 const evaluationAccess = [
-  "EVALUATION_ACCESS_TOKEN=e2e-evaluation-access-token-32-bytes-minimum",
   "EVALUATION_ACCESS_EXPIRES_AT=2099-01-01T00:00:00.000Z",
   "EVALUATION_ORGANIZER_EMAIL=admin@greenroom.dev",
   "EVALUATION_REVIEWER_EMAIL=dana@greenroom.dev",

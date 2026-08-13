@@ -106,7 +106,7 @@ export default async function Home() {
             Greenroom
           </span>
           <Link
-            href="#demo"
+            href="/demo"
             className="hidden text-sm text-muted-foreground hover:text-foreground sm:block"
           >
             Demo
@@ -144,6 +144,9 @@ export default async function Home() {
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild>
                 <Link href={cta.href}>{cta.label}</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/demo">Try the live demo</Link>
               </Button>
               <Button asChild variant="outline">
                 <a href={REPO_URL} target="_blank" rel="noreferrer">

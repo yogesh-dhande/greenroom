@@ -1,9 +1,16 @@
 import { expect, test } from "@playwright/test";
 
-const ACCESS_TOKEN = "e2e-evaluation-access-token-32-bytes-minimum";
-
 async function openAccess(page: import("@playwright/test").Page) {
-  await page.goto(`/demo#token=${ACCESS_TOKEN}`);
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: "Demo", exact: true })).toHaveAttribute(
+    "href",
+    "/demo",
+  );
+  await expect(page.getByRole("link", { name: "Try the live demo" })).toHaveAttribute(
+    "href",
+    "/demo",
+  );
+  await page.goto("/demo");
   await expect(page).toHaveURL(/\/demo$/);
   await expect(page.getByRole("heading", { name: "Demo access" })).toBeVisible();
 }
@@ -40,21 +47,23 @@ test("the private evaluation entrance signs in each fixed persona without granti
   await Promise.all([organizer.close(), reviewer.close(), speaker.close()]);
 });
 
-test("the evaluation entrance rejects a wrong capability without a session", async ({ page }) => {
+test("the demo entrance rejects unsupported and cross-origin requests without a session", async ({
+  page,
+}) => {
   const crossOrigin = await page.request.post("/api/auth/evaluation-login", {
     headers: { origin: "https://attacker.example" },
-    data: { persona: "organizer", token: ACCESS_TOKEN },
+    data: { persona: "organizer" },
   });
   expect(crossOrigin.status()).toBe(403);
 
   const getAttempt = await page.request.get("/api/auth/evaluation-login");
   expect(getAttempt.ok()).toBe(false);
 
-  await page.goto("/demo#token=wrong-token");
-  await page.getByRole("button", { name: /Sign in as Organizer/ }).click();
-  await expect(page.getByText("This demo link is invalid", { exact: false })).toContainText(
-    "invalid, expired, or no longer enabled",
-  );
+  const unsupported = await page.request.post("/api/auth/evaluation-login", {
+    data: { persona: "administrator" },
+  });
+  expect(unsupported.ok()).toBe(false);
+
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/login/);
 });

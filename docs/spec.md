@@ -100,7 +100,7 @@ Open-source speaker & event content management platform: an alternative to [Sess
 
 ## Useful enhancements (only if time permits)
 
-- **Temporary evaluation access:** a deployment may give competition judges an expiring private entrance to three fixed, pre-existing organizer, reviewer, and speaker accounts. It must create only normal sessions, retain ordinary role authorization, and never accept an arbitrary account or grant a role (D-093).
+- **Temporary evaluation access:** a deployment may expose an expiring public `/demo` entrance to three fixed, pre-existing organizer, reviewer, and speaker accounts. It must create only normal sessions, retain ordinary role authorization, and never accept an arbitrary account or grant a role (D-093).
 - Configurable edit-lock deadlines; admin notification customization.
 - Additional agenda views (week/track/room); dashboards and reporting; saved views/configurable columns.
 - Generalized CMS tooling beyond the core workflows and interfaces specified above.

@@ -19,9 +19,8 @@ interface CloudflareEnv {
    * (docs/deploying.md §7).
    */
   ADMIN_EMAILS?: string;
-  /** Temporary evaluation access. The feature fails closed unless all five
-   * values are present, the token is high entropy, and the expiry is future. */
-  EVALUATION_ACCESS_TOKEN?: string;
+  /** Temporary public evaluation access. The feature fails closed unless all
+   * three persona emails are configured and the expiry is in the future. */
   EVALUATION_ACCESS_EXPIRES_AT?: string;
   EVALUATION_ORGANIZER_EMAIL?: string;
   EVALUATION_REVIEWER_EMAIL?: string;

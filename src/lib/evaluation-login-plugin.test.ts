@@ -26,6 +26,15 @@ describe("evaluationLoginPlugin", () => {
     expect(endpoint?.path).toBe("/evaluation-login");
     expect(endpoint?.options).toMatchObject({ method: "POST", requireHeaders: true });
     expect(endpoint?.options.use?.length).toBeGreaterThan(0);
+    expect(plugin.rateLimit?.[0]).toMatchObject({ window: 60, max: 120 });
+  });
+
+  it("accepts only the fixed persona field at the HTTP boundary", () => {
+    const endpoint = evaluationLoginPlugin({}).endpoints?.evaluationLogin;
+    const body = endpoint?.options.body;
+    expect(body?.["~standard"].validate({ persona: "organizer" })).toMatchObject({ value: { persona: "organizer" } });
+    expect(body?.["~standard"].validate({ persona: "organizer", email: "other@example.com" })).toMatchObject({ issues: expect.any(Array) });
+    expect(body?.["~standard"].validate({ persona: "administrator" })).toMatchObject({ issues: expect.any(Array) });
   });
 
   it("accepts only a verified existing user with the exact configured email and role", () => {

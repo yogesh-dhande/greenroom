@@ -3,6 +3,7 @@ import { createAuthEndpoint, formCsrfMiddleware } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
 import {
+  EVALUATION_PERSONAS,
   authorizeEvaluationAccess,
   type EvaluationAccessEnv,
   type EvaluationAccessGrant,
@@ -11,11 +12,8 @@ import {
 const GENERIC_DENIAL = "Evaluation login unavailable";
 
 const evaluationLoginBodySchema = z.object({
-  // Validate inside the authorization helper so malformed or unknown values
-  // receive the same generic denial as every other authentication failure.
-  persona: z.unknown().optional(),
-  token: z.unknown().optional(),
-});
+  persona: z.enum(EVALUATION_PERSONAS),
+}).strict();
 
 type EvaluationUser = User & {
   role?: unknown;
@@ -53,7 +51,7 @@ export function evaluationLoginPlugin(env: EvaluationAccessEnv): BetterAuthPlugi
           body: evaluationLoginBodySchema,
         },
         async (ctx) => {
-          const grant = await authorizeEvaluationAccess(env, ctx.body);
+          const grant = authorizeEvaluationAccess(env, ctx.body);
           if (!grant) {
             throw ctx.error("UNAUTHORIZED", {
               code: "EVALUATION_LOGIN_DENIED",
@@ -85,9 +83,9 @@ export function evaluationLoginPlugin(env: EvaluationAccessEnv): BetterAuthPlugi
         pathMatcher: (path) => path.startsWith("/evaluation-login"),
         window: 60,
         // Several judges can legitimately open three role contexts from one
-        // shared office IP. Entropy and expiry protect the bearer capability;
-        // this bound is only abuse backpressure, not the primary control.
-        max: 20,
+        // shared office IP. This is abuse backpressure for the intentionally
+        // public demo login, not an authorization boundary.
+        max: 120,
       },
     ],
   };

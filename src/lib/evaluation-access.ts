@@ -6,7 +6,6 @@ export type EvaluationPersona = (typeof EVALUATION_PERSONAS)[number];
 
 export interface EvaluationAccessEnv {
   ADMIN_EMAILS?: string;
-  EVALUATION_ACCESS_TOKEN?: string;
   EVALUATION_ACCESS_EXPIRES_AT?: string;
   EVALUATION_ORGANIZER_EMAIL?: string;
   EVALUATION_REVIEWER_EMAIL?: string;
@@ -19,7 +18,6 @@ export interface EvaluationAccessGrant {
   expectedRole: Role;
 }
 
-const MINIMUM_TOKEN_LENGTH = 43;
 const personaSchema = z.enum(EVALUATION_PERSONAS);
 const emailSchema = z.email();
 const expirySchema = z.iso.datetime({ offset: true });
@@ -33,43 +31,18 @@ const PERSONA_FIELDS: Record<
   speaker: { email: "EVALUATION_SPEAKER_EMAIL", role: "speaker" },
 };
 
-async function secretsEqual(candidate: string, expected: string): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const [candidateHash, expectedHash] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(candidate)),
-    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-  ]);
-  const candidateBytes = new Uint8Array(candidateHash);
-  const expectedBytes = new Uint8Array(expectedHash);
-  let difference = 0;
-  for (let index = 0; index < candidateBytes.length; index += 1) {
-    difference |= candidateBytes[index]! ^ expectedBytes[index]!;
-  }
-  return difference === 0;
-}
-
 /**
  * Resolves one of the three fixed evaluation personas without accepting an
  * email, user id, role, or redirect from the caller. The feature is enabled
  * only while every env value is valid and its global expiry is in the future.
  */
-export async function authorizeEvaluationAccess(
+export function authorizeEvaluationAccess(
   env: EvaluationAccessEnv,
-  input: { persona?: unknown; token?: unknown },
+  input: { persona?: unknown },
   now = new Date(),
-): Promise<EvaluationAccessGrant | null> {
+): EvaluationAccessGrant | null {
   const persona = personaSchema.safeParse(input.persona);
-  if (!persona.success || typeof input.token !== "string") return null;
-
-  const configuredToken = env.EVALUATION_ACCESS_TOKEN?.trim();
-  if (
-    !configuredToken ||
-    configuredToken.length < MINIMUM_TOKEN_LENGTH ||
-    configuredToken.length > 512 ||
-    input.token.length > 512
-  ) {
-    return null;
-  }
+  if (!persona.success) return null;
 
   const expiresAt = env.EVALUATION_ACCESS_EXPIRES_AT?.trim();
   if (!expiresAt || !expirySchema.safeParse(expiresAt).success) return null;
@@ -102,8 +75,6 @@ export async function authorizeEvaluationAccess(
   ) {
     return null;
   }
-
-  if (!(await secretsEqual(input.token, configuredToken))) return null;
 
   const config = PERSONA_FIELDS[persona.data];
   return {

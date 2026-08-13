@@ -266,27 +266,25 @@ the last admin, so an instance can't be locked out of itself.
 
 ### Temporary competition evaluation access
 
-D-093 provides a disabled-by-default entrance for three fixed, existing
-accounts. Set all five values as Worker secrets: a random token of at least 32
-bytes, an absolute ISO-8601 expiry, and the organizer/reviewer/speaker emails.
+D-093 provides a disabled-by-default public entrance for three fixed, existing
+accounts. Set four values as Worker secrets: an absolute ISO-8601 expiry and
+the organizer/reviewer/speaker emails.
 The accounts must already hold the matching `admin`, `reviewer`, and `speaker`
 roles; this feature never grants roles.
 
 ```sh
-npx wrangler secret put EVALUATION_ACCESS_TOKEN
 npx wrangler secret put EVALUATION_ACCESS_EXPIRES_AT
 npx wrangler secret put EVALUATION_ORGANIZER_EMAIL
 npx wrangler secret put EVALUATION_REVIEWER_EMAIL
 npx wrangler secret put EVALUATION_SPEAKER_EMAIL
 ```
 
-Give evaluators
-`https://<origin>/demo#token=<EVALUATION_ACCESS_TOKEN>` through a
-private channel. The fragment is removed from the address bar before a persona
-is selected and is never sent in the page request. To stop new automatic
-sign-ins immediately, run
-`npx wrangler secret delete EVALUATION_ACCESS_TOKEN`; also revoke any active
-evaluation sessions if access must end before their normal session expiry.
+Anyone can then open `https://<origin>/demo` and select one of the three
+personas; the homepage links there. This intentionally grants the public the
+capabilities of those demo accounts until expiry, so use disposable demo data.
+To stop new automatic sign-ins immediately, run
+`npx wrangler secret delete EVALUATION_ACCESS_EXPIRES_AT`; also revoke active
+demo sessions if access must end before their normal session expiry.
 
 ## Verifying it works
 
