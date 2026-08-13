@@ -24,7 +24,7 @@ export default function DemoPage() {
           Demo access
         </h1>
         <p className="mt-1 mb-6 text-sm text-muted-foreground">
-          Choose a role to open its existing competition test account. Use a
+          Choose a role to open its existing test account. Use a
           separate private window or browser profile for each role.
         </p>
         <DemoAccessForm />
