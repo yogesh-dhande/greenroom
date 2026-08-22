@@ -35,6 +35,22 @@ function fail(error: string) {
   return { ok: false as const, error };
 }
 
+/**
+ * The same user-facing failure as `fail`, but the underlying error reaches
+ * Workers Logs on the way out.
+ *
+ * These actions used to catch bare (`catch { return fail(...) }`), which made a
+ * genuine write failure indistinguishable from a button nobody pressed: a
+ * server action that throws still answers 200 at the HTTP layer, so nothing
+ * upstream records it either. That cost real time after the 2026-08-18
+ * evaluator run, where no scorecard reached the database and the logs had
+ * nothing to say about why. Whatever the next failure is, it should be legible.
+ */
+function failFrom(operation: string, error: unknown, message: string) {
+  console.error(`rounds action failed: ${operation}`, error);
+  return fail(message);
+}
+
 // ---------------------------------------------------------------------------
 // Rounds (organizer)
 // ---------------------------------------------------------------------------
@@ -107,8 +123,8 @@ export async function createRound(eventSlug: string, input: RoundInput) {
     const round = await repos.reviewRounds.create({ eventId: event.id, ...prepared.values });
     revalidatePath(`/admin/${eventSlug}/rounds`);
     return { ok: true as const, roundId: round.id };
-  } catch {
-    return fail("Couldn't create the round — try again");
+  } catch (error) {
+    return failFrom("createRound", error, "Couldn't create the round — try again");
   }
 }
 
@@ -143,8 +159,8 @@ export async function updateRound(eventSlug: string, roundId: string, input: Rou
     revalidatePath(`/admin/${eventSlug}/rounds`);
     revalidatePath(`/admin/${eventSlug}/rounds/${roundId}`);
     return { ok: true as const, roundId };
-  } catch {
-    return fail("Couldn't save the round — try again");
+  } catch (error) {
+    return failFrom("updateRound", error, "Couldn't save the round — try again");
   }
 }
 
@@ -162,8 +178,8 @@ export async function deleteRound(eventSlug: string, roundId: string) {
     await repos.reviewRounds.delete(roundId);
     revalidatePath(`/admin/${eventSlug}/rounds`);
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't delete the round — try again");
+  } catch (error) {
+    return failFrom("deleteRound", error, "Couldn't delete the round — try again");
   }
 }
 
@@ -267,8 +283,8 @@ export async function assignSubmissions(
     revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/results`);
     revalidatePath(`/admin/${eventSlug}/rounds`);
     return { ok: true as const, assigned: allowed.length };
-  } catch {
-    return fail("Couldn't assign those submissions — try again");
+  } catch (error) {
+    return failFrom("assignSubmissions", error, "Couldn't assign those submissions — try again");
   }
 }
 
@@ -331,8 +347,8 @@ export async function assignTrack(
     revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/results`);
     revalidatePath(`/admin/${eventSlug}/rounds`);
     return { ok: true as const, assigned: targets.length };
-  } catch {
-    return fail("Couldn't assign that track — try again");
+  } catch (error) {
+    return failFrom("assignTrack", error, "Couldn't assign that track — try again");
   }
 }
 
@@ -357,8 +373,8 @@ export async function unassignSubmission(
     revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/results`);
     revalidatePath(`/admin/${eventSlug}/rounds`);
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't remove that assignment — try again");
+  } catch (error) {
+    return failFrom("unassign", error, "Couldn't remove that assignment — try again");
   }
 }
 
@@ -421,8 +437,8 @@ export async function submitScorecard(
     revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
     revalidatePath(`/admin/${eventSlug}/rounds`);
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't save your scorecard — try again");
+  } catch (error) {
+    return failFrom("submitScorecard", error, "Couldn't save your scorecard — try again");
   }
 }
 
@@ -448,7 +464,7 @@ export async function recuseFromSubmission(
     revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/results`);
     revalidatePath(`/admin/${eventSlug}/rounds`);
     return { ok: true as const };
-  } catch {
-    return fail("Couldn't record that conflict — try again");
+  } catch (error) {
+    return failFrom("recuseFromSubmission", error, "Couldn't record that conflict — try again");
   }
 }

@@ -179,6 +179,47 @@ export interface GreenroomMcpPostHandler {
   sdkHandler: McpHttpHandler;
 }
 
+/** Methods the Streamable HTTP endpoint answers. */
+export const MCP_ALLOWED_METHODS = "POST, OPTIONS";
+
+/**
+ * The Streamable HTTP transport lets a client open a server-to-client SSE
+ * stream with `GET` and end a session with `DELETE`. This server is stateless
+ * with `responseMode: "json"` — there is no stream to hand back and no session
+ * to end — and for that case the spec says to answer `GET` with 405.
+ *
+ * So 405 is the correct status; the problem was that Next.js produced its own,
+ * with no `Allow` header and an empty body. A client probing `GET /mcp` first
+ * could not tell a working POST-only MCP endpoint from a misrouted URL, which
+ * is how an evaluator reads it as broken. This answers with the header the
+ * spec requires plus a JSON-RPC-shaped error naming the supported transport.
+ */
+export function mcpMethodNotAllowedResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      error: {
+        // -32000 is the JSON-RPC implementation-defined server-error range,
+        // which is where transport-level complaints belong.
+        code: -32000,
+        message:
+          "This MCP endpoint is stateless and JSON-only: it accepts POST. " +
+          "It offers no SSE stream on GET and holds no session to end with DELETE.",
+        data: { allow: ["POST", "OPTIONS"] },
+      },
+      id: null,
+    }),
+    {
+      status: 405,
+      headers: {
+        allow: MCP_ALLOWED_METHODS,
+        "content-type": "application/json",
+        "cache-control": "private, no-store",
+      },
+    },
+  );
+}
+
 /** Builds a stateless, dual-era Streamable HTTP handler around application services. */
 export function createGreenroomMcpPostHandler(
   runtime: GreenroomMcpRuntime,

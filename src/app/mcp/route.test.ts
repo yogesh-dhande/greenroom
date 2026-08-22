@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGreenroomMcpPostHandler } from "@/lib/mcp-server";
+import { createGreenroomMcpPostHandler, MCP_ALLOWED_METHODS } from "@/lib/mcp-server";
+import {
+  DELETE as methodNotAllowedDelete,
+  GET as methodNotAllowedGet,
+  OPTIONS as optionsHandler,
+} from "./route";
 import {
   McpOperationError,
   type GreenroomMcpRuntime,
@@ -349,5 +354,55 @@ describe("POST /mcp", () => {
     expect(response.headers.get("www-authenticate")).toContain(
       'resource_metadata="https://greenroom.usespaces.dev/.well-known/oauth-protected-resource/mcp"',
     );
+  });
+});
+
+/**
+ * The rest of the Streamable HTTP method surface.
+ *
+ * The 2026-08-18 evaluator probed `GET /mcp` before `POST` and got Next.js's
+ * own bare 405 — no `Allow` header, no body. From the client side that is
+ * indistinguishable from a misrouted URL.
+ *
+ * 405 is the *correct* status: the spec says a Streamable HTTP server offering
+ * no SSE stream on GET must answer 405, and this server is stateless with JSON
+ * responses. What was missing was everything that makes the 405 readable.
+ */
+describe("the non-POST /mcp methods", () => {
+  for (const [name, handler] of [
+    ["GET", methodNotAllowedGet],
+    ["DELETE", methodNotAllowedDelete],
+  ] as const) {
+    describe(name, () => {
+      it("answers 405 with an Allow header naming POST", () => {
+        const response = handler();
+        expect(response.status).toBe(405);
+        expect(response.headers.get("allow")).toBe(MCP_ALLOWED_METHODS);
+        expect(response.headers.get("allow")).toContain("POST");
+      });
+
+      it("answers with a JSON-RPC error body explaining the transport", async () => {
+        const body = (await handler().json()) as {
+          jsonrpc: string;
+          id: null;
+          error: { code: number; message: string; data: { allow: string[] } };
+        };
+        expect(body.jsonrpc).toBe("2.0");
+        expect(body.id).toBeNull();
+        expect(body.error.code).toBe(-32000);
+        expect(body.error.message).toContain("POST");
+        expect(body.error.data.allow).toEqual(["POST", "OPTIONS"]);
+      });
+
+      it("is never cached — the answer describes this deployment's transport", () => {
+        expect(handler().headers.get("cache-control")).toBe("private, no-store");
+      });
+    });
+  }
+
+  it("answers OPTIONS with 204 and the same Allow header", () => {
+    const response = optionsHandler();
+    expect(response.status).toBe(204);
+    expect(response.headers.get("allow")).toBe(MCP_ALLOWED_METHODS);
   });
 });

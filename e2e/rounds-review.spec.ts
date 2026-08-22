@@ -394,3 +394,62 @@ test("a reversal never destroys onboarding work the speaker already did", async 
   await page.reload();
   await expect(page.getByTestId("decision-tasks")).toContainText("6 onboarding tasks");
 });
+
+// ---------------------------------------------------------------------------
+// 4. The scorecard a viewer doesn't hold (eval backlog F4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Only an explicit assignment authorises scoring (D-089), so an organizer —
+ * who never holds one — could not open a scorecard. That was correct, but the
+ * answer was a bare 404, which reads as a broken link rather than a permission
+ * boundary; organizers reach it by following an ordinary score link.
+ *
+ * The explanation is for organizers only. A reviewer still gets the 404, and
+ * e2e/rounds.spec.ts pins that: in a blind round, naming the reviewers on a
+ * submission — or even confirming the id sits in this round — is exactly what
+ * the round withholds.
+ */
+test("an organizer opening a scorecard they don't hold is told why, not 404'd", async ({
+  page,
+}) => {
+  const roundName = `Unassigned ${Date.now()}`;
+  await signIn(page, "admin@greenroom.dev");
+  await createRound(page, roundName, "Craft");
+
+  const roundBase = new URL(page.url()).pathname.replace("/assignments", "");
+
+  // Hand the submission to a reviewer, so the page has someone to name.
+  await choose(page, "Reviewer", "Dana Okoye");
+  await page.getByLabel(`Select ${OFFLINE_EVALS}`).click();
+  await page.getByRole("button", { name: /Assign selected to Dana Okoye/ }).click();
+  await expect(page.getByText("Assigned to Dana Okoye")).toBeVisible();
+
+  // The submission id comes from the submissions list, not from this page: an
+  // organizer holds no assignment, so the assignments table offers them no
+  // score link at all — which is the very gap this test is about.
+  await page.goto(SUBMISSIONS);
+  const submissionId = new URL(
+    (await page.getByRole("link", { name: OFFLINE_EVALS }).getAttribute("href"))!,
+    page.url(),
+  ).pathname
+    .split("/")
+    .pop()!;
+
+  // The admin holds no assignment on it — and gets an explanation, not a 404.
+  const response = await page.goto(`${roundBase}/score/${submissionId}`);
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: "Not your scorecard" })).toBeVisible();
+  await expect(page.getByText("Assigned to Dana Okoye.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage assignments" })).toBeVisible();
+
+  // It stays a permission boundary: no scorecard, and nothing about the
+  // proposal itself leaks onto the page.
+  await expect(page.getByRole("button", { name: "Submit scorecard" })).toHaveCount(0);
+  await expect(page.getByText(OFFLINE_EVALS)).toHaveCount(0);
+
+  // A reviewer without the assignment still gets the flat 404.
+  await signIn(page, "marco@greenroom.dev");
+  const reviewerResponse = await page.goto(`${roundBase}/score/${submissionId}`);
+  expect(reviewerResponse?.status()).toBe(404);
+});

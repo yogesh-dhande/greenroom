@@ -53,6 +53,15 @@ export const getAuth = cache(async function getAuth() {
     // Explicit rather than inferred: the magic-link callback URL is built
     // from this, and a wrong host produces links that silently fail.
     baseURL,
+    // The same value Better Auth falls back to at runtime (`options.basePath ||
+    // "/api/auth"`), stated so that `auth.options.basePath` is actually *set*.
+    // Consumers that read it directly do not all apply that fallback: the
+    // OAuth resource client builds its JWKS URL as
+    // `baseURL + (options.basePath ?? "") + "/jwks"`, so leaving this undefined
+    // pointed token verification at `<origin>/jwks`, which 404s. Every OAuth
+    // access token then failed with "Jwks failed: Not Found" — invisible to API
+    // keys, which take an entirely different verification path.
+    basePath: "/api/auth",
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema,
@@ -148,6 +157,17 @@ export const getAuth = cache(async function getAuth() {
       jwt({
         disableSettingJwtHeader: true,
         schema: { jwks: { modelName: "authJwks" } },
+        // Stated so issuance and verification agree on one string.
+        //
+        // Tokens are minted with `iss = jwt.issuer ?? ctx.context.baseURL`, and
+        // that context baseURL *includes* the base path — so tokens carried
+        // `<origin>/api/auth`. The OAuth resource client verifying them defaults
+        // instead to `auth.options.baseURL`, which does not, so it demanded
+        // `iss = <origin>` and rejected every token as "invalid access token".
+        // The authorization-server metadata already advertises the longer form,
+        // so that is the correct one to pin; this changes no issued value, it
+        // only stops the two sides from disagreeing.
+        jwt: { issuer: `${baseURL}/api/auth` },
       }),
       oauthProvider({
         loginPage: "/login",

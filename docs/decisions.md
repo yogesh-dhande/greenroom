@@ -565,6 +565,12 @@ The external surfaces must preserve UI behavior rather than reproduce it: valida
 
 **Rationale:** Competition organizers need to test the three role-specific experiences without controlling seeded inboxes or repeating manual magic-link handoffs. The owner explicitly chose public one-click access on 2026-08-12 and accepted that anyone can modify production demo data through those predefined accounts during the window. Fixed identities, exact-role checks, a hard expiry, same-origin CSRF protection, a liberal 120-attempts-per-minute abuse bound, and normal session authorization keep the exception narrow; arbitrary impersonation and role grants remain forbidden. Avery Chen may again be an admin and serve as the organizer persona.
 
+## D-094: An event is advertised only once its organizer announces it — **accepted** (2026-08-22)
+
+**Decision:** `/sitemap.xml` lists an event's landing page only when its program is published (D-056) or it has a published, currently-open call for speakers. Program surfaces (`/p/<slug>/schedule`, `/speakers`, `/gallery`) remain gated on publication alone. `/p/<slug>` stays *reachable* for any event — it renders a coming-soon note — but reachable and advertised are separate rules, and the sitemap only ever carries the advertised set. Greenroom still exposes no browsable public event directory.
+
+**Rationale:** The discovery surfaces added after the 2026-08-18 evaluation introduced a sitemap, and the first version listed every event slug. That page names the event, its dates, its location, and its description, so an unfiltered sitemap turned a guessable draft URL into an anonymously enumerable directory of unannounced events — a disclosure the pages themselves never intended (found in the Codex review of that change set). Publication and an open CFP are the two acts by which an organizer chooses to make an event public; anything else stays unlisted. Keeping `/p/<slug>` reachable preserves the CFP landing path, which is why the pre-publish coming-soon page exists at all.
+
 Where our decisions deliberately don't match how Sessionboard actually works. Recorded so nobody mistakes these for oversights — each is a conscious trade-off tied to a decision above.
 
 | # | Sessionboard | Greenroom | Why acceptable | Ref |

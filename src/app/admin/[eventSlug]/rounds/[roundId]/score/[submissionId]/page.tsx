@@ -65,7 +65,38 @@ export default async function ScorecardPage({
   const { event, round } = loaded;
 
   const mine = await repos.reviewRounds.listAssignmentsByReviewer(viewer.id);
-  if (!canScoreSubmission(mine, roundId, viewer.id, submissionId)) notFound();
+  if (!canScoreSubmission(mine, roundId, viewer.id, submissionId)) {
+    // The authorization decision is unchanged — only an explicit assignment
+    // authorises scoring (D-089), and an organizer never holds one. What
+    // changes is the *answer*, and only for organizers: this used to be a bare
+    // 404, which reads as a broken link rather than a permission boundary, and
+    // an organizer reaches it by following an ordinary score link.
+    //
+    // A *reviewer* who lands here still gets the 404. They may be in a blind
+    // round, where naming the other reviewers on a submission — or even
+    // confirming that this submission id sits in this round — is exactly the
+    // context the round is designed to withhold. An organizer already reads all
+    // of it on the assignments page, so telling them costs nothing.
+    if (viewer.role !== "admin") notFound();
+
+    const holders = (await repos.reviewRounds.listAssignments(roundId)).filter(
+      (row) => row.submissionId === submissionId,
+    );
+    const reviewers = await Promise.all(
+      holders.map(async (row) => {
+        const person = await repos.users.getById(row.reviewerId);
+        return person?.name ?? person?.email ?? null;
+      }),
+    );
+    return (
+      <NotAssigned
+        eventSlug={eventSlug}
+        roundId={roundId}
+        roundName={round.name}
+        reviewers={reviewers.filter((name): name is string => Boolean(name))}
+      />
+    );
+  }
   const assignment = mine.find(
     (row) => row.roundId === roundId && row.submissionId === submissionId,
   )!;
@@ -182,6 +213,59 @@ export default async function ScorecardPage({
           canScore={state === "open"}
         />
       </section>
+    </div>
+  );
+}
+
+/**
+ * Shown when the viewer holds no assignment for this submission in this round.
+ *
+ * Deliberately says nothing about the proposal itself — not its title, not its
+ * speaker, not its status. The viewer is not authorised to evaluate it, and a
+ * "helpful" preview here would leak exactly what a blind round withholds. It
+ * names the round and who is assigned, which an organizer already sees on the
+ * assignments page, and sends them there.
+ */
+function NotAssigned({
+  eventSlug,
+  roundId,
+  roundName,
+  reviewers,
+}: {
+  eventSlug: string;
+  roundId: string;
+  roundName: string;
+  reviewers: string[];
+}) {
+  return (
+    <div className="mx-auto w-full max-w-2xl">
+      <PageHeader title="Not your scorecard" description={roundName} />
+      <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:p-6">
+        <p className="text-sm text-muted-foreground">
+          Only a reviewer holding an explicit assignment can score a submission, and you don&apos;t
+          hold one for this proposal in this round. Organizers don&apos;t get an implicit
+          assignment — being an admin lets you <em>manage</em> the round, not evaluate inside it.
+        </p>
+        {reviewers.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Assigned to {reviewers.join(", ")}.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Nobody is assigned to this proposal in this round yet.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-3">
+          <Button asChild>
+            <Link href={`/admin/${eventSlug}/rounds/${roundId}/assignments`}>
+              Manage assignments
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={`/admin/${eventSlug}/rounds/${roundId}`}>Back to round</Link>
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

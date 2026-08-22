@@ -42,6 +42,15 @@ export function AdminNav({ eventSlug, role }: { eventSlug: string; role: Role })
           <Link
             key={item.href}
             href={target}
+            // Every one of these links is in the viewport on every admin page,
+            // so App Router's default prefetch fires an RSC request for all
+            // twelve destinations on every single page view. In the 2026-08-18
+            // evaluator run that was roughly 7,400 of 12,886 requests — about
+            // 58% of all traffic — each one a real Worker invocation doing real
+            // D1 work, to speculate on a sidebar the user clicks at most once.
+            // The pages are dynamic and server-rendered; the prefetch buys
+            // little and costs a lot at this fan-out.
+            prefetch={false}
             className={cn(
               "rounded-md border-l-2 px-3 py-1.5 text-sm font-medium transition-colors",
               isActive
