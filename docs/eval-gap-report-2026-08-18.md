@@ -166,49 +166,59 @@ asserting the method set.
 
 ## P1 — reviewer workflow and discoverability
 
-### F3. No scorecard was ever persisted, in either session
+### F3. A submitted scorecard is destroyed when its assignment is removed
 
-**Status:** open, cause unknown. **Needs Workers Logs — see the retention
-deadline above.**
+**Status:** root-caused 2026-08-22 from Workers Logs; fixed the same day
+(D-095 — the destructive unassign now warns before it deletes).
 
 **Affected:** AM (70%, second-lowest area).
 
-**Evidence.** The judge built the review workflow correctly:
+**The judge did submit.** This corrects the earlier reading of this finding.
+Workers Logs show two scorecard POSTs, both HTTP 200 with no error logged:
 
-- created rounds `Initial Review` (01:18:45, blind) and `Final Review` (01:21:04)
-- `Initial Review` opens 2026-08-01, closes 2026-10-15 — **open** during both
-  sessions, so `roundState(round) === "open"` and the form's `canScore` is true
-- a `round_reminder` email at 01:20:27 reports "2 scorecards waiting in Initial
-  Review", so assignments existed on Aug 18
-- on Aug 19 it created two fresh assignments (20:14:58, 20:34:46) for
-  `swyx+kms-0006-reviewer`, and opened
-  `/rounds/feb8cb57/score/263f6aee` 16 times, status 200
+| When (UTC) | Request | Status |
+|---|---|---|
+| 2026-08-18 03:01:26 | `POST /admin/devflow-conf-2027/rounds/feb8cb57…/score/a1dac992…` | 200, 175 ms |
+| 2026-08-19 20:19:38 | `POST /admin/devflow-conf-2027/rounds/feb8cb57…/score/263f6aee…` | 200, 131 ms |
 
-And yet `round_scores` contains **only the three seeded rows from 2026-08-13**.
-Both Aug-19 assignments are still `pending`. The `reviews` table is likewise
-untouched.
+"the judge never clicked Submit" is therefore ruled out. So is a throw inside
+`submitScorecard`: nothing was logged, though note the pre-fix code could not
+have logged one (F5), so this is corroborating rather than conclusive.
 
-The Aug-18 assignments no longer exist, so they were removed or reassigned
-mid-run; because `round_scores.assignment_id` is `ON DELETE cascade`, any score
-filed against them that day would have been deleted with them. That means Aug 18
-is inconclusive. **Aug 19 is not**: those assignments survive, the round was
-open, the scorecard page returned 200 to a properly assigned reviewer, and no
-score row exists.
+**What the logs establish.** On Aug 19 the scorecard page for `263f6aee`
+rendered a real 200 in 242 ms at 20:19:12 (`rsc=false`, not a prefetch). Under
+the code of that day an unassigned viewer got `notFound()`, so **an assignment
+for `263f6aee` existed at submit time**. Today `round_assignments` holds no row
+for that submission in any round — nor for `a1dac992`, the Aug-18 target — while
+the round and both submissions still exist, so cascade-from-parent cannot
+explain their absence. Three assignment mutations follow the submit, at
+20:34:11, 20:34:46 and 20:36:17.
 
-What this does *not* prove: that a save was attempted and failed. The judge may
-have opened the scorecard 16 times without ever submitting. A failing server
-action and an unclicked button are indistinguishable at the HTTP layer — a
-Next.js server action that throws still returns 200.
+**Mechanism.** `unassignSubmission` hard-deletes the assignment row
+(`src/app/admin/[eventSlug]/rounds/actions.ts:355`, `repos.reviewRounds.unassign`)
+with no check for a filed score, and `round_scores.assignment_id` is
+`ON DELETE cascade`. Removing a reviewer from a submission therefore destroys
+their submitted scorecard silently — no warning before, no trace after. The
+results page and CSV export then read empty, which is exactly what the judge
+scored.
+
+**Residual uncertainty.** That the write landed and was then cascaded away is
+the leading explanation, not a certainty: the competing one is that the action
+failed and the pre-F5 bare `catch {}` swallowed the reason behind a 200. Both
+fit every observation. F5's `failFrom` logging now separates them for any future
+occurrence.
 
 **Acceptance criteria:**
 
-- Pull the Workers Logs for 2026-08-19 20:30–21:20 UTC and look for a throw
-  inside `submitScorecard` (`src/app/admin/[eventSlug]/rounds/actions.ts:384`).
-- Regardless of that outcome: assert in E2E that an assigned reviewer on an open
-  round can fill and submit a scorecard, that `round_scores` gains a row, and
-  that the assignment flips off `pending`.
-- Give the submit path a visible success/failure state, so a silent failure
-  cannot look like an unclicked button again.
+- Decide what unassigning should do to a filed score — block, warn, or retain
+  (questions.md Q; do not resolve silently).
+- Assert in E2E that an assigned reviewer on an open round can submit a
+  scorecard, that `round_scores` gains a row, and that the assignment leaves
+  `pending`.
+- Assert that whatever the chosen semantics, a score is never destroyed without
+  the organizer being told.
+- Give the submit path a visible success state, so a silent failure cannot look
+  like an unclicked button again.
 
 ### F4. An unassigned viewer opening a scorecard gets a bare 404
 

@@ -12,6 +12,7 @@ import {
   isRoundOpen,
   normalizeCriteria,
   pickScorecardValues,
+  SCORECARD_WOULD_BE_DELETED,
   validateScorecard,
 } from "@/domain/rounds";
 import { getRepos } from "@/lib/db";
@@ -164,7 +165,17 @@ export async function updateRound(eventSlug: string, roundId: string, input: Rou
   }
 }
 
-export async function deleteRound(eventSlug: string, roundId: string) {
+export async function deleteRound(
+  eventSlug: string,
+  roundId: string,
+  /**
+   * Set once the organizer has been told the round's filed scorecards go with
+   * it. Deleting a round cascades through its assignments and every scorecard
+   * on them, so the same rule as `unassignSubmission` applies here, only wider
+   * (decisions.md D-095).
+   */
+  confirmed = false,
+) {
   await requireAdmin(`/admin/${eventSlug}/rounds`);
   const repos = await getRepos();
   const [event, round] = await Promise.all([
@@ -172,6 +183,14 @@ export async function deleteRound(eventSlug: string, roundId: string) {
     repos.reviewRounds.getById(roundId),
   ]);
   if (!event || !round || round.eventId !== event.id) return fail("That round no longer exists");
+
+  if (!confirmed && (await roundHasScorecards(repos, roundId))) {
+    return {
+      ok: false as const,
+      error: "This round has scorecards filed in it — deleting it deletes them too.",
+      code: SCORECARD_WOULD_BE_DELETED,
+    };
+  }
 
   try {
     // Assignments and their scorecards cascade with the round (src/db/schema.ts).
@@ -352,10 +371,29 @@ export async function assignTrack(
   }
 }
 
+/** The three views an assignment change is visible in. */
+function revalidateAssignmentViews(eventSlug: string, roundId: string) {
+  revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
+  revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/results`);
+  revalidatePath(`/admin/${eventSlug}/rounds`);
+}
+
 export async function unassignSubmission(
   eventSlug: string,
   roundId: string,
   assignmentId: string,
+  /**
+   * Set once the organizer has been told a filed scorecard goes with it.
+   * Checked here and not only in the UI: `round_scores.assignment_id` is
+   * `ON DELETE cascade`, so removing this row destroys the reviewer's
+   * submitted scorecard — irreversibly, and with nothing left to show it ever
+   * existed. A server action is directly callable, so the guard has to live on
+   * this side of it; the dialog is the courtesy, this is the control.
+   *
+   * The 2026-08-18 evaluation lost two scorecards exactly this way and read the
+   * empty results page as "scores don't save" (F3 in the gap report, D-095).
+   */
+  confirmed = false,
 ) {
   await requireAdmin(`/admin/${eventSlug}/rounds`);
   const repos = await getRepos();
@@ -367,11 +405,28 @@ export async function unassignSubmission(
   if (!event || !round || round.eventId !== event.id) return fail("That round no longer exists");
   if (!assignment || assignment.roundId !== roundId) return fail("That assignment is already gone");
 
+  if (!confirmed) {
+    // Conditional delete rather than read-then-delete: a scorecard submitted
+    // between the two would be cascaded away by a delete that had already
+    // decided there was nothing to lose.
+    try {
+      if (await repos.reviewRounds.unassignIfUnscored(assignmentId)) {
+        revalidateAssignmentViews(eventSlug, roundId);
+        return { ok: true as const };
+      }
+    } catch (error) {
+      return failFrom("unassign", error, "Couldn't remove that assignment — try again");
+    }
+    return {
+      ok: false as const,
+      error: "That reviewer has already filed a scorecard — removing the assignment deletes it.",
+      code: SCORECARD_WOULD_BE_DELETED,
+    };
+  }
+
   try {
     await repos.reviewRounds.unassign(assignmentId);
-    revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/assignments`);
-    revalidatePath(`/admin/${eventSlug}/rounds/${roundId}/results`);
-    revalidatePath(`/admin/${eventSlug}/rounds`);
+    revalidateAssignmentViews(eventSlug, roundId);
     return { ok: true as const };
   } catch (error) {
     return failFrom("unassign", error, "Couldn't remove that assignment — try again");

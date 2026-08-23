@@ -368,4 +368,32 @@ test("an isolated scored round runs from design through assignments, scoring, ex
   await expect(danaProgress(page)).toContainText("I manage the speaker.");
   // The recusal leaves her queue complete rather than permanently behind.
   await expect(danaProgress(page)).toContainText("2 of 2 scored");
+
+  // --- Removing a scored assignment destroys the scorecard, so it asks first.
+  //
+  // `round_scores.assignment_id` is `ON DELETE cascade`: unassigning a reviewer
+  // who has filed a scorecard deletes it, irreversibly and with nothing left to
+  // show it existed. The 2026-08-18 evaluation lost two scorecards exactly this
+  // way and read the empty results page as "scores don't save" (D-095).
+  const removeEvals = page.getByRole("button", { name: `Unassign Dana Okoye from ${EVALS}` });
+  await removeEvals.click();
+
+  const warning = page.getByRole("alertdialog");
+  await expect(warning).toContainText("Delete Dana Okoye’s scorecard?");
+  await expect(warning).toContainText(EVALS);
+  await expect(warning).toContainText("cannot be undone");
+
+  // Backing out keeps both the assignment and the score.
+  await warning.getByRole("button", { name: "Keep it" }).click();
+  await expect(warning).toBeHidden();
+  await expect(danaProgress(page)).toContainText("2 of 2 scored");
+  await openRoundTab(page, roundName, "Results");
+  await expect(page.getByRole("row", { name: EVALS })).toContainText("83.3");
+
+  // Confirming really does remove both — that is what the warning promised.
+  await openRoundTab(page, roundName, "Assign");
+  await removeEvals.click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete scorecard" }).click();
+  await expect(page.getByText("Assignment and scorecard removed")).toBeVisible();
+  await expect(danaProgress(page)).toContainText("1 of 1 scored");
 });

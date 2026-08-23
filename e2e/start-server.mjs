@@ -62,6 +62,14 @@ try {
   // Deterministic starting state, same as `npm run seed`.
   execSync("npm run seed", { stdio: "inherit" });
 
+  // The magic-link log is append-only and gitignored, so it accumulates every
+  // sign-in this machine has ever done — thousands of lines. `signIn` in
+  // e2e/helpers.ts reads and splits the whole file on both sides of every
+  // sign-in, so a stale log makes each of the suite's ~200 sign-ins re-parse
+  // history that this run's seeded database no longer matches. Start it empty:
+  // the run's own links are the only ones any test may legitimately follow.
+  writeFileSync(".dev-magic-links.log", "");
+
   server = spawn("npx", ["next", "dev", "--port", port], { stdio: "inherit" });
   server.on("exit", (code) => shutdown(code ?? 0));
 } catch (error) {

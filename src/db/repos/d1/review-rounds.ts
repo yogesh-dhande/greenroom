@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notExists, sql } from "drizzle-orm";
 import {
   reviewRoundSchema,
   roundAssignmentSchema,
@@ -96,6 +96,25 @@ export function createReviewRoundsRepo(db: DrizzleD1): ReviewRoundsRepo {
     },
     async unassign(id) {
       await db.delete(roundAssignments).where(eq(roundAssignments.id, id));
+    },
+    async unassignIfUnscored(id) {
+      // One statement, so a scorecard landing mid-flight loses the race instead
+      // of being cascaded away by a delete that already decided it was safe.
+      const removed = await db
+        .delete(roundAssignments)
+        .where(
+          and(
+            eq(roundAssignments.id, id),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(roundScores)
+                .where(eq(roundScores.assignmentId, id)),
+            ),
+          ),
+        )
+        .returning({ id: roundAssignments.id });
+      return removed.length > 0;
     },
     async setAssignmentStatus(id, status, recusalReason) {
       const [row] = await db

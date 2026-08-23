@@ -40,6 +40,17 @@ export interface ReviewRoundsRepo {
   /** Idempotent: assigning the same work twice returns the existing row. */
   assign(roundId: string, submissionId: string, reviewerId: string): Promise<RoundAssignment>;
   unassign(id: string): Promise<void>;
+  /**
+   * Removes an assignment only if no scorecard has been filed against it,
+   * reporting whether it did.
+   *
+   * A read-then-delete cannot express this safely: `round_scores.assignment_id`
+   * is `ON DELETE cascade`, so a scorecard submitted between the check and the
+   * delete is destroyed by it (decisions.md D-095). The condition has to travel
+   * with the delete, which is why this is a repo method and not a guard the
+   * caller assembles.
+   */
+  unassignIfUnscored(id: string): Promise<boolean>;
   setAssignmentStatus(
     id: string,
     status: RoundAssignmentStatus,

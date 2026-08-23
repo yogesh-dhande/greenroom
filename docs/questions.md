@@ -6,7 +6,7 @@ Workflow: when a question is answered, record the answer as a first-class entry 
 
 ---
 
-*(Q4, Q6 and Q8 were closed 2026-08-09 by the owner's directive to match Sessionboard's documented behavior — see decisions.md D-039, D-040, D-041; Q9 was answered by the owner 2026-08-09 — see D-043; Q10 was closed by the owner's evaluator-fix directive 2026-08-10 — see D-084.)*
+*(Q11 was answered by the owner 2026-08-22 — see decisions.md D-095; Q4, Q6 and Q8 were closed 2026-08-09 by the owner's directive to match Sessionboard's documented behavior — see decisions.md D-039, D-040, D-041; Q9 was answered by the owner 2026-08-09 — see D-043; Q10 was closed by the owner's evaluator-fix directive 2026-08-10 — see D-084.)*
 
 ## Product defaults we chose without explicit guidance
 

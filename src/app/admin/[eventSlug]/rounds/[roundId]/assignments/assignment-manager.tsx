@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { BellRingIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { RoundAssignmentStatus, SubmissionStatus } from "@/db/entities";
-import { progressByReviewer, progressLabel } from "@/domain/rounds";
+import { progressByReviewer, progressLabel, SCORECARD_WOULD_BE_DELETED } from "@/domain/rounds";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,6 +117,14 @@ export function AssignmentManager({
   const [isBusy, startWork] = useTransition();
   const [confirmingRemind, setConfirmingRemind] = useState(false);
   const [isReminding, startRemind] = useTransition();
+  // The assignment whose removal would destroy a filed scorecard. Held here
+  // rather than acted on immediately: the score is deleted by cascade and
+  // cannot be recovered, so the organizer is told before it happens.
+  const [confirmingUnassign, setConfirmingUnassign] = useState<{
+    id: string;
+    reviewerName: string;
+    submissionTitle: string;
+  } | null>(null);
 
   const byReviewer = useMemo(() => {
     const map = new Map<string, AssignmentRow[]>();
@@ -164,6 +172,32 @@ export function AssignmentManager({
         return;
       }
       toast.success(success);
+      setSelected([]);
+      router.refresh();
+    });
+  }
+
+  /**
+   * Removes an assignment, escalating to the confirmation dialog if the server
+   * reports a scorecard would be destroyed. Covers the case the render-time
+   * `scored` flag cannot: a score filed after this page was built.
+   */
+  function unassignUnlessScored(target: {
+    id: string;
+    reviewerName: string;
+    submissionTitle: string;
+  }) {
+    startWork(async () => {
+      const result = await unassignSubmission(eventSlug, roundId, target.id);
+      if (!result.ok) {
+        if ("code" in result && result.code === SCORECARD_WOULD_BE_DELETED) {
+          setConfirmingUnassign(target);
+          return;
+        }
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Assignment removed");
       setSelected([]);
       router.refresh();
     });
@@ -453,12 +487,25 @@ export function AssignmentManager({
                                   aria-label={`Unassign ${row.reviewerName} from ${submission.title}`}
                                   className="text-muted-foreground hover:text-foreground"
                                   disabled={isBusy}
-                                  onClick={() =>
-                                    run(
-                                      () => unassignSubmission(eventSlug, roundId, row.id),
-                                      "Assignment removed",
-                                    )
-                                  }
+                                  onClick={() => {
+                                    const target = {
+                                      id: row.id,
+                                      reviewerName: row.reviewerName,
+                                      submissionTitle: submission.title,
+                                    };
+                                    // A filed scorecard goes with the
+                                    // assignment (cascade), so confirm first.
+                                    if (row.scored) {
+                                      setConfirmingUnassign(target);
+                                      return;
+                                    }
+                                    // `row.scored` is a render-time snapshot:
+                                    // a reviewer may have filed one since this
+                                    // page was built. The server is the one
+                                    // that knows, so let it answer and raise
+                                    // the same dialog on its say-so.
+                                    unassignUnlessScored(target);
+                                  }}
                                 >
                                   <XIcon className="size-3" />
                                 </button>
@@ -526,6 +573,41 @@ export function AssignmentManager({
               <AlertDialogCancel disabled={isReminding}>Cancel</AlertDialogCancel>
               <AlertDialogAction disabled={isReminding} onClick={sendReminders}>
                 {isReminding ? "Sending…" : "Send reminders"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog
+          open={confirmingUnassign !== null}
+          onOpenChange={(open) => !open && setConfirmingUnassign(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Delete {confirmingUnassign?.reviewerName}&rsquo;s scorecard?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {confirmingUnassign?.reviewerName} has already scored{" "}
+                &ldquo;{confirmingUnassign?.submissionTitle}&rdquo;. Removing the assignment deletes
+                that scorecard along with it, and it drops out of the round&rsquo;s results and
+                export. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isBusy}>Keep it</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={isBusy}
+                onClick={() => {
+                  const target = confirmingUnassign;
+                  if (!target) return;
+                  setConfirmingUnassign(null);
+                  run(
+                    () => unassignSubmission(eventSlug, roundId, target.id, true),
+                    "Assignment and scorecard removed",
+                  );
+                }}
+              >
+                Delete scorecard
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

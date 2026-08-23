@@ -6,6 +6,17 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import type { ReviewRound, ScorecardCriterion, ScorecardCriterionType } from "@/db/entities";
 import { toZonedInputValue } from "@/domain/forms";
+import { SCORECARD_WOULD_BE_DELETED } from "@/domain/rounds";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -115,6 +126,7 @@ export function RoundForm({
   const [blindReview, setBlindReview] = useState(round?.blindReview ?? false);
   const [isSaving, startSaving] = useTransition();
   const [isDeleting, startDeleting] = useTransition();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   function patch(key: string, changes: Partial<CriterionDraft>) {
     setCriteria((rows) => rows.map((row) => (row.key === key ? { ...row, ...changes } : row)));
@@ -160,14 +172,24 @@ export function RoundForm({
     });
   }
 
-  function remove() {
+  /**
+   * Deletes the round, escalating to a confirmation when the server reports the
+   * round still holds filed scorecards — deleting it cascades through every
+   * assignment and every score on them (decisions.md D-095).
+   */
+  function remove(confirmed = false) {
     if (!round) return;
     startDeleting(async () => {
-      const result = await deleteRound(eventSlug, round.id);
+      const result = await deleteRound(eventSlug, round.id, confirmed);
       if (!result.ok) {
+        if ("code" in result && result.code === SCORECARD_WOULD_BE_DELETED) {
+          setConfirmingDelete(true);
+          return;
+        }
         toast.error(result.error);
         return;
       }
+      setConfirmingDelete(false);
       toast.success("Round deleted");
       router.push(`/admin/${eventSlug}/rounds`);
       router.refresh();
@@ -388,11 +410,29 @@ export function RoundForm({
           {isSaving ? "Saving…" : round ? "Save round" : "Create round"}
         </Button>
         {round ? (
-          <Button type="button" variant="ghost" onClick={remove} disabled={isDeleting}>
+          <Button type="button" variant="ghost" onClick={() => remove()} disabled={isDeleting}>
             {isDeleting ? "Deleting…" : "Delete round"}
           </Button>
         ) : null}
       </div>
+      <AlertDialog open={confirmingDelete} onOpenChange={(open) => !open && setConfirmingDelete(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this round and its scorecards?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Reviewers have already filed scorecards in {round?.name ?? "this round"}. Deleting the
+              round deletes every one of them, along with its assignments and results. This cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Keep the round</AlertDialogCancel>
+            <AlertDialogAction disabled={isDeleting} onClick={() => remove(true)}>
+              {isDeleting ? "Deleting…" : "Delete round and scorecards"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

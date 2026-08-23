@@ -893,3 +893,14 @@ export function blindSubmissionIds(
 export function withoutSpeakers<T extends { speakers: unknown[] }>(rows: T[], blind: boolean): T[] {
   return blind ? rows.map((row) => ({ ...row, speakers: [] })) : rows;
 }
+
+/**
+ * Returned by `unassignSubmission` instead of removing an assignment that has a
+ * scorecard filed against it, until the caller says it means to destroy the
+ * scorecard too (decisions.md D-095).
+ *
+ * Lives here rather than beside the action because a `"use server"` module may
+ * only export async functions — and because both sides of the exchange, the
+ * action and the dialog that answers it, need to name the same string.
+ */
+export const SCORECARD_WOULD_BE_DELETED = "scorecard_would_be_deleted";
